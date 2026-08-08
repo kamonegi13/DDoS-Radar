@@ -31,6 +31,7 @@ import json
 import math
 import pathlib
 import random
+import re
 
 import pytest
 
@@ -38,11 +39,13 @@ from v3.adapters.cyber import cloudflare_radar as CF
 from v3.adapters.types import (CYBER, FetchedPayload, NormalizeContext,
                                ObservationDraft, STATUS_FIRED,
                                STATUS_OBSERVED, STATUS_OK)
+from v3.fetch import schedule as SCHED
 from v3.ledger import LedgerStore
 from v3.runtime import baselines as B
 from v3.runtime import chain as CHAIN
 from v3.runtime import record as REC
 from v3.runtime import reduce as R
+from v3.runtime import reduce_cyber as RC
 from v3.runtime import spike as S
 
 NOW = 1_786_000_000.0
@@ -540,10 +543,10 @@ class TestTheFoldProducesProductionsEntry:
         drafts = _origin_drafts("TW", l3={"CN": 40.0}, l7={"CN": 10.0},
                                 base_l3={"CN": 4.0}, base_l7={"CN": 5.0})
         reduced = _reduce(drafts, {B.ADVERSARY_ORIGINS: ("CN",)})
-        sources = [d.signal_source for d in reduced]
-        assert sources == [CF.SPIKE_SIGNAL]
-        assert reduced[0].country == "TW"
-        assert reduced[0].flags["avg_spike"] == 10.0
+        per_country = [d for d in reduced if d.country]
+        assert [d.signal_source for d in per_country] == [CF.SPIKE_SIGNAL]
+        assert per_country[0].country == "TW"
+        assert per_country[0].flags["avg_spike"] == 10.0
 
     def test_the_intermediate_rows_do_not_reach_the_ledger(self):
         """L1 is UNIQUE on `(tick_id, sensor, signal_source, country)` and
@@ -563,7 +566,7 @@ class TestTheFoldProducesProductionsEntry:
                                flags={"count": 2, "ongoing": 1})
         reduced = _reduce((bgp,) + _origin_drafts(
             "TW", l3={"CN": 40.0}, l7={}, base_l3={"CN": 4.0}, base_l7={}))
-        assert {d.signal_source for d in reduced} == {
+        assert {d.signal_source for d in reduced if d.country} == {
             CF.BGP_HIJACK_SIGNAL, CF.SPIKE_SIGNAL}
 
     def test_the_verdict_fires_with_the_score_production_gives(self):
@@ -704,10 +707,10 @@ class TestTheBaselineIsSupplied:
 
 class TestTheCycleRecordsWhatTheNextOneReads:
     def _write_spike_row(self, store, *, country="TW", avg=4.0, now=NOW,
-                         baseline=None):
+                         baseline=None, source=RC.BASELINE_FETCHED):
         from v3.kernel import Evidence
         from v3.ledger.records import SignalObservation
-        flags = {"avg_spike": avg,
+        flags = {"avg_spike": avg, "baseline_source": source,
                  "origin_baseline": baseline if baseline is not None
                  else {"l3": {"CN": 4.0}, "l7": {}}}
         store.append_signal(SignalObservation(
@@ -1040,3 +1043,949 @@ class TestTheWholeThingRuns:
         assert report.chain_ranking[DUAL]["basis"] == \
             CHAIN.BASIS_ADMITTED_EVIDENCE
         assert report.chain_owners[DUAL] == "IL"      # the tie, alphabetical
+
+
+# ══ 9. §7-2 #121 — the three rows production makes off the same numbers ══
+#
+# `cf_spike_core` was one of FOUR entries `radar/routes/core.py` derives
+# from one origin distribution. The other three were registered as
+# missing in the INSENSITIVE direction, and this section is their port:
+# the ladders, an independent re-typing of production's arithmetic to
+# sweep against, a mutant for every named constant, and the wiring that
+# carries the effective cores to the fold.
+
+
+def _production_derived(*, targets, adversary_states, strategic,
+                        effective_cores, global_l3, global_l7):
+    """`core.py:737-919` and `:1063-1076`, re-typed from the source.
+
+    `targets` is `{country: (o_l3, o_l7, b_l3, b_l7)}`. Written in
+    production's own shape — accumulators, list appends, `target_details`
+    — so that a transcription error in `v3/runtime/spike.py` cannot be
+    reproduced here by copying it. Nothing in this function imports v3.
+    """
+    adversary_strikes, vector_shifts = [], []
+    target_details = {}
+    for t in targets:
+        o_l3, o_l7, b_l3, b_l7 = targets[t]
+        g_l3_share_display, g_l7_share_display = (global_l3.get(t, 0.0),
+                                                 global_l7.get(t, 0.0))
+        g_l3_share = max(g_l3_share_display, 0.1)
+        g_l7_share = max(g_l7_share_display, 0.1)
+        combined_sources = {}
+        target_weighted_spike = total_local_pct = 0.0
+        target_l3_spike_sum = target_l7_spike_sum = 0.0
+        all_origin_codes = set(o_l3) | set(o_l7)
+        has_baseline = bool(b_l3 or b_l7)
+        for code in sorted(all_origin_codes):
+            local_l3_pct, local_l7_pct = (o_l3.get(code, 0.0),
+                                          o_l7.get(code, 0.0))
+            current_local_pct = max(local_l3_pct, local_l7_pct)
+            is_adversary_origin = code in adversary_states
+            _floor_new = 0.5 if is_adversary_origin else 3.0
+            _floor_exist = 0.5 if is_adversary_origin else 2.0
+            base_l3 = max(b_l3.get(code, _floor_new),
+                          _floor_new if code not in b_l3 else _floor_exist)
+            base_l7 = max(b_l7.get(code, _floor_new),
+                          _floor_new if code not in b_l7 else _floor_exist)
+            l3_spike = (local_l3_pct / base_l3) if local_l3_pct > 0 else 0.0
+            l7_spike = (local_l7_pct / base_l7) if local_l7_pct > 0 else 0.0
+            spike_factor = min(max(l3_spike, l7_spike), 25.0)
+            if has_baseline and current_local_pct >= 1.0:
+                target_weighted_spike += spike_factor * current_local_pct
+                target_l3_spike_sum += l3_spike * current_local_pct
+                target_l7_spike_sum += l7_spike * current_local_pct
+                total_local_pct += current_local_pct
+            global_l3_weight = g_l3_share * (local_l3_pct / 100.0)
+            global_l7_weight = g_l7_share * (local_l7_pct / 100.0)
+            total_global_weight = global_l3_weight + global_l7_weight
+            is_direct_strike = False
+            if (code in adversary_states and t in strategic
+                    and spike_factor >= 4.0 and current_local_pct > 3.0):
+                adversary_strikes.append({"actor": code, "target": t})
+                is_direct_strike = True
+            per_origin_l7_shift = (l7_spike >= 2.5
+                                   and l7_spike > l3_spike * 1.5
+                                   and local_l7_pct > 1.5)
+            if total_global_weight > 0.01 or is_direct_strike:
+                combined_sources[code] = {"code": code,
+                                          "is_l7_shift": per_origin_l7_shift}
+        avg_l3_spike = target_l3_spike_sum / max(total_local_pct, 5.0)
+        avg_l7_spike = target_l7_spike_sum / max(total_local_pct, 5.0)
+        shift_actors = [s["code"] for s in combined_sources.values()
+                        if s.get("is_l7_shift")]
+        is_vector_shift = ((avg_l7_spike >= 2.5
+                            and avg_l7_spike > avg_l3_spike * 1.5)
+                           or len(shift_actors) > 0)
+        if is_vector_shift and t in strategic:
+            vector_shifts.append(t)
+        avg_spike_record = round(target_weighted_spike
+                                 / max(total_local_pct, 5.0), 2)
+        target_details[t] = {"avg_spike": avg_spike_record,
+                             "avg_l3_spike": round(avg_l3_spike, 2),
+                             "avg_l7_spike": round(avg_l7_spike, 2),
+                             "shift_actors": sorted(shift_actors)}
+
+    elevated_theaters = [t for t in strategic
+                         if target_details.get(t, {}).get("avg_spike", 0) > 3.0]
+    is_coordinated = len(elevated_theaters) >= 2
+    core_shifted = any(ec in vector_shifts for ec in effective_cores)
+    primary_ec = max(
+        effective_cores,
+        key=lambda ec: target_details.get(ec, {}).get("avg_spike", 0),
+    ) if effective_cores else ""
+    major_adversary = len(adversary_strikes) > 0
+    _core_l7s = target_details.get(primary_ec, {}).get("avg_l7_spike", 0)
+    _core_l3s = target_details.get(primary_ec, {}).get("avg_l3_spike", 0)
+    _shift_severe = (core_shifted and _core_l7s >= 5.0
+                     and _core_l7s > _core_l3s * 2.0)
+    _shift_score = 2 if _shift_severe else (1 if core_shifted else 0)
+    _adv_count = len(adversary_strikes)
+    _adv_score = 3 if _adv_count >= 3 else (2 if _adv_count >= 1 else 0)
+    return {
+        "cf_vector_shift": (core_shifted, float(_shift_score)),
+        "cf_adversary_strike": (major_adversary, float(_adv_score)),
+        "cf_coordinated": (is_coordinated, 1.0 if is_coordinated else 0.0),
+        "shifted": sorted(vector_shifts),
+        "elevated": sorted(elevated_theaters),
+        "strike_count": _adv_count,
+        "primary_ec": primary_ec,
+        "shift_actors": {t: d["shift_actors"] for t, d in
+                         target_details.items() if d["shift_actors"]},
+    }
+
+
+def _share_drafts(country, *, l3=None, l7=None):
+    """The `cf_l3` / `cf_l7` rows that carry the global TARGET share."""
+    made = []
+    for source, share in (("cf_l3", l3), ("cf_l7", l7)):
+        if share is None:
+            continue
+        made.append(ObservationDraft(
+            signal_source=source, domain=CYBER, country=country,
+            status="OBSERVED", raw_score=0.0,
+            flags={"share_pct": share, "layer": source[-2:]}))
+    return tuple(made)
+
+
+def _derived(reduced):
+    """`{signal_source: draft}` for the three countryless rows."""
+    return {d.signal_source: d for d in reduced if not d.country}
+
+
+#: The corpus has to reach every branch, and the branches are not where a
+#: uniform draw puts most of its mass. Two mutants survived a
+#: `uniform(0, 45)` sweep — `GLOBAL_SHARE_FLOOR` (which only binds when
+#: Cloudflare reports a target below 0.1% of world attack traffic) and
+#: `PER_ORIGIN_L7_PCT_MIN` (which only binds for an origin under 1.5% that
+#: is nonetheless spiking, i.e. an adversary against the 0.5% floor). Both
+#: are decided in the small-value corner, so the generator draws SCALES
+#: rather than values.
+_PCT_SCALES = ((0.05, 4.0), (0.5, 12.0), (2.0, 45.0))
+_SHARE_SCALES = ((0.0, 0.2), (0.0, 8.0))
+
+
+def _random_tick(rng):
+    """One tick's worth of origin payloads, shares, adversaries and cores."""
+    codes = ["CN", "RU", "KP", "US", "NL", "XX"]
+    countries = ["TW", "JP", "PH"]
+    adversaries = tuple(sorted(rng.sample(codes, rng.randint(0, 3))))
+    cores = tuple(sorted(rng.sample(countries, rng.randint(1, 2))))
+    targets, drafts, share_l3, share_l7 = {}, (), {}, {}
+    for country in countries:
+        low, high = rng.choice(_PCT_SCALES)
+
+        def distribution(span=(low, high)):
+            return {c: round(rng.uniform(*span), 2)
+                    for c in rng.sample(codes, rng.randint(0, 4))}
+
+        current_l3, current_l7 = distribution(), distribution()
+        base_l3 = {c: round(rng.uniform(0.1, 20), 2)
+                   for c in rng.sample(codes, rng.randint(0, 4))}
+        base_l7 = {c: round(rng.uniform(0.1, 20), 2)
+                   for c in rng.sample(codes, rng.randint(0, 4))}
+        if not current_l3 and not current_l7:
+            continue
+        targets[country] = (current_l3, current_l7, base_l3, base_l7)
+        drafts += _origin_drafts(country, l3=current_l3, l7=current_l7,
+                                 base_l3=base_l3, base_l7=base_l7)
+        if rng.random() < 0.7:
+            span = rng.choice(_SHARE_SCALES)
+            share_l3[country] = round(rng.uniform(*span), 3)
+            share_l7[country] = round(rng.uniform(*span), 3)
+            drafts += _share_drafts(country, l3=share_l3[country],
+                                    l7=share_l7[country])
+    return targets, drafts, share_l3, share_l7, adversaries, cores
+
+
+class TestTheThreeRowsAreProductionsAndCountryless:
+    """§7-2 #121, and the attribution question #118 raised about it."""
+
+    def test_production_files_all_three_under_signal_names(self):
+        source = CORE.read_text()
+        for name in (RC.VECTOR_SHIFT_SIGNAL, RC.ADVERSARY_STRIKE_SIGNAL,
+                     RC.COORDINATED_SIGNAL):
+            assert f'add_rat("{name}"' in source
+
+    def test_none_of_the_three_is_a_focused_only_sensor(self):
+        """THE line that settles per-scenario vs per-country.
+
+        `core.py:2039-2041` gives a rationale entry a country only when
+        `rat.sensor in FOCUSED_ONLY_SENSOR_NAMES`. These three are filed
+        under SIGNAL names, none of which is in that frozenset, so
+        production's own Signal for each carries no country at all.
+        """
+        from radar.scenarios import FOCUSED_ONLY_SENSOR_NAMES
+        for name in (RC.VECTOR_SHIFT_SIGNAL, RC.ADVERSARY_STRIKE_SIGNAL,
+                     RC.COORDINATED_SIGNAL):
+            assert name not in FOCUSED_ONLY_SENSOR_NAMES
+        source = CORE.read_text()
+        assert "if rat.sensor in _FOCUSED_ONLY_SENSOR_NAMES else \"\"" in source
+
+    def test_a_countryless_signal_is_decoupled_from_every_scenario(self):
+        """Which is why countryless is the FAITHFUL choice, not a gap.
+
+        Production ships `GLOBAL_SIGNALS_DECOUPLED` true, so a countryless
+        signal is excluded from `compute_scenario_score` and aggregated by
+        `compute_global_threat` instead. v3 reaches the same place through
+        `Observation.is_global` and S1-SCORE-012.
+        """
+        from radar import config as production_config
+        assert production_config.GLOBAL_SIGNALS_DECOUPLED is True
+
+    def test_the_fold_emits_all_three_without_a_country(self):
+        reduced = _reduce(_origin_drafts("TW", l3={"CN": 40.0}, l7={},
+                                         base_l3={"CN": 4.0}, base_l7={}),
+                          {B.ADVERSARY_ORIGINS: ("CN",),
+                           B.EFFECTIVE_CORES: ("TW",)})
+        rows = _derived(reduced)
+        assert set(rows) == {RC.VECTOR_SHIFT_SIGNAL,
+                             RC.ADVERSARY_STRIKE_SIGNAL,
+                             RC.COORDINATED_SIGNAL}
+        assert all(d.country == "" for d in rows.values())
+        assert all(d.domain == CYBER for d in rows.values())
+
+    def test_a_cycle_that_measured_nothing_makes_no_derived_claim(self):
+        reduced = _reduce(_share_drafts("TW", l3=5.0))
+        assert _derived(reduced) == {}
+
+
+class TestTheVectorShiftLadder:
+    def test_the_status_follows_the_CORE_not_any_participant(self):
+        """`core.py:877`/`:886` — `any(ec in vector_shifts ...)`."""
+        shifted = ("JP",)
+        quiet = S.vector_shift_verdict(shifted_targets=shifted,
+                                       core_shifted=False,
+                                       core_l7_spike=9.0, core_l3_spike=0.0)
+        assert (quiet.fired, quiet.score) == (False, 0.0)
+
+    @pytest.mark.parametrize("l7,l3,score", [
+        (5.0, 2.0, 2.0),        # both severity conditions
+        (4.99, 0.0, 1.0),       # below the 5.0 floor
+        (5.0, 2.5, 1.0),        # 5.0 > 5.0 is false — the ratio arm
+        (12.0, 1.0, 2.0),
+    ])
+    def test_the_severity_branch(self, l7, l3, score):
+        verdict = S.vector_shift_verdict(shifted_targets=("TW",),
+                                         core_shifted=True,
+                                         core_l7_spike=l7, core_l3_spike=l3)
+        assert (verdict.fired, verdict.score) == (True, score)
+
+    def test_the_printed_value_and_reason_are_productions(self):
+        verdict = S.vector_shift_verdict(shifted_targets=["TW", "JP"],
+                                         core_shifted=True,
+                                         core_l7_spike=6.0, core_l3_spike=1.0)
+        assert verdict.value == "theaters=['TW', 'JP'] L7=6.0x L3=1.0x"
+        assert verdict.reason == ("Severe L7 escalation (L7=6.0x vs L3=1.0x)")
+        mild = S.vector_shift_verdict(shifted_targets=["TW"],
+                                      core_shifted=True,
+                                      core_l7_spike=3.0, core_l3_spike=1.0)
+        assert mild.reason == "L7 application-layer escalation detected"
+
+    def test_a_quiet_row_carries_no_reason(self):
+        verdict = S.vector_shift_verdict(shifted_targets=(),
+                                         core_shifted=False,
+                                         core_l7_spike=0.0, core_l3_spike=0.0)
+        assert verdict.reason == ""
+
+
+class TestTheAdversaryStrikeLadder:
+    @pytest.mark.parametrize("count,score", [(0, 0.0), (1, 2.0), (2, 2.0),
+                                             (3, 3.0), (9, 3.0)])
+    def test_the_count_ladder(self, count, score):
+        verdict = S.adversary_strike_verdict([{"actor": "CN"}] * count)
+        assert (verdict.fired, verdict.score) == (count > 0, score)
+
+    def test_the_printed_value_and_reason_are_productions(self):
+        verdict = S.adversary_strike_verdict([{"actor": "CN"},
+                                              {"actor": "RU"}])
+        assert verdict.value == "2 strike(s)"
+        assert verdict.reason == "Adversary state direct strike (2 actors)"
+
+    def test_the_strike_test_is_all_four_conjuncts(self):
+        """`core.py:798`: adversary origin, strategic target, ratio floor
+        AND absolute floor. Each conjunct removed in turn."""
+        base = dict(current_l3={"CN": 40.0}, current_l7={},
+                    baseline_l3={"CN": 5.0}, baseline_l7={})
+        assert S.origin_spike(**base, adversaries=("CN",)).strikes
+        # not an adversary — the ordinary floors also change the ratio,
+        # so this is the conjunct AND the floor asymmetry
+        assert not S.origin_spike(**base, adversaries=()).strikes
+        # below the 4.0 spike floor
+        assert not S.origin_spike(current_l3={"CN": 10.0}, current_l7={},
+                                  baseline_l3={"CN": 5.0}, baseline_l7={},
+                                  adversaries=("CN",)).strikes
+        # above 4.0x but below the 3.0% absolute floor
+        assert not S.origin_spike(current_l3={"CN": 3.0}, current_l7={},
+                                  baseline_l3={"CN": 0.5}, baseline_l7={},
+                                  adversaries=("CN",)).strikes
+
+    def test_the_count_is_of_strikes_not_of_distinct_actors(self):
+        """One actor hitting three targets is production's 3, however the
+        reason string words it (`core.py:1075`)."""
+        drafts = ()
+        for country in ("TW", "JP", "PH"):
+            drafts += _origin_drafts(country, l3={"CN": 40.0}, l7={},
+                                     base_l3={"CN": 5.0}, base_l7={})
+        rows = _derived(_reduce(drafts, {B.ADVERSARY_ORIGINS: ("CN",),
+                                         B.EFFECTIVE_CORES: ("TW",)}))
+        strike = rows[RC.ADVERSARY_STRIKE_SIGNAL]
+        assert strike.flags["strike_count"] == 3
+        assert strike.raw_score == 3.0
+
+
+class TestTheCoordinatedLadder:
+    @pytest.mark.parametrize("count,fired", [(0, False), (1, False),
+                                             (2, True), (5, True)])
+    def test_two_elevated_targets_is_the_threshold(self, count, fired):
+        verdict = S.coordinated_verdict([f"C{i}" for i in range(count)])
+        assert (verdict.fired, verdict.score) == (fired, 1.0 if fired else 0.0)
+
+    def test_elevation_is_strictly_above_three(self):
+        assert S.elevated_targets({"TW": 3.0}) == ()
+        assert S.elevated_targets({"TW": 3.01}) == ("TW",)
+
+    def test_the_printed_value_and_reason_are_productions(self):
+        verdict = S.coordinated_verdict(["JP", "TW"])
+        assert verdict.value == "theaters=['JP', 'TW']"
+        assert verdict.reason == "Simultaneous surge"
+
+    def test_two_elevated_targets_fire_the_row_end_to_end(self):
+        drafts = ()
+        for country in ("TW", "JP"):
+            drafts += _origin_drafts(country, l3={"XX": 40.0}, l7={},
+                                     base_l3={"XX": 4.0}, base_l7={})
+        rows = _derived(_reduce(drafts, {B.EFFECTIVE_CORES: ("TW",)}))
+        coordinated = rows[RC.COORDINATED_SIGNAL]
+        assert coordinated.status == "FIRED"
+        assert coordinated.raw_score == 1.0
+        assert coordinated.flags["elevated_targets"] == ["JP", "TW"]
+
+
+class TestTheDerivedSweepAgreesWithProduction:
+    """3 seeds x 4,000 tick-shaped inputs against the re-typed original."""
+
+    @pytest.mark.parametrize("seed", [11, 12, 13])
+    def test_a_random_sweep_agrees_on_every_input(self, seed):
+        rng = random.Random(seed)
+        for _ in range(4000):
+            targets, drafts, share_l3, share_l7, adversaries, cores = \
+                _random_tick(rng)
+            if not targets:
+                continue
+            theirs = _production_derived(
+                targets=targets, adversary_states=adversaries,
+                strategic=set(targets), effective_cores=cores,
+                global_l3=share_l3, global_l7=share_l7)
+            rows = _derived(_reduce(drafts, {B.ADVERSARY_ORIGINS: adversaries,
+                                             B.EFFECTIVE_CORES: cores}))
+            for name in (RC.VECTOR_SHIFT_SIGNAL, RC.ADVERSARY_STRIKE_SIGNAL,
+                         RC.COORDINATED_SIGNAL):
+                mine = rows[name]
+                assert (mine.status == "FIRED", mine.raw_score) == \
+                    theirs[name], (name, seed, targets, adversaries, cores)
+            shift = rows[RC.VECTOR_SHIFT_SIGNAL]
+            assert shift.flags["shifted_targets"] == theirs["shifted"]
+            assert shift.flags["primary_core"] == theirs["primary_ec"]
+            assert shift.flags["shift_actors"] == theirs["shift_actors"]
+            assert rows[RC.COORDINATED_SIGNAL].flags["elevated_targets"] == \
+                theirs["elevated"]
+            assert rows[RC.ADVERSARY_STRIKE_SIGNAL].flags["strike_count"] == \
+                theirs["strike_count"]
+
+
+class TestTheDerivedMutantsAreCaught:
+    """Every named constant, moved, must break agreement with production.
+
+    A surviving mutant means the constant is not load-bearing where it is
+    written — which is either dead weight or an untested branch, and this
+    programme treats it as a finding rather than a nuisance.
+    """
+
+    MUTANTS = {
+        "PER_ORIGIN_L7_MIN": 1.0, "PER_ORIGIN_L7_RATIO": 1.0,
+        "PER_ORIGIN_L7_PCT_MIN": 0.0, "STRIKE_SPIKE_MIN": 1.0,
+        "STRIKE_PCT_MIN": 0.0, "GLOBAL_SHARE_FLOOR": 90.0,
+        "COMBINED_WEIGHT_MIN": 90.0, "VECTOR_L7_MIN": 0.1,
+        "VECTOR_L7_RATIO": 0.1, "SEVERE_L7_MIN": 0.1,
+        "SEVERE_L7_RATIO": 0.1, "SEVERE_SHIFT_SCORE": 9.0,
+        "SHIFT_SCORE": 9.0, "STRIKE_MANY": 99, "STRIKE_MANY_SCORE": 9.0,
+        "STRIKE_ANY_SCORE": 9.0, "ELEVATED_SPIKE_MIN": 0.0,
+        "COORDINATED_MIN": 99, "COORDINATED_SCORE": 9.0,
+    }
+
+    @staticmethod
+    def _cases():
+        """The same generator the sweep uses, at a fixed seed.
+
+        One corpus for both, so that a mutant surviving here means the
+        constant is unreachable by the sweep too — the two questions
+        ("does my transcription agree" and "is every constant
+        load-bearing") deserve the same inputs.
+        """
+        rng = random.Random(4242)
+        built = []
+        while len(built) < 1500:
+            case = _random_tick(rng)
+            if case[0]:
+                built.append(case)
+        return built
+
+    @pytest.mark.parametrize("name,value", sorted(MUTANTS.items()))
+    def test_a_mutated_constant_disagrees_with_production(self, name, value,
+                                                          monkeypatch):
+        assert getattr(S, name) != value, f"{name} mutant is a no-op"
+        monkeypatch.setattr(S, name, value)
+        for targets, drafts, share_l3, share_l7, adv, cores in self._cases():
+            theirs = _production_derived(
+                targets=targets, adversary_states=adv,
+                strategic=set(targets), effective_cores=cores,
+                global_l3=share_l3, global_l7=share_l7)
+            rows = _derived(_reduce(drafts, {B.ADVERSARY_ORIGINS: adv,
+                                             B.EFFECTIVE_CORES: cores}))
+            for signal in (RC.VECTOR_SHIFT_SIGNAL, RC.ADVERSARY_STRIKE_SIGNAL,
+                           RC.COORDINATED_SIGNAL):
+                if (rows[signal].status == "FIRED",
+                        rows[signal].raw_score) != theirs[signal]:
+                    return
+        pytest.fail(f"mutating {name} changed no verdict: it is not "
+                    f"load-bearing where it is written")
+
+
+class TestTheEffectiveCoresReachTheFold:
+    """The supply side, not just the logic.
+
+    WP-4.1d's own finding: `usgs_seismic`'s adversary list was fully
+    tested and permanently empty, because the tests supplied it and the
+    composition root did not. `cf_vector_shift` reads the cores the same
+    way, so the wiring is tested here rather than assumed.
+    """
+
+    def test_for_cycle_always_sets_the_key(self, store):
+        supplied = B.for_cycle(store, now=NOW, countries=("TW",))
+        assert supplied[B.EFFECTIVE_CORES] == ()
+        assert B.EFFECTIVE_CORES in supplied
+
+    def test_the_cores_are_uppercased_and_sorted(self, store):
+        supplied = B.for_cycle(store, now=NOW, countries=("TW",),
+                               cores=("ir", "IL"))
+        assert supplied[B.EFFECTIVE_CORES] == ("IL", "IR")
+
+    def test_run_tick_supplies_the_scenarios_cores(self, deployment,
+                                                   monkeypatch):
+        from v3.runtime import tick as tick_module
+        store, registry, geography, resolver = deployment
+        seen = {}
+        original = B.for_cycle
+
+        def spy(*args, **kwargs):
+            seen.update(kwargs)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(tick_module.baselines_module, "for_cycle", spy)
+        tick_module.run_tick(now=NOW, registry=registry, store=store,
+                             client=_SpikeClient(), geography=geography,
+                             scenario_ids=(DUAL,), config=resolver)
+        assert sorted(seen["cores"]) == ["IL", "IR"]
+
+    def test_without_cores_the_shift_row_cannot_fire(self):
+        """The failure mode the wiring test exists to catch."""
+        drafts = _origin_drafts("TW", l3={}, l7={"XX": 40.0},
+                                base_l3={}, base_l7={"XX": 2.0})
+        with_cores = _derived(_reduce(drafts, {B.EFFECTIVE_CORES: ("TW",)}))
+        without = _derived(_reduce(drafts, {}))
+        assert with_cores[RC.VECTOR_SHIFT_SIGNAL].status == "FIRED"
+        assert without[RC.VECTOR_SHIFT_SIGNAL].status == "OK"
+
+
+class TestTheDerivedRowsScoreAsGlobalSignals:
+    """The end of the path: countryless rows land in the global envelope
+    and stay out of every scenario score, as production's do."""
+
+    def test_the_row_becomes_a_global_observation(self, store, deployment):
+        from v3.runtime import scoring as scoring_module
+        store, registry, geography, resolver = deployment
+        from v3.runtime import tick as tick_module
+        tick_module.run_tick(now=NOW, registry=registry, store=store,
+                             client=_SpikeClient(), geography=geography,
+                             scenario_ids=(DUAL,), config=resolver)
+        observations = scoring_module.observations_at(store, now=NOW)
+        derived = [o for o in observations
+                   if o.signal_source == RC.ADVERSARY_STRIKE_SIGNAL]
+        assert derived and all(o.is_global for o in derived)
+
+    def test_a_fired_global_row_reaches_the_global_envelope(self):
+        from v3.kernel import Ratio
+        from v3.scoring import Observation
+        from v3.scoring.contributions import global_threat
+        row = Observation(sensor="cloudflare_radar", domain="cyber",
+                          status="FIRED", score=2.0,
+                          signal_source=RC.ADVERSARY_STRIKE_SIGNAL)
+        envelope = global_threat([row], global_signal_weight=Ratio(0.5),
+                                 now=NOW)
+        assert envelope["score"] == 1.0
+        assert RC.ADVERSARY_STRIKE_SIGNAL in envelope["sources"]
+
+
+# ══ 10. §7-2 #117 — the baseline refresh matches production's daily gate ══
+#
+# v3 refetched the 28-day origin baseline every adapter cadence (900s).
+# Production refetches it only when the stored snapshot is over a day old.
+# The register proposed accepting the difference as "marginally
+# insensitive"; that acceptance was rejected, because a baseline that
+# travels 96 times a day folds each cycle's own attack into the window it
+# is measured against, and "marginal" was an estimate rather than a
+# measurement.
+#
+# The repair is NOT a second scheduler. Production has none either: it has
+# a stored value with a timestamp and one comparison
+# (`core.py:739`). `RequestSpec.refresh_after_sec` declares the window,
+# `v3/runtime/baselines.py::refresh_state` supplies the age out of the
+# snapshot the cycle has already read, and `run_due` withholds the step.
+
+
+def _production_baseline_gate(current_time, b_data):
+    """`radar/routes/core.py:738-742`, re-typed. True = refetch."""
+    return not b_data or (current_time - b_data.get("time", 0) > 86400)
+
+
+class TestTheRefreshWindowIsDeclared:
+    def test_production_refetches_only_once_a_day(self):
+        source = CORE.read_text()
+        assert "current_time - b_data.get(\"time\", 0) > 86400" in source
+
+    def test_the_adapter_declares_the_same_number(self):
+        assert CF.BASELINE_REFRESH_SEC == 86400.0
+
+    def test_only_the_two_baseline_requests_carry_it(self):
+        declared = {spec.label: spec.refresh_after_sec
+                    for spec in CF.CLOUDFLARE_RADAR_ADAPTER.requests}
+        assert declared[CF.ORIGIN_L3_BASELINE] == 86400.0
+        assert declared[CF.ORIGIN_L7_BASELINE] == 86400.0
+        assert declared[CF.ORIGIN_L3] is None
+        assert declared[CF.ORIGIN_L7] is None
+        assert declared["l3"] is None and declared["hijacks"] is None
+
+    def test_a_non_positive_window_is_refused(self):
+        from v3.adapters.types import RequestSpec
+        from v3.kernel.errors import DomainError
+        for bad in (0, -1, float("inf"), True):
+            with pytest.raises(DomainError):
+                RequestSpec(url="https://example.test/x",
+                            refresh_after_sec=bad)
+
+
+class TestTheRefreshPredicateIsProductions:
+    @pytest.mark.parametrize("age,sends", [
+        (0.0, False), (86399.0, False), (86400.0, False), (86400.5, True),
+        (86401.0, True), (1e6, True)])
+    def test_the_comparison_is_strictly_greater(self, age, sends):
+        """`age > 86400`, so a snapshot exactly a day old is not yet
+        stale. The strictness is production's and is the sensitive
+        direction only by a hair, but it is the direction that keeps the
+        transcription checkable."""
+        assert SCHED.needs_refresh(NOW, NOW - age, 86400.0) is sends
+
+    def test_no_stored_answer_is_always_sent(self):
+        assert SCHED.needs_refresh(NOW, None, 86400.0) is True
+
+    def test_a_request_that_declares_nothing_is_always_sent(self):
+        assert SCHED.needs_refresh(NOW, NOW, None) is True
+
+    def test_a_future_timestamp_is_treated_as_fresh(self):
+        assert SCHED.needs_refresh(NOW, NOW + 5000, 86400.0) is False
+
+    def test_a_sweep_agrees_with_production(self):
+        rng = random.Random(97)
+        for _ in range(20000):
+            stored_at = rng.choice(
+                [None, NOW - rng.uniform(0, 200000), NOW + rng.uniform(0, 10)])
+            b_data = None if stored_at is None else {"time": stored_at}
+            assert SCHED.needs_refresh(NOW, stored_at, 86400.0) == \
+                _production_baseline_gate(NOW, b_data)
+
+    def test_the_disclosure_says_when_it_becomes_sendable(self):
+        assert SCHED.refresh_due_at(NOW, 86400.0) == NOW + 86400.0
+        assert SCHED.refresh_due_at(None, 86400.0) is None
+
+
+class TestTheStoredAgeReachesThePlanner:
+    def test_refresh_state_reads_the_snapshot_the_cycle_already_read(self,
+                                                                     store):
+        entity = B.ENTITY_BASELINES["cf_origin_baseline"]
+        store.append_entity_observation(
+            series=entity.ref, sensor=entity.sensor, entity="TW",
+            observed_at=NOW - 10.0, value=1.0,
+            payload={"l3": {"CN": 4.0}, "l7": {}},
+            max_samples=entity.per_entity, now=NOW)
+        supplied = B.for_cycle(store, now=NOW, countries=("TW",))
+        ages = B.refresh_state(supplied)["cloudflare_radar"]
+        assert ages[(CF.ORIGIN_L3_BASELINE, "TW")] == NOW - 10.0
+        assert ages[(CF.ORIGIN_L7_BASELINE, "TW")] == NOW - 10.0
+
+    def test_both_layers_share_one_timestamp(self):
+        """Production refreshes them together inside one `if`
+        (`core.py:739-742`), so one age governs both."""
+        source = CORE.read_text().splitlines()
+        block = "\n".join(source[737:742])
+        assert "layer3/top/locations/origin" in block
+        assert "layer7/top/locations/origin" in block
+        assert "baseline_set" in block
+
+    def test_a_target_with_no_snapshot_is_absent_rather_than_zero(self,
+                                                                  store):
+        supplied = B.for_cycle(store, now=NOW, countries=("TW",))
+        assert B.refresh_state(supplied)["cloudflare_radar"] == {}
+
+
+class TestThePlannerWithholdsAFreshBaseline:
+    @staticmethod
+    def _plan(ages, now=NOW):
+        from v3.fetch.expand import ExpansionInput, ExpansionScope
+        from v3.fetch.runner import run_due
+        expansion = ExpansionInput(scopes=(ExpansionScope(
+            values={"country": "TW"}, scope_key="TW"),))
+        return run_due(now, [CF.CLOUDFLARE_RADAR_ADAPTER], {},
+                       expansions={"cloudflare_radar": expansion},
+                       freshness={"cloudflare_radar": ages})
+
+    def test_with_no_stored_answer_all_four_origin_requests_go(self):
+        plan = self._plan({})
+        labels = [step.primary.label for step in plan.planned[0].steps]
+        assert sorted(l for l in labels if l in CF.ORIGIN_LABELS) == \
+            sorted(CF.ORIGIN_LABELS)
+        assert plan.planned[0].withheld == ()
+
+    def test_a_fresh_snapshot_withholds_exactly_the_two_baselines(self):
+        ages = {(CF.ORIGIN_L3_BASELINE, "TW"): NOW - 60.0,
+                (CF.ORIGIN_L7_BASELINE, "TW"): NOW - 60.0}
+        plan = self._plan(ages)
+        labels = {step.primary.label for step in plan.planned[0].steps}
+        assert CF.ORIGIN_L3 in labels and CF.ORIGIN_L7 in labels
+        assert CF.ORIGIN_L3_BASELINE not in labels
+        assert CF.ORIGIN_L7_BASELINE not in labels
+        withheld = {(label, scope) for label, scope, _ in
+                    plan.planned[0].withheld}
+        assert withheld == {(CF.ORIGIN_L3_BASELINE, "TW"),
+                            (CF.ORIGIN_L7_BASELINE, "TW")}
+
+    def test_a_stale_snapshot_sends_them_again(self):
+        ages = {(CF.ORIGIN_L3_BASELINE, "TW"): NOW - 86401.0,
+                (CF.ORIGIN_L7_BASELINE, "TW"): NOW - 86401.0}
+        plan = self._plan(ages)
+        labels = {step.primary.label for step in plan.planned[0].steps}
+        assert CF.ORIGIN_L3_BASELINE in labels
+
+    def test_the_gate_is_per_target_not_per_adapter(self):
+        """TW refreshed an hour ago, JP never — one plan, two answers."""
+        from v3.fetch.expand import ExpansionInput, ExpansionScope
+        from v3.fetch.runner import run_due
+        expansion = ExpansionInput(scopes=(
+            ExpansionScope(values={"country": "TW"}, scope_key="TW"),
+            ExpansionScope(values={"country": "JP"}, scope_key="JP")))
+        plan = run_due(NOW, [CF.CLOUDFLARE_RADAR_ADAPTER], {},
+                       expansions={"cloudflare_radar": expansion},
+                       freshness={"cloudflare_radar": {
+                           (CF.ORIGIN_L3_BASELINE, "TW"): NOW - 3600.0,
+                           (CF.ORIGIN_L7_BASELINE, "TW"): NOW - 3600.0}})
+        sent = {(step.primary.label, step.scope_key)
+                for step in plan.planned[0].steps}
+        assert (CF.ORIGIN_L3_BASELINE, "JP") in sent
+        assert (CF.ORIGIN_L3_BASELINE, "TW") not in sent
+        assert (CF.ORIGIN_L3, "TW") in sent
+
+    def test_the_disclosure_carries_the_due_time(self):
+        ages = {(CF.ORIGIN_L3_BASELINE, "TW"): NOW - 60.0,
+                (CF.ORIGIN_L7_BASELINE, "TW"): NOW - 60.0}
+        plan = self._plan(ages)
+        due = {label: at for label, _, at in plan.planned[0].withheld}
+        assert due[CF.ORIGIN_L3_BASELINE] == NOW - 60.0 + 86400.0
+        assert plan.withheld["cloudflare_radar"]
+
+    def test_a_request_nobody_declared_a_window_for_is_never_withheld(self):
+        ages = {("l3", ""): NOW, ("hijacks", ""): NOW}
+        plan = self._plan(ages)
+        labels = {step.primary.label for step in plan.planned[0].steps}
+        assert {"l3", "l7", "hijacks", "leaks"} <= labels
+
+
+class TestTheRecorderDoesNotResetTheAge:
+    """The trap that would have made the whole gate a no-op.
+
+    `_record_cf_origin_baseline` re-appended the snapshot every cycle with
+    `observed_at=now`, including the cycles that merely re-read it. With
+    the gate reading that timestamp, the age would reset to zero every 900
+    seconds and the request would go out exactly as often as before — and
+    the row would still say `stored`, so nothing would look wrong.
+    """
+
+    def _write(self, store, *, source, now):
+        from v3.kernel import Evidence
+        from v3.ledger.records import SignalObservation
+        flags = {"avg_spike": 1.0, "baseline_source": source,
+                 "origin_baseline": {"l3": {"CN": 4.0}, "l7": {}}}
+        store.append_signal(SignalObservation(
+            tick_id=f"t{int(now)}", sensor="cloudflare_radar",
+            signal_source=CF.SPIKE_SIGNAL, domain="cyber", country="TW",
+            evidence=Evidence.observe(flags, observed_at=now,
+                                      freshness_horizon_sec=86400.0,
+                                      source="cloudflare_radar"),
+            status="OBSERVED", raw_score=0.0, flags=flags), now=now)
+
+    def test_a_fetched_baseline_is_stamped(self, store):
+        self._write(store, source=RC.BASELINE_FETCHED, now=NOW - 1)
+        assert REC.record_cycle(store, now=NOW,
+                                countries=["TW"])["cf_origin_baseline"] == 1
+
+    def test_a_stored_baseline_is_not_restamped(self, store):
+        self._write(store, source=RC.BASELINE_STORED, now=NOW - 1)
+        assert REC.record_cycle(store, now=NOW,
+                                countries=["TW"])["cf_origin_baseline"] == 0
+
+    def test_an_absent_baseline_is_not_stamped(self, store):
+        self._write(store, source=RC.BASELINE_ABSENT, now=NOW - 1)
+        assert REC.record_cycle(store, now=NOW,
+                                countries=["TW"])["cf_origin_baseline"] == 0
+
+    def test_the_age_survives_a_cycle_that_only_re_read_it(self, store):
+        self._write(store, source=RC.BASELINE_FETCHED, now=NOW - 1)
+        REC.record_cycle(store, now=NOW, countries=["TW"])
+        self._write(store, source=RC.BASELINE_STORED, now=NOW + 900)
+        REC.record_cycle(store, now=NOW + 901, countries=["TW"])
+        stored = B.entity_history(store)["cf_origin_baseline"]["TW"]
+        assert [row["observed_at"] for row in stored] == [NOW]
+
+
+class TestTheDailyGateHoldsEndToEnd:
+    """Three ticks: the second withholds, the third refreshes."""
+
+    @staticmethod
+    def _tick(deployment, now):
+        from v3.runtime import tick as tick_module
+        store, registry, geography, resolver = deployment
+        client = _SpikeClient()
+        report = tick_module.run_tick(
+            now=now, registry=registry, store=store, client=client,
+            geography=geography, scenario_ids=(DUAL,), config=resolver)
+        return client, report
+
+    def test_the_first_tick_fetches_both_windows(self, deployment):
+        client, _ = self._tick(deployment, NOW)
+        labels = [s.label for s in client.sent if s.label in CF.ORIGIN_LABELS]
+        assert labels.count(CF.ORIGIN_L3_BASELINE) == 3      # per participant
+        assert labels.count(CF.ORIGIN_L3) == 3
+
+    def test_the_next_cadence_asks_only_for_the_current_window(self,
+                                                               deployment):
+        """IL and IR stored a snapshot last tick and are withheld. CN is
+        a participant this transport never answers for, so it has no
+        stored answer and IS refetched — production's `not b_data` arm,
+        and the reason the gate can never make a target go permanently
+        unmeasured."""
+        self._tick(deployment, NOW)
+        client, report = self._tick(deployment, NOW + 900)
+        labels = [s.label for s in client.sent if s.label in CF.ORIGIN_LABELS]
+        assert labels.count(CF.ORIGIN_L3_BASELINE) == 1        # CN only
+        assert labels.count(CF.ORIGIN_L7_BASELINE) == 1
+        assert labels.count(CF.ORIGIN_L3) == 3
+        withheld = report.withheld["cloudflare_radar"]
+        assert {scope for _, scope, _ in withheld} == {"IL", "IR"}
+        assert len(withheld) == 4                              # 2 x 2 targets
+
+    def test_a_day_later_the_baseline_is_refetched(self, deployment):
+        self._tick(deployment, NOW)
+        self._tick(deployment, NOW + 900)
+        client, _ = self._tick(deployment, NOW + 86401)
+        labels = [s.label for s in client.sent if s.label in CF.ORIGIN_LABELS]
+        assert labels.count(CF.ORIGIN_L3_BASELINE) == 3
+
+    def test_the_withheld_cycle_still_scores_off_the_stored_baseline(
+            self, deployment):
+        store, *_ = deployment
+        self._tick(deployment, NOW)
+        self._tick(deployment, NOW + 900)
+        row = store.latest_signal_at(NOW + 900, sensor="cloudflare_radar",
+                                     country="IR",
+                                     signal_source=CF.SPIKE_SIGNAL)
+        flags = json.loads(row["flags"])
+        assert flags["baseline_source"] == RC.BASELINE_STORED
+        assert flags["avg_spike"] == 4.0        # the same verdict as tick 1
+
+    def test_the_saving_is_the_registered_one(self, deployment):
+        """§7-2 #117 costed the difference at ~190 requests/day/target.
+
+        96 cadences a day x 2 baseline requests = 192 sends per target
+        under the old behaviour, 2 under production's rule.
+        """
+        cadences_per_day = 86400 / 900
+        assert cadences_per_day * 2 - 2 == 190.0
+
+
+class TestAnAdapterWhoseWholeDeclarationIsFresh:
+    """The branch no real adapter reaches, tested because it decides
+    whether a daily-refresh source can go permanently unscheduled."""
+
+    @staticmethod
+    def _adapter():
+        from v3.adapters.types import (AdapterId, RequestSpec, SourceAdapter,
+                                       ObservationDraft)
+        from v3.kernel import Window
+
+        def normalize(payload, context):
+            return ()
+
+        return SourceAdapter(
+            adapter_id=AdapterId("daily_only"), category=CYBER,
+            requests=(RequestSpec(url="https://example.test/daily",
+                                  label="daily", refresh_after_sec=86400.0),),
+            cadence=Window.from_days(1.0, cadence_sec=900.0),
+            normalize=normalize, freshness_horizon_sec=86400.0)
+
+    def test_it_is_skipped_rather_than_planned_empty(self):
+        from v3.fetch.runner import FRESH_ENOUGH, run_due
+        adapter = self._adapter()
+        plan = run_due(NOW, [adapter], {},
+                       freshness={"daily_only": {("daily", ""): NOW - 60.0}})
+        assert plan.planned == ()
+        assert [s.reason for s in plan.skipped] == [FRESH_ENOUGH]
+
+    def test_it_comes_back_when_the_answer_goes_stale(self):
+        from v3.fetch.runner import run_due
+        adapter = self._adapter()
+        plan = run_due(NOW, [adapter], {},
+                       freshness={"daily_only": {
+                           ("daily", ""): NOW - 86401.0}})
+        assert plan.planned_ids == ("daily_only",)
+
+    def test_the_skip_leaves_last_run_at_alone(self):
+        """`last_run_at` advances in `execute_plan`, and a skipped adapter
+        never reaches it — so the next cycle re-evaluates rather than
+        waiting a full cadence on top of the refresh window."""
+        from v3.fetch.runner import run_due
+        adapter = self._adapter()
+        fresh = {"daily_only": {("daily", ""): NOW - 60.0}}
+        assert run_due(NOW, [adapter], {}, freshness=fresh).planned == ()
+        assert run_due(NOW + 86400.0, [adapter], {},
+                       freshness=fresh).planned_ids == ("daily_only",)
+
+
+class TestEveryCitationPointsAtTheLineItClaims:
+    """The transcription rule, made permanent.
+
+    Each named constant in `v3/runtime/spike.py` carries a `core.py:N`
+    citation in the comment above it. A citation is only worth something
+    if it is CHECKED, and line numbers shift — three of the citations
+    written in WP-4.1d were already two or three lines off when this test
+    was written, because `radar/routes/core.py` had moved under them.
+
+    So: read the cited lines, collect every numeric literal in them, and
+    require the constant's value to be one of them. A drifted citation
+    fails; a constant invented rather than transcribed fails.
+    """
+
+    NUMBER = re.compile(r"\d+(?:\.\d+)?")
+    CITATION = re.compile(r"core\.py:([\d,\-]+)")
+
+    @classmethod
+    def _cited_constants(cls):
+        """`(name, value, lines)` for every module-level constant whose
+        preceding comment block cites `core.py`."""
+        source = pathlib.Path("v3/runtime/spike.py").read_text().splitlines()
+        found, comment = [], []
+        for raw in source:
+            line = raw.strip()
+            if line.startswith("#"):
+                comment.append(line)
+                continue
+            match = re.match(r"^([A-Z][A-Z0-9_]*)\s*(?::[^=]+)?=\s*(.+)$", line)
+            if match and comment:
+                cited = cls.CITATION.search(" ".join(comment))
+                if cited:
+                    values = [float(n) for n
+                              in cls.NUMBER.findall(match.group(2))]
+                    if values:
+                        found.append((match.group(1), values,
+                                      cls._lines(cited.group(1))))
+            comment = []
+        return found
+
+    @staticmethod
+    def _lines(spec):
+        wanted = []
+        for part in spec.split(","):
+            if "-" in part:
+                start, end = part.split("-")
+                wanted.extend(range(int(start), int(end) + 1))
+            elif part:
+                wanted.append(int(part))
+        return wanted
+
+    def test_the_audit_actually_found_the_constants(self):
+        names = {name for name, _, _ in self._cited_constants()}
+        assert {"SPIKE_CAP", "STRIKE_SPIKE_MIN", "SEVERE_L7_MIN",
+                "ELEVATED_SPIKE_MIN", "COORDINATED_MIN"} <= names
+        assert len(names) >= 18
+
+    def test_every_cited_line_contains_the_value(self):
+        production = CORE.read_text().splitlines()
+        for name, values, cited in self._cited_constants():
+            present = set()
+            for number in cited:
+                present.update(float(n) for n
+                               in self.NUMBER.findall(production[number - 1]))
+            missing = [v for v in values if v not in present]
+            assert not missing, (
+                f"{name}={values} cites core.py:{cited} but those lines "
+                f"contain {sorted(present)} — the citation has drifted or "
+                f"the constant was not transcribed from there")
+
+    def test_they_add_nothing_to_any_scenario_score(self):
+        """The other half of the countryless claim, measured.
+
+        S1-SCORE-012 skips them in `build_contributions`, and
+        `active_countries` excludes GLOBAL, so neither the cyber domain
+        total nor the participant count that `convergence_bonus` reads can
+        move. Without this, "countryless" would be a claim about the row
+        rather than about the score.
+        """
+        from v3.scoring import Observation, ScoringSettings
+        from v3.scoring.contributions import (active_countries,
+                                              build_contributions,
+                                              domain_totals)
+        settings = ScoringSettings()
+        assert settings.global_signals_decoupled is True
+        scenario = _scenario()
+        anchored = _obs("IR", 3.0)
+        derived = tuple(
+            Observation(sensor="cloudflare_radar", domain="cyber",
+                        status="FIRED", score=score, signal_source=name)
+            for name, score in ((RC.VECTOR_SHIFT_SIGNAL, 2.0),
+                                (RC.ADVERSARY_STRIKE_SIGNAL, 3.0),
+                                (RC.COORDINATED_SIGNAL, 1.0)))
+        alone = build_contributions((anchored,), scenario,
+                                    settings=settings, now=NOW)
+        beside = build_contributions((anchored,) + derived, scenario,
+                                     settings=settings, now=NOW)
+        assert domain_totals(alone, domain_cap=6.0) == \
+            domain_totals(beside, domain_cap=6.0)
+        assert active_countries(alone) == active_countries(beside)

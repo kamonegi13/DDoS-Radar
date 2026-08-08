@@ -444,6 +444,48 @@ O→画面トレーサビリティ、AP3 合成チップ、地図の降格とレ
 **裁定（Fable）**: 未裁定インテルは採点しない（本番は `{auto_confirmed, confirmed}` のみ admit — AST で実測。キューの状態は「LLM 出力はまだ証拠ではない」の表明であり、採点は仮説を所見として扱う）。予期差分は §7-2 **#111 まで**、うち #1〜#53 はオーナー包括承認済、**#54 以降は cutover 直前に一括承認**を仰ぐ。
 全スイート **6762 passed**（Python）+ Node 293 件。
 
+---
+
+**WP-4.1d 完了記録（2026-08-08、`e04e8ed`）— 攻撃元スパイクの取得・転写・判定・順位付け**:
+
+**着手時の見立ては外れ、そのことを記録する**。「1 つの取得で §7-2 #9 と #116 を両方 retire できる」という前提で始めたが、**retire はゼロ**だった。取得そのものは成功している（`attacks/layer{3,7}/top/locations/origin` を現在窓と `BASELINE_DATE_RANGE` の 2 本 × L3/L7 = 4 宣言、`cloudflare_radar` は**この 4 本のためだけに** `COUNTRY_SCOPED` 入り。他 4 本はプレースホルダを持たないので `expand_requests` が global と認識し 1 回ずつのまま）。`VERDICT_WITHHELD` は空、`baselines.coverage()` は **13/21 → 15/22**。しかし両行とも**残余が本物**で、範囲縮小に留まった。#9 は `ripe_bgp` の HOD 冷えベースライン分岐（原因が無関係）、#116 は「どの core も測定を持たないティック」の fallback（本番の答えが退化する場面なので、証跡の多い側を選ぶ方を**選んだ** — `TickReport.chain_ranking` で開示）。
+
+**指示の事実誤認を実装側が訂正した**: 「90 日の攻撃元ベースライン」は存在しない。`BASELINE_DATE_RANGE` の出荷既定は **28d**、しかも**蓄積ではなく問い合わせ窓**（本番は同じエンドポイントを長い窓で叩き直すだけ）。AST で `radar/config.py` から読み取って実測。したがって台帳は 1 対象 1 スナップショットで、**保持方針の変更は不要**、「90 日が既存方針を超えるなら裁定事項」という前提自体が成り立たなかった。
+
+**レビューが live silence を 1 件掘り当てた（本コミットの重い方）**: `expansion.context_for` が `adversaries=()` をハードコードしており、敵対国集合を読むアダプタ全部に「この配備に敵対国は無い」と伝えていた。`usgs_seismic` にとってこれは劣化ではなく**機能停止**である — 核実験候補リストが無条件に空 → `has_nuclear` が恒久 False → **STATUS_FIRED にも 3.0 にも到達できず**、さらに `suppressed = has_cable_threat and not has_nuclear` の解除分岐が到達不能なので**ケーブル付近の地震は永久に SUPPRESSED**。アダプタ単体テストは常に `adversaries=("KP",)` を渡していたため**ロジックは十分にテストされており、供給側を誰もテストしていなかった** — 緑のテストの下で検知が死んでいる、本プログラム署名の欠陥形。修正は値を渡すだけでなく**既定値を廃した**（既定値のあるパラメータは 2 度目も忘れられる）。本番のセンサー側集合は focused シナリオ横断の**和集合**（`radar/scheduler.py:56-68`）で、スコアリング側が読む focused 単体（`core.py:590`）とは別物 — v3 はセンサー側に一致させ、スコアリング側は #119 として登録を維持。`travel_advisory` も同じフィールドを読むが、敵対国は participants の部分集合なので**実害なし**。
+
+**登録**: 新規 **#117〜#121**、範囲縮小 **#9 / #11 / #116**。**#121 が要注意** — `cf_vector_shift`(0-2) / `cf_adversary_strike`(0-3) / `cf_coordinated`(0-1) は同じ攻撃元分布から本番が出す 3 行で、**合計最大 6 点の cyber 検知が insensitive 方向に欠落**。本 WP までは入力が無く到達不能だったが、いまは**未実装なだけ**。追加取得は不要（得点は `len(adversary_strikes)` 等、`OriginSpike` が既に露出する量のみを読む。`state_asn_hits` が要る `is_state_asn` は装飾フラグで得点に効かない — Fable が `core.py:1066-1076` を辿って確認）。
+
+**#118 の帰結を実測で鋭くした**（code-reviewer 指摘）: 収斂への経路は 2 つあり**片方だけが影響を受ける**。`convergence_level` は `len(active_domains)` を読むのでドメイン数は 1 のまま**影響なし**。`convergence_bonus` は `len(active_countries)` を取るので、他センサーが立てていない国で発火すると**ボーナスが上がり、この経路に `domain_cap` は効かない**。
+
+**DRY 違反の是正**（python-reviewer 指摘）: flags の JSON デコードが 3 コピー目として書かれ、しかも同 diff 内で DP4 を名指し引用していた。デコードを**エンコーダの隣**（`v3/ledger/records.py::flags_of`、`flags_json` の逆）に置いた — 3 つの `json.loads` が 1 つの `json.dumps` と歩調を合わせるより 1 対 1 が壊れにくい。キー単位の意味論は呼び出し側ごとに異なるので**デコードだけ**共有。
+
+検証: 差分掃引 3 seed × 4,000 入力（本番の蓄積器スタイルで独立に再打鍵した実装と照合）+ 梯子 2 × 5,000 で不一致ゼロ。変異 **14/14 撃墜**。二重 `max()` 床式は code-reviewer が別途 20,000 ケースの等価検査で確認。全スイート **6968 passed**、CI ゲート 13 件 green（`HIGH=0 MEDIUM=0 LOW=2`、既知）。
+
+**WP-4.1h 完了記録（2026-08-09）— 攻撃元分布から本番が出す残り 3 行、とベースラインの日次ゲート**:
+
+**指示の見立てが 1 点外れており、それが本 WP でいちばん重い発見だった**。「合計最大 6 点の cyber 検知が欠落」は成り立たない — 3 行はいずれも**本番自身が countryless Signal として出している**。`add_rat` の第 1 引数は `RationaleEntry.sensor` になり、`core.py:2039-2041` は `rat.sensor in FOCUSED_ONLY_SENSOR_NAMES` のときだけ国を与える。この frozenset（`radar/scenarios.py:75-79`）が持つのは**センサー名**（`cloudflare_radar` 等）であって `cf_vector_shift` のような**シグナル名**ではないので、3 行とも一致せず `rationale_to_signal` は `countries=[]` を作り（`scoring.py:79`）、`GLOBAL_SIGNALS_DECOUPLED` 既定 true（`config.py:421`）が `compute_scenario_score` で `continue` させる（`scoring.py:1452-1453`）。**シナリオスコアへの欠落は 0 点、global envelope への欠落が最大 1.5 点**（3 点 × 0.5）、加えて `_coord_active` が門番をしている SYNC_DDOS 系列イベントの経路が 1 本。`core.py:1075` の `source_country=_adv_top_actor` は反証にならない — この引数は `add_rat` 内で `classify_direction` と 2 つの context ヘルパにしか渡らず（`core.py:956-971`）、`RationaleEntry` には届かない。
+
+**同じ経路が #118 の記述を訂正させた**。`cf_spike_core` も `FOCUSED_ONLY_SENSOR_NAMES` に無いので、**本番のあの行もシナリオスコアに 0 点しか入れていない**。#118 は「本番 1 行 vs v3 参加国ぶん」と書いていたが、実際は「**0 点 vs 参加国ぶん × 結合重み**」で、cyber は `domain_cap`(6.0) までの全幅が v3 側にだけ乗る。方向（sensitive / NP1 側）は変わらないので revert しないが、規模の記述を訂正して残した。
+
+**「per-scenario か per-country か」の裁定は「どちらでもない」**。settle する行は上記 `core.py:2039-2041`。したがって 3 行は `country=""` の観測として出し、S1-SCORE-012 が全シナリオから decouple して global envelope に入れる — 本番と同じ着地であり、**シナリオを跨いだ誤帰属が構造的に起きない**（`cf_coordinated` の「2 国以上」を別シナリオの 2 国が満たす形は残るが、その行はどのシナリオにも帰属しないので誤帰属にはならない。#124 に登録）。
+
+**追加取得は不要という見立ては正しかったが、1 か所だけ精度が要った**。`is_vector_shift`（`core.py:814`）は `shift_actors` を読み、`shift_actors` は `combined_sources` の所属（`core.py:806` = `total_global_weight > 0.01 or is_direct_strike`）を要求する。この weight は**対象国の world attack share**（`core.py:744-745`）から来るが、それは既に取得している `cf_l3` / `cf_l7` の `share_pct` である。per-origin の `is_l7_shift` / `is_direct_strike` は**丸め前の比**で決まるため（行に載るのは 2 桁丸め）、`origin_spike` の中で決めて `OriginSpike` に載せた — 行から再計算すると `2.4999` が `2.50` として比較される。
+
+**#117 は却下された受容を撤回して retire した**。修正の設計判断: **カーネルに per-request 周期の概念を足したが、第 2 のスケジューラは作っていない**。本番にもスケジューラは無く、あるのは「タイムスタンプ付きの保管値と 1 つの比較」（`core.py:739`）だけである。`RequestSpec.refresh_after_sec` が窓を宣言し、齢は `v3/runtime/baselines.py::refresh_state` が**すでにサイクル冒頭で読んでいるスナップショット**の `observed_at` から供給し、`run_due` が展開後のステップを withhold する。**`fetch_schedule` 表には触っていない**（L1 スキーマ変更なし = 裁定要求 3 に触れない）。展開後に効くので周期は**対象国ごと**に別日で回る。
+
+**その途中でゲートを無効化する沈黙欠陥が 1 件出た**: `record.py::_record_cf_origin_baseline` はスナップショットを**毎サイクル `observed_at=now` で再押印**しており（読み直しただけのサイクルも）、齢を読むゲートは 900 秒ごとに 0 に戻されて**一度も発火しない**。しかも行は `stored` と表示し続けるので外からは正常に見える。齢の供給側を直さずにゲートだけ足していれば「実装したのに効いていない」がテスト緑のまま成立していた。修正は本番と同じ「`baseline_set` は再取得した `if` の中だけ」（`core.py:739-742`）。取得負荷は対象国あたり 1 日 **192 → 2** 送信（登録時の見積り「+190」と一致）。
+
+**変異試験が掃引の設計欠陥を検出した**。`GLOBAL_SHARE_FLOOR` と `PER_ORIGIN_L7_PCT_MIN` の変異は初回の掃引（`uniform(0, 45)`）を**生き延びた**。定数が死んでいたのではなく、両方とも**小さい値の隅**でしか効かない（前者は対象国が世界攻撃トラフィックの 0.1% 未満のとき、後者は 1.5% 未満の攻撃元が adversary フロア 0.5% に対して跳ねているとき）ため、一様掃引がその領域に質量をほとんど置いていなかった。生成器を**値ではなくスケールを引く**形（`_PCT_SCALES` / `_SHARE_SCALES`）に変えて **19/19 撃墜**。生存変異を「報告対象」と定めた規律が、掃引そのものの不足を暴いた。
+
+**新規登録**: #122（`cf_botnet_overlap` と IDF 相関ファミリ — **insensitive、blocking 級**。#121 本文が約束していた行）／#123（**`arriving_events` を供給する呼び出しが v3 に存在せず、系列連鎖にイベントが 1 件も届かない** — カーネル側の状態機械は完成していて入力が無いだけなので、テスト緑のまま検知が死んでいる本プログラム署名の形）／#124（派生 3 行の適用範囲）／#125（confidence と `is_state_asn` 装飾。本番側の**漏出ループ変数**も記録）／#126（沈黙条件・順序・flags）。
+
+`baselines.coverage()` は **15/22 のまま動かない**（3 行は新しい `baseline_refs` を要さない。effective cores はベースラインではなく、`adversary_origins` と同じ「履歴でない唯一の鍵」の 2 本目として `for_cycle` が常に設定する）。
+
+検証: 差分掃引 3 seed × 4,000 ティック（`core.py:737-919` / `:1063-1076` を独立に再打鍵した実装と照合）、`needs_refresh` の 20,000 件スイープ（`core.py:738-742` の再打鍵と照合）、変異 **19/19 撃墜**。全スイート **7,061 passed**（+93）、CI ゲート 13 件 green（`HIGH=0 MEDIUM=0 LOW=2`、既知）、`check_kernel_discipline.py` clean。
+
+---
+
 ## Phase 5 — shadow 並走と cutover
 
 ### WP-5.1 — shadow 並走とパリティ測定

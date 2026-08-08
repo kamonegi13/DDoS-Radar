@@ -21,6 +21,7 @@ from v3.adapters.cyber.cloudflare_radar import SPIKE_SIGNAL
 from v3.ledger import records
 from v3.ledger.baselines import record_bucket_sample
 from v3.runtime.baselines import ENTITY_BASELINES, PHASE_BASELINES
+from v3.runtime.reduce_cyber import BASELINE_FETCHED
 
 #: `ref -> (sensor, signal_source, flag key holding the sample)`.
 #: Only the refs whose sample v3 actually produces appear here.
@@ -175,10 +176,21 @@ def _record_cf_origin_baseline(store, *, now: float, country: str) -> int:
     An EMPTY snapshot writes nothing. Recording it would overwrite the
     last good answer with the failure that produced it — the exact
     overwrite `fetch_cf_data_cached` refuses at `scoring.py:648-654`.
+
+    **A snapshot that was not FETCHED this cycle writes nothing either**,
+    and that is load-bearing rather than an optimisation. Production
+    stamps `baseline_set` only inside the `if` that refetched
+    (`core.py:739-742`), so `b_data["time"]` is the age of the ANSWER.
+    Re-stamping the value the fold merely re-read would reset that age
+    every cycle, and §7-2 #117's daily gate — which measures exactly this
+    timestamp — would never once fire. The failure would be silent: the
+    request goes out 96 times a day and the row still says `stored`.
     """
-    baseline = _row(store, now=now, sensor="cloudflare_radar",
-                    signal_source=SPIKE_SIGNAL,
-                    country=country).get("origin_baseline") or {}
+    flags = _row(store, now=now, sensor="cloudflare_radar",
+                 signal_source=SPIKE_SIGNAL, country=country)
+    if flags.get("baseline_source") != BASELINE_FETCHED:
+        return 0
+    baseline = flags.get("origin_baseline") or {}
     layer_3 = dict((baseline.get("l3") or {})) if baseline else {}
     layer_7 = dict((baseline.get("l7") or {})) if baseline else {}
     if not layer_3 and not layer_7:

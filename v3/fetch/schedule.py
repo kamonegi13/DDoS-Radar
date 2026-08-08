@@ -80,4 +80,45 @@ def overdue_by(now: float, last_run_at: Optional[float],
     return max(0.0, (now - last_run_at) - cadence.cadence_sec)
 
 
-__all__ = ["is_due", "next_run_at", "overdue_by"]
+def needs_refresh(now: float, stored_at: Optional[float],
+                  refresh_after_sec: Optional[float]) -> bool:
+    """Whether a request that declares `refresh_after_sec` should be sent.
+
+    `radar/routes/core.py:739`, transcribed:
+    `if not b_data or (current_time - b_data.get("time", 0) > 86400)`.
+    Both arms matter and both are the sensitive direction — a request with
+    no stored answer is sent, and the comparison is STRICTLY greater, so a
+    snapshot exactly one day old is not yet stale.
+
+    A request that declares nothing is always sent: this predicate can
+    only ever WITHHOLD, so an adapter that never opts in cannot be quieted
+    by a bug here.
+
+    A `stored_at` in the future is treated as fresh, for the reason
+    `is_due` treats a future `last_run_at` as not due: after a clock jump
+    or a restored backup, refusing to send is recoverable and the stored
+    answer is still the last real measurement.
+    """
+    if refresh_after_sec is None:
+        return True
+    if now <= 0:
+        raise DomainError(f"now must be a positive timestamp, got {now}")
+    if refresh_after_sec <= 0:
+        raise DomainError(
+            f"refresh_after_sec must be positive, got {refresh_after_sec}: "
+            f"zero would mean 'never refresh'")
+    if stored_at is None:
+        return True
+    return (now - float(stored_at)) > float(refresh_after_sec)
+
+
+def refresh_due_at(stored_at: Optional[float],
+                   refresh_after_sec: Optional[float]) -> Optional[float]:
+    """When a withheld request becomes sendable again. For disclosure."""
+    if stored_at is None or refresh_after_sec is None:
+        return None
+    return float(stored_at) + float(refresh_after_sec)
+
+
+__all__ = ["is_due", "next_run_at", "overdue_by", "needs_refresh",
+           "refresh_due_at"]

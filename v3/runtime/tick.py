@@ -40,6 +40,7 @@ from v3.fetch.runner import CycleHooks, FetchPlan, execute_plan, run_due
 from v3.kernel.errors import DomainError
 from v3.runtime import attention as attention_module
 from v3.runtime import baselines as baselines_module
+from v3.runtime import chain as chain_module
 from v3.runtime import expansion as expansion_module
 from v3.runtime import health as health_module
 from v3.runtime import record as record_module
@@ -135,6 +136,11 @@ class TickReport:
     scenario_ids: tuple[str, ...]
     planned: tuple[str, ...]
     skipped: tuple[tuple, ...]
+    #: adapter -> the requests it did NOT send because a stored answer is
+    #: still inside its declared refresh window (§7-2 #117). Published
+    #: because "asked and got nothing" and "did not ask" are the two
+    #: things this programme refuses to let look alike.
+    withheld: Mapping[str, tuple]
     observations_written: int
     health: Mapping[str, dict]
     conclusions: Mapping[str, dict]
@@ -171,6 +177,8 @@ class TickReport:
                 "scenarios": list(self.scenario_ids),
                 "planned": list(self.planned),
                 "skipped": [list(row) for row in self.skipped],
+                "withheld": {adapter: [list(row) for row in rows]
+                             for adapter, rows in self.withheld.items()},
                 "observations_written": self.observations_written,
                 "health": dict(self.health),
                 "conclusions": dict(self.conclusions),
@@ -189,7 +197,8 @@ def fetch_cycle(*, now: float, registry, store, client,
                 geography: Geography, countries: Sequence[str],
                 credentials: Optional[CredentialPlan] = None,
                 tick_id: Optional[str] = None,
-                adversaries: Sequence[str] = ()):
+                adversaries: Sequence[str] = (),
+                cores: Sequence[str] = ()):
     """Steps 1-4: schedule, expand, plan, execute. Returns a CycleResult.
 
     `adversaries` reaches the cloudflare fold, where an origin country's
@@ -197,16 +206,26 @@ def fetch_cycle(*, now: float, registry, store, client,
     for an adversary and 3.0%/2.0% for anyone else (`core.py:775-777`).
     Production reads the FOCUSED scenario's list; a cycle here fetches for
     every scored scenario at once, so the union is what is supplied.
+
+    `cores` reaches the same fold for the same reason: `cf_vector_shift`
+    fires on whether an EFFECTIVE CORE shifted (`core.py:877`/`:886`), and
+    an origin distribution cannot answer that on its own.
     """
     states = recorder.load_states(store)
     baselines = baselines_module.for_cycle(store, now=now,
                                            countries=countries,
-                                           adversaries=adversaries)
+                                           adversaries=adversaries,
+                                           cores=cores)
     expansions = expansion_module.for_cycle(
         geography, countries, now=now,
         carried=baselines_module.carried_values(store, now=now))
+    # §7-2 #117: production refetches the 28-day origin baseline only when
+    # its stored snapshot is over a day old (`core.py:738-742`). The age
+    # is in the snapshot this cycle already read, so the gate is data the
+    # planner is handed rather than a second schedule to keep.
     plan = order_producers_first(
-        run_due(now, registry.enabled(), states, None, expansions))
+        run_due(now, registry.enabled(), states, None, expansions,
+                freshness=baselines_module.refresh_state(baselines)))
     state = _CycleState()
     cycle = execute_plan(
         plan, registry, client=client, store=store,
@@ -318,10 +337,18 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
         for country in participants_of(geography, scenario_id)))
 
     identity = tick_id_for(now)
+    # The union of the scored scenarios' effective cores, read through the
+    # same transcription of `derive_country_context` the chain ranking
+    # uses (`v3/runtime/chain.py`) rather than a second reading of the
+    # geography that could disagree with it.
+    declared = scoring_module.scenarios_for(geography, scenarios)
+    cores = tuple(dict.fromkeys(
+        core for scenario in declared
+        for core in chain_module.effective_cores(scenario)))
     cycle, state = fetch_cycle(
         now=now, registry=registry, store=store, client=client,
         geography=geography, countries=countries, credentials=credentials,
-        tick_id=identity,
+        tick_id=identity, cores=cores,
         adversaries=tuple(dict.fromkeys(
             country for scenario_id in scenarios
             for country in adversaries_of(geography, scenario_id))))
@@ -372,6 +399,7 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
         planned=cycle.plan.planned_ids,
         skipped=tuple((s.adapter_id.value, s.reason)
                       for s in cycle.plan.skipped),
+        withheld=cycle.plan.withheld,
         observations_written=cycle.observations_written,
         health=health_by_scenario,
         conclusions=conclusions_by_scenario,

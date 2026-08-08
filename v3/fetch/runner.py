@@ -47,6 +47,9 @@ DISABLED = "disabled"
 #: cycle down. Recorded rather than SENT, because `{country}` on the wire
 #: is an error that answers HTTP 200 with nothing in it (K02).
 UNRESOLVED = "unresolved_placeholder"
+#: Every request the adapter would have sent still has a stored answer
+#: younger than its declared `refresh_after_sec` (§7-2 #117).
+FRESH_ENOUGH = "answer_still_fresh"
 
 #: Where a draft's `reason` lands in the observation's flags.
 #:
@@ -71,6 +74,12 @@ class PlannedFetch:
     steps: tuple[ResolvedStep, ...]
     breaker: BreakerState
     overdue_by_sec: float = 0.0
+    #: `(label, scope_key, due_at)` for each step this plan did NOT send
+    #: because its stored answer is still fresh (§7-2 #117). Carried rather
+    #: than dropped: a plan that quietly sends fewer requests than the
+    #: adapter declares is indistinguishable from one whose expansion
+    #: broke, and that is the failure this layer exists to make visible.
+    withheld: tuple[tuple, ...] = ()
 
     @property
     def is_probe(self) -> bool:
@@ -111,11 +120,43 @@ class FetchPlan:
     def skipped_for(self, reason: str) -> tuple[SkippedFetch, ...]:
         return tuple(item for item in self.skipped if item.reason == reason)
 
+    @property
+    def withheld(self) -> Mapping[str, tuple]:
+        """`{adapter: ((label, scope_key, due_at), ...)}`. NP6 disclosure."""
+        return {item.adapter_id.value: item.withheld
+                for item in self.planned if item.withheld}
+
+
+def _withhold_fresh(steps: Sequence[ResolvedStep], *, now: float,
+                    stored: Mapping[tuple, float]) -> tuple[tuple, tuple]:
+    """Split expanded steps into `(to send, withheld)`. PURE.
+
+    A step is withheld only if its PRIMARY spec declares
+    `refresh_after_sec` and a stored answer for `(label, scope_key)` is
+    younger than it. The primary alone decides because a chain's later
+    alternatives are the same question asked of another host — if the
+    question does not need re-asking, none of them does.
+    """
+    sending: list[ResolvedStep] = []
+    withheld: list[tuple] = []
+    for step in steps:
+        spec = step.primary
+        window = spec.refresh_after_sec
+        key = (spec.label, step.scope_key)
+        stored_at = stored.get(key)
+        if schedule.needs_refresh(now, stored_at, window):
+            sending.append(step)
+            continue
+        withheld.append((spec.label, step.scope_key,
+                         schedule.refresh_due_at(stored_at, window)))
+    return tuple(sending), tuple(withheld)
+
 
 def run_due(now: float, adapters: Sequence[SourceAdapter],
             states: Mapping[str, AdapterState],
             limiter_state: Optional[LimiterState] = None,
-            expansions: Optional[Mapping[str, ExpansionInput]] = None
+            expansions: Optional[Mapping[str, ExpansionInput]] = None,
+            freshness: Optional[Mapping[str, Mapping[tuple, float]]] = None
             ) -> FetchPlan:
     """Decide what to fetch. PURE — no clock, no socket, no database.
 
@@ -130,11 +171,20 @@ def run_due(now: float, adapters: Sequence[SourceAdapter],
     concrete requests: a plan you can read is a plan you can check before
     it reaches anything (NP6), and it is where an unresolved `{country}`
     is caught while it is still a value.
+
+    `freshness` is `{adapter: {(label, scope_key): stored_at}}` and is the
+    only input a per-REQUEST cadence needs (§7-2 #117). It arrives as data
+    for the same reason expansions do: the age lives in L1, this function
+    opens nothing, and a request the caller says nothing about is sent.
+    The filter runs AFTER expansion because the cadence is per target —
+    `cloudflare_radar` refreshes TW's 28-day baseline window and JP's on
+    different days.
     """
     if now <= 0:
         raise DomainError(f"now must be a positive timestamp, got {now}")
     limits = limiter_state or LimiterState()
     inputs = dict(expansions or {})
+    ages = dict(freshness or {})
 
     planned: list[PlannedFetch] = []
     skipped: list[SkippedFetch] = []
@@ -193,12 +243,26 @@ def run_due(now: float, adapters: Sequence[SourceAdapter],
                                         str(unresolved)))
             continue
 
+        steps, withheld = _withhold_fresh(steps, now=now,
+                                          stored=ages.get(name) or {})
+        if withheld and not steps:
+            # Nothing left to ask. Skipped rather than planned-and-empty so
+            # that `last_run_at` does not advance on a cycle that sent no
+            # request — an adapter whose whole declaration is on a daily
+            # refresh must still come back tomorrow.
+            skipped.append(SkippedFetch(
+                adapter.adapter_id, FRESH_ENOUGH,
+                f"{len(withheld)} request(s) still answered by a stored "
+                f"value"))
+            continue
+
         if adapter.min_interval_sec > 0:
             claimed.add(group)
         planned.append(PlannedFetch(
             adapter_id=adapter.adapter_id, steps=steps, breaker=current,
             overdue_by_sec=schedule.overdue_by(now, state.last_run_at,
-                                               adapter.cadence)))
+                                               adapter.cadence),
+            withheld=withheld))
 
     return FetchPlan(now=now, planned=tuple(planned), skipped=tuple(skipped),
                      breaker_states=effective)
@@ -514,4 +578,4 @@ __all__ = ["run_due", "execute_plan", "FetchPlan", "PlannedFetch",
            "CycleHooks",
            "SkippedFetch", "CycleResult", "AdapterResult",
            "NOT_DUE", "BREAKER_OPEN", "RATE_LIMITED", "DISABLED",
-           "UNRESOLVED", "FIRED_REASON_FLAG"]
+           "UNRESOLVED", "FRESH_ENOUGH", "FIRED_REASON_FLAG"]

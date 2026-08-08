@@ -34,7 +34,7 @@ NOW = 1_786_000_000.0
 def _report(**kwargs) -> TickReport:
     base = dict(
         tick_id="tick-1", now=NOW, scenario_ids=(SCENARIO, OTHER),
-        planned=(), skipped=(), observations_written=0,
+        planned=(), skipped=(), withheld={}, observations_written=0,
         health={SCENARIO: {"degraded": False}, OTHER: {"degraded": True}},
         conclusions={SCENARIO: {"threat_level": "TL3"}},
         credentials={}, suppressors={}, coverage={},

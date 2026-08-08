@@ -306,6 +306,21 @@ class RequestSpec:
     auth: Optional[AuthRequirement] = None
     expect_content: str = "any"          # any | json | xml | csv | text
     label: str = ""
+    #: "Do not send me again while a stored answer for the same
+    #: `(label, scope)` is younger than this many seconds."
+    #:
+    #: A per-REQUEST cadence, which the adapter-level `cadence` cannot
+    #: express: `cloudflare_radar` must ask for the current attack origins
+    #: every cycle and for the 28-day baseline window once a day
+    #: (`radar/routes/core.py:738-742`), and one number on the adapter has
+    #: to choose. Left unset a request is sent on every run of its adapter,
+    #: which is what every other request wants.
+    #:
+    #: The AGE is not stored here and is not the last SEND either — it is
+    #: the age of the stored ANSWER, supplied to `run_due` by the
+    #: composition root, exactly as production compares against
+    #: `b_data["time"]` rather than against a fetch log.
+    refresh_after_sec: Optional[float] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.url, str) or not self.url.startswith(
@@ -322,6 +337,16 @@ class RequestSpec:
         _reject_callables("headers", self.headers.items())
         object.__setattr__(self, "headers",
                            MappingProxyType(dict(self.headers)))
+        if self.refresh_after_sec is not None:
+            value = self.refresh_after_sec
+            if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                    or not math.isfinite(value) or value <= 0:
+                raise DomainError(
+                    f"RequestSpec refresh_after_sec must be a positive "
+                    f"number of seconds or None, got {value!r}: zero or a "
+                    f"negative would read as 'never refresh', which is a "
+                    f"request that silently stops being sent")
+            object.__setattr__(self, "refresh_after_sec", float(value))
         if self.auth is not None and not isinstance(self.auth,
                                                     AuthRequirement):
             raise DomainError(

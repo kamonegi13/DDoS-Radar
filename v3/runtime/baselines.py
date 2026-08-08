@@ -189,6 +189,15 @@ ENTITY_BASELINES: Mapping[str, EntityBaseline] = {
 #: to carry one adapter's value would be the wider change.
 ADVERSARY_ORIGINS = "adversary_origins"
 
+#: The second entry that is not a baseline, and it rides here for the same
+#: reason. `cf_vector_shift`'s STATUS is "did any EFFECTIVE CORE shift"
+#: (`core.py:877`/`:886`) and its severity reads the primary core's own
+#: means (`core.py:1064-1065`) — neither is answerable from an origin
+#: distribution alone. Supplied as the union across the scored scenarios,
+#: because one acquisition cycle serves all of them; production asks the
+#: focused scenario only.
+EFFECTIVE_CORES = "effective_cores"
+
 #: Declared baselines nothing can answer yet, with a MEASURED reason —
 #: measured, because each was read out of production rather than guessed.
 #: An unanswerable baseline that is simply absent from every mapping is
@@ -306,24 +315,66 @@ def entity_history(store) -> dict:
 
 
 def for_cycle(store, *, now: float, countries: Sequence[str],
-              adversaries: Sequence[str] = ()) -> dict:
+              adversaries: Sequence[str] = (),
+              cores: Sequence[str] = ()) -> dict:
     """Every baseline this cycle can be given, in one mapping.
 
     One call so that the ordering obligation — read before write — is
     stated once, in the composition root, rather than remembered at each
     of three call sites.
 
-    `adversaries` is the one entry that is not history (see
-    `ADVERSARY_ORIGINS`). It is always set, including to an empty tuple:
-    absent, a fold could not tell "no adversary is declared" from "nobody
-    supplied the list", and the two produce spikes six times apart.
+    `adversaries` and `cores` are the two entries that are not history
+    (see `ADVERSARY_ORIGINS` / `EFFECTIVE_CORES`). Both are ALWAYS set,
+    including to an empty tuple: absent, a fold could not tell "none is
+    declared" from "nobody supplied the list". For the adversary set the
+    two answers produce spikes six times apart; for the core set, an
+    unsupplied list silently turns `cf_vector_shift` off, which is the
+    shape of failure WP-4.1d found in `expansion.context_for` and fixed by
+    removing the default rather than by remembering to pass a value.
     """
     supplied = previous_cycle(store, now=now, countries=countries)
     supplied.update(phase_history(store, now=now, countries=countries))
     supplied.update(entity_history(store))
     supplied[ADVERSARY_ORIGINS] = tuple(
         sorted({str(code).upper() for code in adversaries}))
+    supplied[EFFECTIVE_CORES] = tuple(
+        sorted({str(code).upper() for code in cores}))
     return supplied
+
+
+def refresh_state(supplied: Mapping[str, object]) -> dict:
+    """`{adapter: {(label, scope_key): stored_at}}` — §7-2 #117's repair.
+
+    A `RequestSpec` may declare `refresh_after_sec`, meaning "do not send
+    me again while a stored answer is younger than this". The AGE has to
+    come from somewhere the kernel cannot reach, and for the origin
+    baseline that somewhere is the snapshot this module has already read:
+    `cf_origin_baseline`'s `observed_at` is v3's `b_data["time"]`, and
+    `core.py:739` is literally `current_time - b_data["time"] > 86400`.
+
+    So this is not a second scheduler. Production has no scheduler for
+    this either — it has a stored value with a timestamp, and one
+    comparison. Both of the target's two baseline requests are keyed to
+    the SAME timestamp because production refreshes them together, inside
+    one `if` (`core.py:739-742`).
+
+    Pure: it reads the mapping `for_cycle` returned and opens nothing.
+    """
+    from v3.adapters.cyber.cloudflare_radar import (CLOUDFLARE_RADAR,
+                                                    ORIGIN_L3_BASELINE,
+                                                    ORIGIN_L7_BASELINE)
+    snapshot = supplied.get("cf_origin_baseline") or {}
+    stored: dict = {}
+    for entity, rows in dict(snapshot).items():
+        country = str(entity or "").upper()
+        stamps = [float(row["observed_at"]) for row in (rows or ())
+                  if isinstance(row, Mapping) and row.get("observed_at")
+                  is not None]
+        if not country or not stamps:
+            continue
+        for label in (ORIGIN_L3_BASELINE, ORIGIN_L7_BASELINE):
+            stored[(label, country)] = max(stamps)
+    return {CLOUDFLARE_RADAR.value: stored}
 
 
 def carried_values(store, *, now: float) -> dict:
@@ -403,7 +454,7 @@ def coverage(adapters: Iterable) -> dict:
 
 
 __all__ = ["PREVIOUS_CYCLE_SCALARS", "PHASE_BASELINES", "ENTITY_BASELINES",
-           "ADVERSARY_ORIGINS",
+           "ADVERSARY_ORIGINS", "EFFECTIVE_CORES", "refresh_state",
            "UNANSWERABLE", "VERDICT_WITHHELD", "PhaseBaseline",
            "EntityBaseline", "previous_cycle", "phase_history",
            "entity_history", "for_cycle", "carried_values", "declared_names",

@@ -80,6 +80,14 @@ DEFAULT_DATE_RANGE = "1d"
 #: longer range rather than accumulating a series, which is why the ledger
 #: holds one snapshot per target and not ninety days of anything.
 BASELINE_DATE_RANGE = "28d"
+#: `radar/routes/core.py:739` — `current_time - b_data["time"] > 86400`.
+#: The 28-day WINDOW is asked for again only once a DAY, and the two
+#: numbers are not the same fact: at the adapter cadence (900s) the window
+#: would travel ~96 times a day, folding each cycle's own attack into the
+#: baseline it is measured against. That dilution is the insensitive
+#: direction, and ~190 extra requests per target per day against a
+#: rate-limited endpoint buys it.
+BASELINE_REFRESH_SEC = 86400.0
 
 #: The ledger key each BGP payload lands under. `cf_bgp_hijack` is
 #: production's rationale entry (`radar/routes/core.py:1165`); the leak
@@ -394,7 +402,12 @@ CLOUDFLARE_RADAR_ADAPTER = SourceAdapter(
                  url=(_L3_ORIGIN_URL if layer == "l3" else _L7_ORIGIN_URL),
                  expect_content="json",
                  params=(("location", "{country}"), ("dateRange", window),
-                         ("format", "json")), label=label)
+                         ("format", "json")), label=label,
+                 # Only the two BASELINE windows carry a refresh gate; the
+                 # current window is what every cycle is about.
+                 refresh_after_sec=(BASELINE_REFRESH_SEC
+                                    if window == BASELINE_DATE_RANGE
+                                    else None))
                  for label, (_, layer, window) in _ORIGIN_SPEC.items()),
     cadence=_CADENCE, normalize=normalize,
     freshness_horizon_sec=_FRESHNESS_HORIZON_SEC, auth=_CF_AUTH,
@@ -411,6 +424,7 @@ __all__ = ["CLOUDFLARE_RADAR", "CLOUDFLARE_RADAR_ADAPTER", "normalize",
            "BGP_DATE_RANGE", "DEFAULT_DATE_RANGE", "BASELINE_DATE_RANGE",
            "CF_MIN_INTERVAL_SEC", "CF_AUTH", "LOCATION_KEYS",
            "BGP_HIJACK_SIGNAL", "BGP_LEAK_SIGNAL", "SPIKE_SIGNAL",
+           "BASELINE_REFRESH_SEC",
            "ORIGIN_L3", "ORIGIN_L7", "ORIGIN_L3_BASELINE",
            "ORIGIN_L7_BASELINE", "ORIGIN_LABELS", "ORIGIN_SIGNALS",
            "ORIGIN_COUNTRY_PARAMS"]
