@@ -36,14 +36,20 @@ class Owner:
     """
 
     API_COMMANDS = "WP-4.1g (L6: 指令面の残り)"
-    INTEL = "WP-4.1g (インテルキュー読み取り)"
+    # INTEL は WP-4.1g で解消（R11 / C3）。裁定状態は command_record の
+    # fold であり、繰延理由だった「キューの裁定状態を持つ表」は作らずに
+    # 済んだ — 表が要ると読んだこと自体が誤りだった。
     # ATTENTION / DECISIONS / PROPOSALS は WP-4.1f で解消（R6/C4, R9,
     # R13/C5 が着地）。CONFIG は WP-4.1d で解消（R14 / C7）。NARRATIVE も
     # WP-4.1f で解消（v3/attention/narrative.py が P7 §4 の唯一のエンジン）。
     # 誰も負っていないオーナー定数は残さない — 「誰かが負っている」の
     # 見た目だけが残るため。
-    SCORING_TICK = "WP-4.1g + 抑制規則の fold 配線 (v3/runtime)"
-    AUTH = "WP-4.1g (認証・利用者ストア)"
+    SCORING_TICK = "抑制規則の fold 配線 (v3/runtime)"
+    HUMAN_ANCHOR = "較正アンカー経路 (出題器 + 回答の取り込み口)"
+    SCENARIO_SOURCE = "シナリオ解決チェーン (geo_data.json を default 層に)"
+    LLM_PATH = "LLM 投入経路 (v3/fetch/llm.py::submit の本番呼び手)"
+    # AUTH は WP-4.1g で解消（C13 の 9 本が着地。利用者ストアは
+    # command_record の fold で、第 2 の表は作らなかった）。
     NOTIFICATIONS = "WP-4.2 (通知スライス。v3 に通知系そのものが無い)"
 
 
@@ -111,34 +117,60 @@ SERVED: tuple[Served, ...] = (
            ("C4a", "C4s", "C4d", "C4t")),
     Served("C5", "提案 apply/dismiss/defer", ("C5a", "C5d", "C5f")),
     Served("C6", "反実仮想 1 系統（L2 カーネルの dry-run）", ("C6",)),
+    # ── WP-4.1g: the cutover precondition (§7-2 #99) ────────────────────
+    # 9 routes, and the two that mint a session write no ledger row —
+    # a session is a signed statement ABOUT the user fold, not a state
+    # beside it. What IS ledger state (the revocation floor, the standing,
+    # the credential) is the fold of `command_record` like everything
+    # else here, so there is one mechanism and R9 already projects it.
+    Served("R11", "インテルキュー読み取り（L1 観測 × 裁定 fold）。"
+                  "NP7 envelope は他射影と同一", ("R11",)),
+    Served("C3", "インテル裁定 3 動詞（confirm/reject/revert）。"
+                 "override は §7-2 #104 で繰延 — 訂正を読む先が無い",
+           ("C3c", "C3r", "C3v")),
+    Served("C13", "auth 族 9 本（login/refresh/logout/register/password + "
+                  "利用者 CRUD）。auth/settings は PROP-014 どおり持たない",
+           ("C13login", "C13refresh", "C13logout", "C13password",
+            "C13register", "C13users", "C13user", "C13role", "C13remove")),
 )
 
 DEFERRED: tuple[Deferred, ...] = (
-    Deferred("R11", "インテルキュー読み取り", Owner.INTEL,
-             "intel item は L1 の観測として落ちる（§4-2）が、キューの "
-             "裁定状態を持つ表がまだ無い"),
-    Deferred("C3", "インテル裁定 4 動詞", Owner.INTEL,
-             "R11 と対。キューの裁定状態を持つ表が無く、確定した裁定を"
-             "読み返す先が存在しない"),
     Deferred("C8", "ノイズ除外規則", Owner.SCORING_TICK,
              "消費者（採点ティック）は WP-4.1e で着地したが、それは阻害の"
              "片方でしかない。残るのは規則そのものを fold / gating に読ませる"
              "経路: v3/runtime/suppression.py は adapter 間の抑制しか持たず、"
              "指令台帳の除外規則を参照する辺が無い。配線前に出すと"
-             "『除外したのに除外されない』"),
-    Deferred("C10", "AP3 人間アンカー", Owner.API_COMMANDS,
-             "設問の生成側（S1-UI-028 の独立性を壊さない出題）が未着地。"
-             "回答だけ受け取っても採点されない"),
-    Deferred("C11", "シナリオ CRUD", Owner.API_COMMANDS,
-             "シナリオは合成ルート（v3/runtime/geo.py）が供給する。"
-             "指令台帳を第 2 の供給源にすると 2 系統が乖離する"),
-    Deferred("C12", "LLM 運用族", Owner.API_COMMANDS,
-             "kill switch は NP3 上重要だが、消費者は v3/fetch/llm.py。"
-             "fold を読ませる配線が無い状態で出すと"
-             "『止めたのに止まらない』"),
-    Deferred("C13", "auth 族", Owner.AUTH,
-             "principal の供給元。利用者ストアとパスワード機構は"
-             "この面より大きく、単独スライスが適切"),
+             "『除外したのに除外されない』。"
+             "**WP-4.1g の注**: C3 の reject は同じ問いに答えを出した — "
+             "`observations_at` が 1 辺で除外を効かせる。C8 はそれを"
+             "「規則」（sensor × country × 期間のパターン）へ一般化する"
+             "スライスであり、辺の位置は同じで済む"),
+    Deferred("C10", "AP3 人間アンカー", Owner.HUMAN_ANCHOR,
+             "**読み手ゼロ**（WP-4.1g で再確認）。回答を採点するのは較正の"
+             "アンカー経路で、v3 にはまだ (a) 独立性を壊さない出題器"
+             "（S1-UI-028）も (b) 回答を取り込む較正側の入口も無い。"
+             "v3/calibration/ に anchor の語が 1 つも無いことが実測。"
+             "受け取った回答が何にも影響しない指令は G-15 そのもの"),
+    Deferred("C11", "シナリオ CRUD", Owner.SCENARIO_SOURCE,
+             "**裁定（WP-4.1g）: 第 2 の供給源は作らない**。シナリオは"
+             "合成ルート（v3/runtime/geo.py が geo_data.json を読む）が"
+             "供給し、participants / weights は L2 の採点に直接入る。"
+             "operator 可変にする正しい形は C7 と同じ 3 層解決"
+             "（geo_data.json = default 層、command_record の fold = "
+             "override 層）であり、第 2 の表でも第 2 の loader でもない。"
+             "ただしそれは採点入力を動かすスライスであって API 面の"
+             "スライスではないため、ここでは出さない。"
+             "着地条件: v3/runtime/geo.py が resolver シームを受け取り、"
+             "採点ティックがそれ経由でシナリオを組むこと"),
+    Deferred("C12", "LLM 運用族", Owner.LLM_PATH,
+             "**繰延理由を WP-4.1g で強化**。旧理由は「fold を読ませる配線"
+             "が無い」だったが、実測はより単純だった: "
+             "`v3/fetch/llm.py::submit` を呼ぶ本番経路が v3 に 1 つも無い"
+             "（AST 実測。呼び手はテストのみ）。kill switch は歩かれない"
+             "経路を止めるスイッチになる。LLM 投入経路そのものが着地する"
+             "スライスで同時に出すのが正しい — `submit` は既に "
+             "`available` 引数と `DISABLED` 結果を持っており、"
+             "fold を読む辺はその 1 箇所で足りる"),
 )
 
 

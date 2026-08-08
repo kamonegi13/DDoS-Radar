@@ -66,15 +66,36 @@ def create_blueprint(context_factory: Callable[[], ReadContext], *,
     It is called with the resolved principal, never with a request: a
     command's actor is decided by the same resolution the route's access
     decision used, so the two cannot disagree.
+
+    `principal_factory` receives the `Authorization` header's raw value
+    (or `None`). It is given the header rather than reading the request
+    itself so that this file stays the only one that knows about the web
+    (WP-4.1g): `v3/runtime/auth.py` builds the resolver, and a composition
+    root that imported Flask to read a header would have moved the web
+    boundary without moving the comment that describes it.
     """
     from flask import Blueprint, jsonify, request as flask_request
 
     blueprint = Blueprint(name, __name__)
 
+    def _authorization():
+        headers = getattr(flask_request, "headers", None)
+        return None if headers is None else headers.get("Authorization")
+
+    def _client_ip():
+        """The source address, from the connection.
+
+        `X-Forwarded-For` is deliberately NOT consulted. Production trusts
+        it when `TRUST_PROXY_XFF` is set (`radar/auth.py:33-42`); v3 has no
+        proxy in front of it yet, and a header trusted by default is a
+        login guard an attacker resets by typing.
+        """
+        return getattr(flask_request, "remote_addr", None)
+
     def _principal():
         if principal_factory is None:
             return ANONYMOUS
-        resolved = principal_factory()
+        resolved = principal_factory(_authorization())
         if resolved is None:
             return ANONYMOUS
         if not isinstance(resolved, Principal):
@@ -102,7 +123,7 @@ def create_blueprint(context_factory: Callable[[], ReadContext], *,
                 path=flask_request.path,
                 params=dict(flask_request.args),
                 body=(flask_request.get_json(silent=True) or {}),
-                principal=principal)
+                principal=principal, client_ip=_client_ip())
             response = handle(api_request, context)
             return jsonify(response.as_dict()), response.status
 

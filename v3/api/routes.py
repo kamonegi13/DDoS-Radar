@@ -23,24 +23,45 @@ from typing import Callable, Optional
 
 from v3.api.authorization import Access
 from v3.api.handlers import attention as H_attention
+from v3.api.handlers import auth as H_auth
 from v3.api.handlers import commands as H_commands
 from v3.api.handlers import decisions as H_decisions
 from v3.api.handlers import conclusions as H_conclusions
 from v3.api.handlers import config as H_config
 from v3.api.handlers import disclosure as H_disclosure
 from v3.api.handlers import evidence as H_evidence
+from v3.api.handlers import intel as H_intel
 from v3.api.handlers import proposals as H_proposals
 from v3.api.handlers import reliability as H_reliability
 from v3.api.handlers import scenarios as H_scenarios
 from v3.api.handlers import whatif as H_whatif
 from v3.api.vocabulary import (API_PREFIX, DELETE, GET, METHODS, POST,
-                               PUT, ROLE_ANALYST, ROLE_VIEWER, SAFE_METHODS)
+                               PUT, ROLE_ADMIN, ROLE_ANALYST, ROLE_VIEWER,
+                               SAFE_METHODS)
 from v3.kernel.errors import DomainError
 
 _READ_ONLY = ("読み取り射影。AP3 の透明性情報を含め viewer に開放する"
               "（S2-PROP-021: 「今このツールをどこまで信じるか」は全利用者が"
               "見るべき情報）")
 _PROBE = "起動・死活 probe。トークンを要求すると再起動役が使えない"
+#: The only other public decision on the surface, and it is forced: a
+#: caller who has no token is exactly the caller these two routes exist
+#: for. Everything they can learn is bounded by S1-SVC-002's uniform
+#: refusal — "no such user" and "wrong password" are one answer — so being
+#: public does not make them an enumeration oracle.
+_SESSION_PUBLIC = ("トークン取得・更新の経路。未認証の呼び手のために存在する"
+                   "ため public だが、失敗応答は一意（利用者の存在は"
+                   "漏れない）")
+#: S1-SVC-008: registration, listing, standing changes and removal are the
+#: administrator's alone. The self-service pair is open to any
+#: authenticated reader, because a viewer must be able to end their own
+#: session and change their own password.
+_INTEL_READ = ("インテルキュー。裁定は analyst の職務であり、"
+               "キュー自体も analyst 以上に限る（P7 R11「認可は analyst」）")
+_USER_ADMIN = ("利用者管理。登録・一覧・役割変更・無効化は admin のみ"
+               "（S1-SVC-008）")
+_SELF_SERVICE = ("自分自身のセッション／資格情報に対する操作。"
+                 "viewer を含む全認証利用者に開く")
 #: G-01, permanently. The defect was that `POST .../feedback` reached the
 #: calibration chain's input without the gate its three sibling endpoints
 #: had. Here the gate is this field: the route cannot exist without it.
@@ -126,6 +147,54 @@ DRY_RUN_ROUTES: dict = {
     "C6": "反実仮想。L2 カーネルを dry-run で呼ぶだけで台帳へ 1 行も書かない"
           "（POST なのは本体を持つため。書けないことは ReadContext が保証）",
 }
+
+
+#: A POST that mints or presents a session and writes NO ledger row.
+#: Closed and reasoned like `DRY_RUN_ROUTES`, and separate from it because
+#: the two are different claims: a dry run declines to write, a session
+#: route has nothing to write. A session is a signed statement about the
+#: user fold, not a state beside it — the states these DO move (a
+#: revocation floor) are moved by `C13logout`, which is an ordinary
+#: command with an ordinary audit row.
+SESSION_ROUTES: dict = {
+    "C13login": "資格情報を検証してトークン対を発行する。台帳へは 1 行も"
+                "書かない（失敗回数はプロセス内のログインガードが持つ）",
+    "C13refresh": "refresh トークンから access トークンを再発行する。"
+                  "役割はその時点の fold から解決する（S1-SVC-005）",
+}
+
+
+#: Commands a VIEWER may issue. Closed, reasoned per member, and checked
+#: by `tests/test_api_commands.py` — the same shape as `DRY_RUN_ROUTES`,
+#: and for the same reason: the general rule (a command needs analyst or
+#: above) is about the calibration chain's input and the sensor budget,
+#: and an exception that was merely allowed rather than declared would be
+#: indistinguishable from a route whose author picked the wrong floor.
+#:
+#: Both members act ONLY on the caller's own identity — the handler takes
+#: the target from `context.actor_id`, never from the request — so no
+#: privilege is reachable through them that the caller does not already
+#: hold. Refusing them at analyst would mean a viewer could not end their
+#: own session or change their own password, which is worse security, not
+#: better.
+SELF_SERVICE_ROUTES: dict = {
+    "C13logout": "自分のセッションを失効させる。対象は context.actor_id で"
+                 "あり要求からは取らない",
+    "C13password": "自分の資格情報を変更する。現行パスワードの検証を伴い、"
+                   "対象は同じく context.actor_id",
+}
+
+
+def _session(route_id: str, path: str, handler: Callable, serves: tuple,
+             *, note: str = "") -> Route:
+    """A public POST with a body and no ledger write. Must be declared."""
+    if route_id not in SESSION_ROUTES:
+        raise DomainError(
+            f"route {route_id} is a public unsafe method declaring no side "
+            f"effect and is not in SESSION_ROUTES.")
+    return Route(route_id=route_id, method=POST, path=path,
+                 access=Access.public_route(reason=_SESSION_PUBLIC),
+                 handler=handler, serves=serves, side_effect=False, note=note)
 
 
 def _dry_run(route_id: str, path: str, handler: Callable, serves: tuple,
@@ -243,6 +312,53 @@ ROUTES: tuple[Route, ...] = (
     _dry_run("C6", f"{API_PREFIX}/whatif", H_whatif.simulate, ("I-2",),
              note="反実仮想 1 系統。assemble + score を呼び L1 へ書かない。"
                   "POST だが side_effect=False — ReadContext が構造的に保証"),
+    # ── WP-4.1g / P7 C13 — the auth family ──────────────────────────────
+    _session("C13login", f"{API_PREFIX}/auth/login", H_auth.login, ("I-2",),
+             note="資格情報の検証とトークン対の発行。台帳へは書かない"),
+    _session("C13refresh", f"{API_PREFIX}/auth/refresh", H_auth.refresh,
+             ("I-2",), note="役割は fold から再解決する（S1-SVC-005）"),
+    _command("C13logout", f"{API_PREFIX}/auth/logout", H_auth.logout,
+             ("I-2",),
+             access=Access.at_least(ROLE_VIEWER, reason=_SELF_SERVICE),
+             note="失効の床を動かす指令。読み手は principal_for"),
+    _command("C13password", f"{API_PREFIX}/auth/password",
+             H_auth.change_password, ("I-2",),
+             access=Access.at_least(ROLE_VIEWER, reason=_SELF_SERVICE),
+             note="現行パスワードの検証つき。成功時に当人の全セッションが失効"),
+    _command("C13register", f"{API_PREFIX}/auth/register", H_auth.register,
+             ("I-2",),
+             access=Access.at_least(ROLE_ADMIN, reason=_USER_ADMIN),
+             note="識別子と最初の資格情報を 1 行で作る"),
+    _read("C13users", f"{API_PREFIX}/auth/users", H_auth.read_users,
+          ("I-2",),
+          access=Access.at_least(ROLE_ADMIN, reason=_USER_ADMIN),
+          note="資格情報は決して返さない（S1-SVC-008）"),
+    _read("C13user", f"{API_PREFIX}/auth/users/<user_id>", H_auth.read_user,
+          ("I-2",),
+          access=Access.at_least(ROLE_ADMIN, reason=_USER_ADMIN)),
+    _command("C13role", f"{API_PREFIX}/auth/users/<user_id>",
+             H_auth.set_user_standing, ("I-2",), method=PUT,
+             access=Access.at_least(ROLE_ADMIN, reason=_USER_ADMIN),
+             note="自分自身は変更できない。発行済み access トークンは即時失効"),
+    # ── WP-4.1g / P7 R11 + C3 — the intel queue ─────────────────────────
+    _read("R11", f"{API_PREFIX}/intel", H_intel.read_intel, ("I-2",),
+          access=Access.at_least(ROLE_ANALYST, reason=_INTEL_READ),
+          note="LLM インテルの L1 観測 × 裁定 fold。NP7 envelope は"
+               "他の全射影と同一（現行 /api/intel/pending/triage の欠落を解消）"),
+    _command("C3c", f"{API_PREFIX}/intel/<item_id>/confirm",
+             H_intel.confirm_intel, ("I-2",),
+             note="pending キューから外れる（読み手は R11 の ?state=）"),
+    _command("C3r", f"{API_PREFIX}/intel/<item_id>/reject",
+             H_intel.reject_intel, ("I-2",),
+             note="採点から外れる。読み手は observations_at — "
+                  "『除外したのに除外されない』を作らないための配線"),
+    _command("C3v", f"{API_PREFIX}/intel/<item_id>/revert",
+             H_intel.revert_intel, ("I-2",),
+             note="未裁定からの revert は拒否（本番は 0 行一致で成功を返す）"),
+    _command("C13remove", f"{API_PREFIX}/auth/users/<user_id>",
+             H_auth.remove_user, ("I-2",), method=DELETE,
+             access=Access.at_least(ROLE_ADMIN, reason=_USER_ADMIN),
+             note="無効化であって削除ではない。判断履歴は残る"),
 )
 
 
@@ -286,4 +402,4 @@ def by_id(route_id: str) -> Optional[Route]:
     return None
 
 
-__all__ = ["Route", "ROUTES", "match", "by_id"]
+__all__ = ["Route", "ROUTES", "SESSION_ROUTES", "DRY_RUN_ROUTES", "match", "by_id"]

@@ -138,11 +138,32 @@ class ReadContext:
     #: one analyst another's decisions. Defaults to ANONYMOUS rather than
     #: to a user id, so a context nobody stamped cannot impersonate.
     principal: Any = None
-    #: The request body, and ONLY for a declared dry run (P7 C6). A GET
-    #: has no body and a command's body lives on the `WriteContext`, so
-    #: this stays empty for every other route — a body reachable from an
-    #: ordinary read context would be an input nobody declared.
+    #: The request body, and ONLY for a declared dry run (P7 C6) or a
+    #: session route (P7 C13). A GET has no body and a command's body
+    #: lives on the `WriteContext`, so this stays empty for every other
+    #: route — a body reachable from an ordinary read context would be an
+    #: input nobody declared.
     body: Mapping[str, Any] = field(default_factory=dict)
+    #: The composition root's auth provider (`v3.auth.session.AuthProvider`)
+    #: or None. Optional and NOT defaulted to a permissive stand-in, for
+    #: the same reason `config` is not defaulted to an empty resolver: a
+    #: deployment composed without signing material must answer 503 on the
+    #: session routes rather than authenticate against nothing. v3 never
+    #: generates a key — production generates and PERSISTS one, and a
+    #: second generator racing that file would log every live analyst out.
+    auth: Optional[Any] = None
+    #: The composition root's ops probe result (`v3.runtime.ops_health`),
+    #: or None. A deployment fact rather than a ledger projection: a file
+    #: size and a marker's mtime are things only the layer that chose the
+    #: paths can see, and a read handler that stat()ed a path would be a
+    #: projection no `ReadOnlyLedger` could reproduce. `None` is served as
+    #: four monitors that each say why they are absent, never as silence.
+    ops_health: Optional[Any] = None
+    #: WHERE the call came from, stamped by the dispatcher from the
+    #: transport. Never from the body: the login guard counts failures per
+    #: source, and a client-supplied address would let one caller occupy a
+    #: fresh bucket per attempt.
+    client_ip: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.config is not None and not isinstance(self.config,
@@ -168,6 +189,12 @@ class ReadContext:
         if not isinstance(self.body, Mapping):
             raise DomainError("a read context's body must be a mapping")
         object.__setattr__(self, "body", dict(self.body))
+        if self.auth is not None and not hasattr(self.auth, "authority"):
+            raise DomainError(
+                f"a read context's auth seam is an AuthProvider, got "
+                f"{type(self.auth).__name__}. Duck-typed rather than "
+                f"imported because `v3.auth` imports this module; the "
+                f"attribute checked is the one that holds the signing key.")
         if self.principal is None:
             object.__setattr__(self, "principal", ANONYMOUS)
         elif not (self.principal is ANONYMOUS
@@ -210,6 +237,9 @@ class ApiRequest:
     params: Mapping[str, str] = field(default_factory=dict)
     body: Mapping[str, Any] = field(default_factory=dict)
     principal: Any = ANONYMOUS
+    #: The transport's view of the caller's address. The binding fills it;
+    #: nothing else may, and no handler may read it from the body.
+    client_ip: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.method not in METHODS:

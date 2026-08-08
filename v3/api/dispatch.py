@@ -77,8 +77,10 @@ def _with_principal(context, request: ApiRequest):
                 f"The audit row would name one and the state read belong to "
                 f"the other, which is a decision trail pointing at the wrong "
                 f"analyst.")
-        return replace(context, read=replace(context.read, principal=actor))
-    return replace(context, principal=request.principal)
+        return replace(context, read=replace(
+            context.read, principal=actor, client_ip=request.client_ip))
+    return replace(context, principal=request.principal,
+                   client_ip=request.client_ip)
 
 
 def _context_for(route: R.Route, context, request: ApiRequest):

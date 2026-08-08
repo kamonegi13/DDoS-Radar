@@ -121,9 +121,20 @@ def observations_at(store, *, now: float,
     B-03's repair: without the horizon a sensor that died on day 3 keeps
     contributing for the rest of the window.
     """
+    from v3.intel import adjudication as intel
+
     adapter = LedgerInputAdapter(store, tick_interval_sec=tick_interval_sec)
+    # THE reader for P7 C3's `reject`. Applied here because this is the one
+    # place the ledger becomes kernel input, so "rejected intel does not
+    # score" is a single edge rather than a rule every caller keeps. The
+    # row is not deleted — L1 is append-only and R11 still shows it with
+    # its adjudication, which is what "an analyst decided" has to look
+    # like afterwards.
+    excluded = intel.rejected_ids(store, until=now)
     for tick_input in adapter.ticks(now, now):
-        return to_v3_observations(tick_input.rows)
+        rows = [row for row in tick_input.rows
+                if str(row.get("id")) not in excluded]
+        return to_v3_observations(rows)
     return ()
 
 

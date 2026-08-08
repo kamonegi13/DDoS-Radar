@@ -201,6 +201,30 @@ def from_environment(key_ids: Sequence[str]) -> Mapping[str, str]:
     return MappingProxyType(found)
 
 
+def optional_value(key_id: str,
+                   source: Optional[Mapping[str, str]] = None
+                   ) -> Optional[str]:
+    """One named secret, or None. NEVER generated, never persisted.
+
+    Used by the composition root for the session surface's signing key and
+    for bootstrap material. The asymmetry with production is deliberate
+    and is the whole protection for the live system: `radar/auth.py`
+    generates a key when `JWT_SECRET_KEY` is unset and APPENDS it to
+    `config.env`. A second process doing the same thing would race that
+    file, and the loser's key change logs every analyst out — the ops
+    record's standing caution. So v3 reads its OWN key id, reads nothing
+    if it is absent, and the caller composes a deployment with no session
+    surface rather than one with an invented secret.
+    """
+    if source is not None:
+        value = source.get(str(key_id))
+    else:
+        value = from_environment([str(key_id)]).get(str(key_id))
+    if value is None or not str(value).strip():
+        return None
+    return str(value).strip()
+
+
 def _requirements(adapter) -> tuple:
     """Every `AuthRequirement` an adapter can present, deduplicated.
 
@@ -274,4 +298,4 @@ def resolve(adapters: Iterable,
 
 __all__ = ["AUTHENTICATED", "ANONYMOUS", "UNSATISFIED", "MODES",
            "CredentialPosture", "CredentialPlan", "resolve",
-           "from_environment", "required_key_ids"]
+           "from_environment", "optional_value", "required_key_ids"]

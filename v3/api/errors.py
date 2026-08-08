@@ -22,11 +22,18 @@ from v3.kernel.errors import DomainError
 #: S2-PROP-016. The dispatcher walks these in order and stops at the
 #: first failure, so a route cannot answer 404 to a caller who should
 #: have been told 401.
-EVALUATION_ORDER: tuple[int, ...] = (503, 401, 403, 400, 404, 200)
+#:
+#: 429 sits between 503 and 401 (WP-4.1g). It is a statement about the
+#: SOURCE rather than about the credential, and production evaluates it
+#: first for that reason (`radar/auth.py:445-449`): a throttled caller must
+#: be told to stop before the surface says anything about whether the
+#: username exists, or the 401/429 distinction becomes an oracle.
+EVALUATION_ORDER: tuple[int, ...] = (503, 429, 401, 403, 400, 404, 200)
 
 # Stable codes. The UI maps these to i18n keys; the message is the
 # fallback for a caller that has no dictionary.
 UNAVAILABLE = "api.unavailable"
+THROTTLED = "api.too_many_requests"
 UNAUTHENTICATED = "api.unauthenticated"
 FORBIDDEN = "api.forbidden"
 BAD_REQUEST = "api.bad_request"
@@ -35,8 +42,8 @@ METHOD_NOT_ALLOWED = "api.method_not_allowed"
 INTERNAL = "api.internal_error"
 
 ERROR_CODES: frozenset = frozenset({
-    UNAVAILABLE, UNAUTHENTICATED, FORBIDDEN, BAD_REQUEST, NOT_FOUND,
-    METHOD_NOT_ALLOWED, INTERNAL})
+    UNAVAILABLE, THROTTLED, UNAUTHENTICATED, FORBIDDEN, BAD_REQUEST,
+    NOT_FOUND, METHOD_NOT_ALLOWED, INTERNAL})
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +95,29 @@ def bad_request(message: str, **detail: Any) -> ApiFailure:
                                     detail=detail))
 
 
+def unauthenticated(message: str, **detail: Any) -> ApiFailure:
+    """401 with NO distinguishing detail by default.
+
+    S1-SVC-002: "no such user" and "wrong password" are one answer, so the
+    surface cannot be used to enumerate accounts. Callers pass detail only
+    where the caller already knows the fact.
+    """
+    return ApiFailure(401, ApiError(code=UNAUTHENTICATED, message=message,
+                                    detail=detail))
+
+
+def throttled(message: str, **detail: Any) -> ApiFailure:
+    return ApiFailure(429, ApiError(code=THROTTLED, message=message,
+                                    detail=detail))
+
+
+def unavailable(message: str, **detail: Any) -> ApiFailure:
+    return ApiFailure(503, ApiError(code=UNAVAILABLE, message=message,
+                                    detail=detail))
+
+
 __all__ = ["ApiError", "ApiFailure", "EVALUATION_ORDER", "ERROR_CODES",
-           "UNAVAILABLE", "UNAUTHENTICATED", "FORBIDDEN", "BAD_REQUEST",
-           "NOT_FOUND", "METHOD_NOT_ALLOWED", "INTERNAL", "not_found",
-           "bad_request"]
+           "UNAVAILABLE", "THROTTLED", "UNAUTHENTICATED", "FORBIDDEN",
+           "BAD_REQUEST", "NOT_FOUND", "METHOD_NOT_ALLOWED", "INTERNAL",
+           "not_found", "bad_request", "unauthenticated", "throttled",
+           "unavailable"]

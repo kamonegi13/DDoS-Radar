@@ -6,6 +6,12 @@ Production spreads this over five surfaces — `decisions/history`,
 change on the 12th" is five queries whose answers cannot be merged. P7
 collapses them into this one projection, filtered by `?type=`.
 
+Secret-named fields are redacted on the way out (`SPEC.redact`), because
+the user store landed as a fold of this same table: the trail must show
+that a credential changed, who changed it and when, and must not show the
+material. It is applied at the two places a row becomes a response rather
+than at the store, since the folds need the row intact.
+
 **There is no `decision` table.** The registry's deferral note settled
 that when WP-3.3 landed: `command_record` already IS the unified ledger —
 every change the surface governs is a row on it, because the effective
@@ -78,7 +84,8 @@ def _command_rows(ledger, *, target_kind, target_id, actor_id, until, limit):
              "action": row["action"], "target_id": row["target_id"],
              "actor_id": row["actor_id"], "actor_role": row["actor_role"],
              "decided_at": row["issued_at"], "reason": row.get("reason"),
-             "before": row.get("before"), "after": row.get("after"),
+             "before": SPEC.redact(row.get("before")),
+             "after": SPEC.redact(row.get("after")),
              "automated": False}
             for row in ordered]
 
@@ -164,7 +171,12 @@ def read_decision(context, *, command_id: str) -> ApiResponse:
     rows = context.ledger.command_records(until=context.now)
     for row in rows:
         if row["command_id"] == command_id:
-            return tool_response(observed_at=context.now, decision=row,
+            # Redacted HERE, at the one place a command row becomes a
+            # response. The user store is a fold of this table (P7 C13),
+            # so an un-redacted by-id face would serve a credential to
+            # every reader of the trail.
+            return tool_response(observed_at=context.now,
+                                 decision=SPEC.redact(row),
                                  decision_types=list(DECISION_TYPES))
     raise E.not_found(f"判断 {command_id}", command_id=command_id)
 

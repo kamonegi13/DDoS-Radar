@@ -17,6 +17,13 @@ Two properties are load-bearing:
   and a self-referential metric that had gone identically zero reported
   no anomaly across 360,000 conclusions.
 
+`ops_health` is the fifth block and it is ALWAYS served (WP-4.1g). Two of
+its four monitors are answerable by v3 today (backup age from a marker
+beside the ledger, capacity from the ledger file against the retention
+target); two are not, because v3 has no L5 verification layer and no LLM
+health roll-up. All four appear with their verdicts, so the composite is
+reserved for a NAMED reason rather than for an absent field.
+
 Recall is `None` here today with a stated reason: the ground-truth label
 ledger lands with WP-3.3, and pooling zero cells is not a measurement.
 The aggregation path is L4's (`v3.calibration.status.self_evaluate`), not
@@ -25,11 +32,14 @@ to be the same arithmetic, which is only checkable if there is one.
 """
 from __future__ import annotations
 
+from typing import Mapping
+
 from v3.api.envelope import ApiResponse, tool_response
 from v3.calibration import status as S
 from v3.calibration.epoch import CURRENT_EPOCH, EpochStamp
 from v3.calibration.thresholds import CALIBRATION_WINDOW_SEC
 from v3.ledger import views
+from v3.runtime import ops_health as OPS
 
 DAY_SEC = 86400.0
 CHRONIC_THRESHOLD_SEC = 7 * DAY_SEC
@@ -121,6 +131,22 @@ def _sensor_rollup(context) -> list[dict]:
     return summary
 
 
+def _ops_health_block(context) -> dict:
+    """The operational axis (P8 §4's fifth fold input).
+
+    Always present. WP-4.2's trust chip read amber because R7 had no such
+    field at all, which meant the page could not distinguish "nothing is
+    watching the backups" from "the server has not been taught to say".
+    Now it says: an unprobed deployment gets four monitors, each carrying
+    the reason it cannot answer, and the fold is still reserved — because
+    two green monitors out of four is not a green deployment (G-17).
+    """
+    supplied = getattr(context, "ops_health", None)
+    if isinstance(supplied, Mapping) and supplied.get("monitors"):
+        return dict(supplied)
+    return OPS.probe_absent(now=context.now)
+
+
 def read_self_eval(context) -> ApiResponse:
     """R7 — the composite reliability read (O-11)."""
     evaluation = S.self_evaluate((), stamp=_stamp(context.now))
@@ -133,6 +159,7 @@ def read_self_eval(context) -> ApiResponse:
                 "measurable になりません。0.0 ではなく None を返します。"),
             "null_zone": _null_zone_block(context),
             "data": _freshness_block(context),
+            "ops_health": _ops_health_block(context),
             "sensors": {"count": len(_sensor_rollup(context))},
             "epoch": {"epoch_id": CURRENT_EPOCH.epoch_id,
                       "window_sec": CALIBRATION_WINDOW_SEC},

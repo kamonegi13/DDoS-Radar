@@ -201,9 +201,11 @@ class TestEveryRouteIsAProjection:
                   if route.method not in SAFE_METHODS]
         assert unsafe, "the command surface is empty"
         for route in unsafe:
-            if route.route_id in R.DRY_RUN_ROUTES:
+            declared = dict(R.DRY_RUN_ROUTES)
+            declared.update(R.SESSION_ROUTES)
+            if route.route_id in declared:
                 assert route.side_effect is False, route.route_id
-                assert R.DRY_RUN_ROUTES[route.route_id].strip(), route.route_id
+                assert declared[route.route_id].strip(), route.route_id
                 continue
             assert route.side_effect is True, route.route_id
 

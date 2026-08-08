@@ -22,6 +22,9 @@ and a sentinel scenario id costs a constant.
 """
 from __future__ import annotations
 
+from v3.kernel.roles import (ROLE_ADMIN, ROLE_ANALYST, ROLE_ORDER, ROLES,
+                             ROLE_VIEWER)
+
 API_PREFIX = "/api/v3"
 
 #: The scenario id for projections that are about the tool, not a
@@ -30,15 +33,10 @@ API_PREFIX = "/api/v3"
 #: sentinel rather than as data.
 TOOL_SCOPE = "__tool__"
 
-ROLE_VIEWER = "viewer"
-ROLE_ANALYST = "analyst"
-ROLE_ADMIN = "admin"
-
-#: THE total order. S2-PROP-021: declared once, referenced by every gate.
-#: Containment, not arithmetic — a role is a position in this tuple and
-#: never an integer that some other module can compare its own way.
-ROLE_ORDER: tuple[str, ...] = (ROLE_VIEWER, ROLE_ANALYST, ROLE_ADMIN)
-ROLES: frozenset = frozenset(ROLE_ORDER)
+#: THE total order lives in `v3/kernel/roles.py` since WP-4.1g and is
+#: re-exported here unchanged. It moved DOWN rather than being copied:
+#: `v3/auth/` needs it and cannot import `v3.api` without a cycle, and a
+#: second copy is precisely what S2-PROP-021 exists to prevent.
 
 GET = "GET"
 POST = "POST"

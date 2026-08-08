@@ -257,13 +257,18 @@
     }
 
     /**
-     * L5's five liveness monitors, heartbeat, backup age and LLM health.
+     * L5's liveness monitors, heartbeat, backup age and LLM health.
      *
-     * P8 §4 names them as a fold input. R7 does not serve them (WP-0.3 built
-     * `ops_health` in the v1 process; no v3 projection carries it yet). The
-     * chip therefore reports the gap rather than folding four of five and
-     * calling the answer complete — which is the shape of G-17, a verdict
-     * that cannot say what it was built from.
+     * SERVED since WP-4.1g. R7 now carries `ops_health` on every response:
+     * four named monitors (backup, capacity, l5_checks, llm_health) with a
+     * verdict each, folded worst-wins on the server. Two of them v3 can
+     * answer today and two it cannot, and the block says which — so the
+     * chip reads MEASURED-reserved with a named cause instead of
+     * UNSUPPLIED. The UNSUPPLIED branch stays because a deployment can
+     * still be composed without the block, and "the field is absent" and
+     * "the monitor is absent" are different facts.
+     *
+     * The chip still folds nothing itself: `worst_band` arrives decided.
      */
     function _opsHealth(selfEval) {
         var ops = selfEval && selfEval.ops_health;

@@ -107,11 +107,44 @@ class TestG01IsStructurallyDead:
         assert response.status == 200
 
     def test_every_command_route_states_analyst_or_higher(self):
+        """...unless it is a declared self-service route (WP-4.1g).
+
+        The rule is about the calibration chain's input and the sensor
+        budget, and P7 C13's logout and password routes touch neither:
+        each acts on `context.actor_id` alone. The exception is therefore
+        a named set with a reason per member — the shape `DRY_RUN_ROUTES`
+        already uses — and never a floor an author could pick by mistake.
+        """
         for route in R.ROUTES:
             if not route.side_effect:
                 continue
             assert route.access.public is False, route.route_id
+            if route.route_id in R.SELF_SERVICE_ROUTES:
+                assert route.access.minimum_role == ROLE_VIEWER, route.route_id
+                assert R.SELF_SERVICE_ROUTES[route.route_id].strip()
+                continue
             assert route.access.minimum_role in (ROLE_ANALYST, ROLE_ADMIN)
+
+    def test_a_self_service_route_acts_only_on_the_caller(self):
+        """The property that licenses the exception, checked by AST.
+
+        A self-service handler must take its target from the actor and
+        never from a path parameter, or "viewer may call it" would become
+        "a viewer may change anybody's password".
+        """
+        import ast
+        import inspect
+        from v3.api.handlers import auth as H
+        for route_id in R.SELF_SERVICE_ROUTES:
+            handler = R.by_id(route_id).handler
+            signature = inspect.signature(handler)
+            assert [name for name, param in signature.parameters.items()
+                    if param.kind is param.KEYWORD_ONLY] == [], route_id
+            source = ast.parse(inspect.getsource(handler).lstrip())
+            assert any(isinstance(node, ast.Attribute)
+                       and node.attr == "actor_id"
+                       for node in ast.walk(source)), route_id
+        assert H.__name__
 
     def test_the_label_is_read_back_by_a_projection(self, store):
         cid = _stored_conclusion_id(store)

@@ -24,4 +24,9 @@ regexes = [
     '''REPLACE_ME''',
     '''XXXX+''',
     '''<[a-z_-]+>''',
+    # Constant NAMES exported from the password module. generic-api-key
+    # matches the identifier PBKDF2_ITERATIONS inside __all__; the value it
+    # names is an iteration count (100_000), pinned by a mutation test.
+    # Allowlisting the name, not a value: no literal is exempted here.
+    '''PBKDF2_ITERATIONS''',
 ]

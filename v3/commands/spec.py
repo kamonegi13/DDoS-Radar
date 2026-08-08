@@ -24,6 +24,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from v3.auth import store as U
+from v3.intel import adjudication as I
 from v3.commands import attention as A
 from v3.commands import state as S
 from v3.kernel.errors import DomainError
@@ -31,7 +33,38 @@ from v3.kernel.errors import DomainError
 TARGET_KINDS: frozenset = frozenset({S.TARGET_SCENARIO, S.TARGET_CONCLUSION,
                                      S.TARGET_CONFIG, S.TARGET_PROPOSAL,
                                      A.TARGET_ATTENTION,
-                                     A.TARGET_ATTENTION_THRESHOLDS})
+                                     A.TARGET_ATTENTION_THRESHOLDS,
+                                     U.TARGET_USER, I.TARGET_INTEL})
+
+#: Field names whose VALUE must never reach a projection, at any depth.
+#: WP-4.1g. The user store is a fold of `command_record` like every other
+#: state here, and R9 projects that table — so a credential would be
+#: served to every reader of the decision trail unless the redaction were
+#: structural. It is applied at the ONE place rows become a response
+#: (`v3/api/handlers/decisions.py`), by key name and recursively, and
+#: `tests/test_api_auth.py` sweeps every registered action's record
+#: through R9 looking for the material rather than trusting the list.
+SECRET_FIELD_NAMES: frozenset = frozenset({
+    "password", "new_password", "old_password", "credential",
+    "password_hash", "hash", "salt", "secret", "token", "access_token",
+    "refresh_token", "key"})
+
+REDACTED = "[redacted]"
+
+
+def redact(value):
+    """A copy with every secret-named field replaced. Never mutates.
+
+    Returns a new structure because the caller is projecting a row that
+    other readers (the folds) still need intact — a redactor that edited
+    in place would corrupt the state on the way to displaying it.
+    """
+    if isinstance(value, dict):
+        return {key: (REDACTED if key in SECRET_FIELD_NAMES
+                      else redact(item)) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [redact(item) for item in value]
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,6 +261,101 @@ SPECS: tuple[CommandSpec, ...] = (
                 "itself calls, so commit()'s effect check is a proof that "
                 "the ranking reads the analyst's floor rather than a claim "
                 "that it does."),
+    # ── WP-4.1g / P7 C13 — identity, credentials and standing ───────────
+    #
+    # Five edges on ONE state, resolved by ONE function, exactly like the
+    # proposal lifecycle. There is no `user` table: a second store holding
+    # the same facts would be a second thing to disagree with the audit
+    # trail, and the questions such a table would answer — who, when, why,
+    # and what it was before — are already columns on `command_record`.
+    CommandSpec(
+        action=U.USER_REGISTER,
+        target_kind=U.TARGET_USER,
+        resolve=U.resolve_user,
+        apply=U.apply_register,
+        requires_reason=False,
+        effect_key="user",
+        summary="P7 C13 — an identity and its first credential. The reader "
+                "is the login path, which resolves the credential from this "
+                "same fold, so the effect check proves the credential is "
+                "where authentication looks for it."),
+    CommandSpec(
+        action=U.USER_PASSWORD_SET,
+        target_kind=U.TARGET_USER,
+        resolve=U.resolve_user,
+        apply=U.apply_password_set,
+        requires_reason=False,
+        effect_key="user",
+        summary="P7 C13 — a credential changes and the user's sessions are "
+                "revoked in the same row (S1-SVC-007). Production needs two "
+                "writes for that and does them outside a transaction."),
+    CommandSpec(
+        action=U.USER_ROLE_SET,
+        target_kind=U.TARGET_USER,
+        resolve=U.resolve_user,
+        apply=U.apply_role_set,
+        requires_reason=True,
+        effect_key="user",
+        summary="P7 C13 — a change of standing. A reason is required "
+                "because a privilege granted without a recorded basis "
+                "cannot be reviewed afterwards, and because this is the "
+                "row an incident review starts from."),
+    CommandSpec(
+        action=U.USER_DEACTIVATE,
+        target_kind=U.TARGET_USER,
+        resolve=U.resolve_user,
+        apply=U.apply_deactivate,
+        requires_reason=True,
+        effect_key="user",
+        summary="P7 C13 — deactivation rather than deletion. The decision "
+                "trail keeps what this person decided; production DELETEs "
+                "the row and orphans the settings row (ACCIDENTAL A3)."),
+    CommandSpec(
+        action=U.USER_SESSIONS_REVOKE,
+        target_kind=U.TARGET_USER,
+        resolve=U.resolve_user,
+        apply=U.apply_sessions_revoke,
+        requires_reason=False,
+        effect_key="user",
+        summary="P7 C13 — logout. Revokes the user's standing at this "
+                "instant rather than one token's JTI, so the refresh token "
+                "dies with the access token (production leaves it alive for "
+                "the rest of its 24 hours — ACCIDENTAL A2)."),
+    # ── WP-4.1g / P7 C3 — intel adjudication ────────────────────────────
+    #
+    # Three of production's four verbs. `override` is deliberately absent
+    # and §7-2 #104 says why: it rewrites the extracted fields, v3's L1 is
+    # append-only, and a correction nothing reads is G-15.
+    CommandSpec(
+        action=I.INTEL_CONFIRM,
+        target_kind=I.TARGET_INTEL,
+        resolve=I.resolve_intel,
+        apply=I.apply_confirm,
+        requires_reason=False,
+        effect_key="intel_item",
+        summary="P7 C3 — the analyst has judged this item good. Its reader "
+                "is R11's `?state=` filter, which IS the work queue: a "
+                "confirmed item leaves it."),
+    CommandSpec(
+        action=I.INTEL_REJECT,
+        target_kind=I.TARGET_INTEL,
+        resolve=I.resolve_intel,
+        apply=I.apply_reject,
+        requires_reason=True,
+        effect_key="intel_item",
+        summary="P7 C3 — the item stops scoring. Two readers: R11's queue "
+                "and `v3/runtime/scoring.py::observations_at`, which drops "
+                "the row. A reason is required because rejecting intel "
+                "removes evidence from a conclusion (NP1)."),
+    CommandSpec(
+        action=I.INTEL_REVERT,
+        target_kind=I.TARGET_INTEL,
+        resolve=I.resolve_intel,
+        apply=I.apply_revert,
+        requires_reason=True,
+        effect_key="intel_item",
+        summary="P7 C3 — undo. Illegal from `pending`, where production "
+                "matches zero rows and reports success."),
 )
 
 ACTIONS: tuple[str, ...] = tuple(spec.action for spec in SPECS)
@@ -251,4 +379,4 @@ def find(action: str) -> Optional[CommandSpec]:
 
 
 __all__ = ["Target", "CommandSpec", "SPECS", "ACTIONS", "TARGET_KINDS",
-           "spec_for", "find"]
+           "SECRET_FIELD_NAMES", "REDACTED", "redact", "spec_for", "find"]
