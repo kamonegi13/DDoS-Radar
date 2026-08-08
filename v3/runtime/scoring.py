@@ -36,15 +36,17 @@ from __future__ import annotations
 from typing import Mapping, Optional, Sequence
 
 from v3.adapters.cyber.cloudflare_radar import (CLOUDFLARE_RADAR,
-                                                SPIKE_SIGNAL)
+                                                SPIKE_TARGET_SIGNAL)
 from v3.kernel.errors import DomainError
 from v3.ledger import records
 from v3.ledger.records import TLObservation
 from v3.parity.adapter import LedgerInputAdapter, to_v3_observations
 from v3.runtime import chain
+from v3.runtime import events
 from v3.runtime.geo import Geography
 from v3.scoring import (Participant, PriorState, Scenario, ScoringInputs,
                         ScoringSettings, TickResult, score_tick)
+from v3.scoring.inputs import SequenceEvent
 from v3.scoring.settings import resolve_settings
 
 #: The cadence `LedgerInputAdapter` is told about. It bounds nothing here —
@@ -144,13 +146,19 @@ def observations_at(store, *, now: float,
 def spike_intensity(store, *, now: float,
                     tick_interval_sec: float = DEFAULT_TICK_INTERVAL_SEC
                     ) -> dict:
-    """`{country: avg_spike}` from this tick's `cf_spike_core` rows.
+    """`{country: avg_spike}` from this tick's `cf_spike_target` rows.
 
     Production's ranking quantity (`core.py:817`), read from where the
-    fold put it. Scoped to the tick's own window for the reason
-    `observations_at` is: a spike from three days ago is not a statement
-    about who is escalating now, and ranking on one would pin the chain
-    owner to whoever was last attacked before an outage.
+    fold put it — the OBSERVED measurement face, which is v3's
+    `target_details` (`core.py:831`). It is deliberately NOT the
+    `cf_spike_core` row: that entry is countryless, exactly as
+    production's is, so it can no longer answer a per-country question
+    (§7-2 #118, retired 2026-08-09).
+
+    Scoped to the tick's own window for the reason `observations_at` is:
+    a spike from three days ago is not a statement about who is
+    escalating now, and ranking on one would pin the chain owner to
+    whoever was last attacked before an outage.
 
     A country with no row is ABSENT rather than 0.0 — the difference
     between "measured, quiet" and "not measured" is what decides whether
@@ -159,7 +167,7 @@ def spike_intensity(store, *, now: float,
     resolved: dict = {}
     for row in store.signals_between(now - float(tick_interval_sec), now,
                                      sensor=CLOUDFLARE_RADAR.value):
-        if row.get("signal_source") != SPIKE_SIGNAL:
+        if row.get("signal_source") != SPIKE_TARGET_SIGNAL:
             continue
         value = records.flags_of(row).get("avg_spike")
         if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -185,6 +193,48 @@ def chain_rankings(store, *, now: float, scenarios: Sequence[Scenario],
                           spikes=spike_intensity(
                               store, now=now,
                               tick_interval_sec=tick_interval_sec))
+
+
+def sequence_history(store, *, now: float, scenarios: Sequence[Scenario],
+                     retention_sec: float) -> tuple:
+    """Every chain event still inside the retention window, from L1.
+
+    The live tick is not a loop that carries state forward — each call to
+    `run_tick` starts from nothing — so a `prior.sequence_events` left at
+    `()` would give the chain a one-tick memory: `advance()` would return
+    only what arrived, and a chain that needs three link types inside 24 h
+    could never assemble one. Supplying `arriving_events` without this
+    would have fixed §7-2 #123 in form only.
+
+    Re-derived from the rows rather than stored as chain state, for the
+    reason `prior_state` reads L1 instead of memory: a restart must not
+    change the answer, and the ledger is the one thing that survives one.
+    It also needs no L1 schema change, which a chain-event table would.
+
+    ONE query. `signals_between` returns the window; every row is its own
+    measurement, so an event is derived per row (not per tick x row) and
+    the repeats a still-in-force reading would produce do not exist here.
+    Rows are filtered to the handful of names that can become an event
+    BEFORE projection: a day of L1 is tens of thousands of rows, and
+    building an `Observation` for each one to discard it is the cost that
+    would make a correct fix look like a slow one.
+
+    `scoreable_rows` is applied even though no registration names an
+    intel source today, and that is the point: this is a THIRD path from
+    raw ledger rows into kernel observations, and the predicate's own
+    docstring names only two. The day a chain link is registered for an
+    intel-derived signal, an unadjudicated item would otherwise enter the
+    escalation chain past the analyst gate — silently, because a chain
+    that grew a link looks exactly like a chain that should have.
+    """
+    from v3.intel import adjudication as intel
+
+    rows = [row for row in store.signals_between(now - float(retention_sec),
+                                                 now)
+            if row["signal_source"] in events.SUPPLIED_SOURCES]
+    return events.arriving_from(
+        to_v3_observations(intel.scoreable_rows(store, rows, until=now)),
+        scenarios, now=now)
 
 
 def prior_state(store, *, now: float, scenario_ids: Sequence[str],
@@ -216,7 +266,8 @@ def assemble(*, now: float, store, geography: Optional[Geography] = None,
              focused_scenario_id: Optional[str] = None,
              prior: Optional[PriorState] = None,
              tick_interval_sec: float = DEFAULT_TICK_INTERVAL_SEC,
-             scenarios: Optional[Sequence[Scenario]] = None
+             scenarios: Optional[Sequence[Scenario]] = None,
+             arriving_events: Optional[Sequence[SequenceEvent]] = None
              ) -> ScoringInputs:
     """One tick's complete scoring input. Reads L1; writes nothing.
 
@@ -238,6 +289,15 @@ def assemble(*, now: float, store, geography: Optional[Geography] = None,
     environment variable most of all — would be a constant standing in
     for a measurement. `v3/runtime/chain.py` transcribes production's
     rule; this is the layer that holds the data it needs.
+
+    **The chain's EVENTS are chosen here too** (§7-2 #123). Production
+    registers them inside the same scoring pass, gated on `add_rat()`'s
+    return (CLAUDE.md §5); `v3/runtime/events.py` transcribes which
+    observation becomes which event and this is the layer that has the
+    observations. `arriving_events` is accepted as an override so a
+    counterfactual can vary it, exactly as `scenarios` is — but the
+    default is DERIVED, never empty-by-omission, which is the whole
+    subject of #123.
     """
     if not isinstance(settings, ScoringSettings):
         raise DomainError(
@@ -275,14 +335,22 @@ def assemble(*, now: float, store, geography: Optional[Geography] = None,
     # down, and §7-2 #116's whole subject.
     spikes = spike_intensity(store, now=now,
                              tick_interval_sec=tick_interval_sec)
+    arriving = (tuple(arriving_events) if arriving_events is not None
+                else events.arriving_from(observations, scenarios, now=now))
+    if prior is None:
+        prior = prior_state(
+            store, now=now, scenario_ids=[s.scenario_id for s in scenarios],
+            sequence_events=sequence_history(
+                store, now=now, scenarios=scenarios,
+                retention_sec=settings.sequence_window_sec))
     return ScoringInputs(
         now=now,
         observations=observations,
         scenarios=scenarios,
         settings=settings,
+        arriving_events=arriving,
         focused_scenario_id=focused_scenario_id,
-        prior=prior if prior is not None else prior_state(
-            store, now=now, scenario_ids=[s.scenario_id for s in scenarios]),
+        prior=prior,
         chain_countries=chain.chain_owners(scenarios, observations,
                                            spikes=spikes))
 
@@ -319,5 +387,6 @@ def persist_tl(store, result: TickResult, *, tick_id: str) -> int:
 
 
 __all__ = ["settings_for", "scenarios_for", "observations_at", "prior_state",
-           "spike_intensity", "chain_rankings", "assemble", "score",
+           "spike_intensity", "chain_rankings", "sequence_history",
+           "assemble", "score",
            "persist_tl", "DEFAULT_TICK_INTERVAL_SEC"]

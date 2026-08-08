@@ -171,6 +171,13 @@ class TickReport:
     #: admitted-evidence fallback when no core had one (§7-2 #116). NP6
     #: applies to the ranking too — an owner is not a derivation.
     chain_ranking: Mapping[str, dict] = field(default_factory=dict)
+    #: The escalation-chain links live after this tick, plus which of the
+    #: four chain types v3 can supply at all. Both halves are needed to
+    #: read the first: two of four are supplied today (§7-2 #123), so a
+    #: chain that never reaches its three-link tier is the EXPECTED state
+    #: rather than a quiet day, and a report showing only "0 links" would
+    #: be indistinguishable from "nothing is escalating".
+    chain_events: Mapping[str, object] = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return {"tick_id": self.tick_id, "now": self.now,
@@ -190,7 +197,8 @@ class TickReport:
                 "attention": dict(self.attention),
                 "chain_owners": dict(self.chain_owners),
                 "chain_ranking": {scenario_id: dict(row) for scenario_id, row
-                                  in self.chain_ranking.items()}}
+                                  in self.chain_ranking.items()},
+                "chain_events": dict(self.chain_events)}
 
 
 def fetch_cycle(*, now: float, registry, store, client,
@@ -359,6 +367,7 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
     # what production scored (S5-VERIF-031).
     settings_disclosure: Mapping[str, object] = {}
     chain_ranking: Mapping[str, dict] = {}
+    chain_events: Mapping[str, object] = {}
     if config is not None:
         result, settings, chain_ranking = score_cycle(
             now=now, store=store, geography=geography,
@@ -366,6 +375,7 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
             focused_scenario_id=focused_scenario_id)
         results_by_scenario = dict(result.results)
         settings_disclosure = settings.disclosed()
+        chain_events = _chain_event_disclosure(result.next_sequence_events)
     else:
         results_by_scenario = dict(score(now, cycle) or {}) \
             if score is not None else {}
@@ -412,7 +422,27 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
         attention=ranking.as_dict(),
         chain_owners={scenario_id: row["owner"]
                       for scenario_id, row in chain_ranking.items()},
-        chain_ranking=dict(chain_ranking))
+        chain_ranking=dict(chain_ranking),
+        chain_events=dict(chain_events))
+
+
+def _chain_event_disclosure(events) -> dict:
+    """The chain's live links, with what CAN be supplied beside them.
+
+    NP6 reaches the sequence bonus the same way it reaches the score: a
+    bonus of 0 has two readings — "no escalation" and "the link that
+    would have shown it is not implemented" — and only one of them is a
+    conclusion about the world.
+    """
+    from v3.runtime import events as events_module
+
+    by_country: dict = {}
+    for event in events:
+        by_country.setdefault(event.country, []).append(event.event_type)
+    return {"live": {country: sorted(set(types))
+                     for country, types in sorted(by_country.items())},
+            "count": len(tuple(events)),
+            "coverage": events_module.chain_coverage()}
 
 
 __all__ = ["run_tick", "fetch_cycle", "score_cycle", "conclude",

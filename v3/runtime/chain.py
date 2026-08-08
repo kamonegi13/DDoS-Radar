@@ -38,7 +38,10 @@ baseline-window distribution (`core.py:740-741`; the window is
 named was not derivation but ACQUISITION: `CLOUDFLARE_RADAR_ADAPTER`
 declared four requests and none was the origin endpoint. It declares
 them now, `v3/runtime/spike.py` computes the ratio, and the composition
-root reads the resulting `cf_spike_core` rows and hands them here.
+root reads the resulting `cf_spike_target` rows and hands them here. That
+row rather than `cf_spike_core`: the entry is countryless since §7-2
+#118's retirement, exactly as production's is, so the per-country
+quantity lives on the measurement face that mirrors `target_details`.
 
 **The stand-in survives, narrowed, for the tick where the measurement does
 not exist** — a fresh deployment, or a cycle where every core's fetch

@@ -484,6 +484,33 @@ O→画面トレーサビリティ、AP3 合成チップ、地図の降格とレ
 
 検証: 差分掃引 3 seed × 4,000 ティック（`core.py:737-919` / `:1063-1076` を独立に再打鍵した実装と照合）、`needs_refresh` の 20,000 件スイープ（`core.py:738-742` の再打鍵と照合）、変異 **19/19 撃墜**。全スイート **7,061 passed**（+93）、CI ゲート 13 件 green（`HIGH=0 MEDIUM=0 LOW=2`、既知）、`check_kernel_discipline.py` clean。
 
+**WP-4.1i 完了記録（2026-08-09）— countryless の裁定と、系列連鎖の入力**:
+
+**裁定の 2 つの主張はどちらも成り立った。実測で確かめてから直した**。(a)「パリティゲートはこの差分を測れない」— `v3/parity/adapter.py:175-177` は `country` を**保管済みの履歴行**から読む。本番の countryless 行はハーネスを通っても countryless のままで、v3 の**生の畳み込みはリプレイ経路に存在しない**（`driver_v3.py` は保管行をカーネルへ直接射影し、`reduce` という語すら現れない）。ゲートが構造的に測れない差分を「ゲートで検証した」とは言えない。(b)「本番が既に直した欠陥の再導入」— `radar/scoring.py:1448-1451` の文言は逐語で確認した（`the ~1.5 constant floor that previously contaminated every scenario`）。静穏日にも等しく立つ床は検知ではなくバイアスであり、NP1 は保護しない。
+
+**#118 は retire した**。`cf_spike_core` は `country=""` の 1 行になり、判定は本番と同じ **primary core の HOD 判定**（`core.py:872-884` → `:1006` → `:1025`）。per-target の量は失われていない — 本番が `target_details`（`core.py:831`、rationale entry ではない**作業構造**）に持つのと同じものを、v3 は `cf_spike_target` という **OBSERVED / raw_score 0.0 の観測面**に置いた。カーネル自身の述語で `passes_gate()` も `admits()` も False であることを実測している。この行が要るのは NP6 のためだけではない: **3 つの読者が per-country でそこを読む**（`spike_intensity` / `PHASE_SAMPLES` の HOD 標本 / `_record_cf_origin_baseline`）。本番も同じ 2 つを per-target 構造から取っており（`core.py:824-825` と `:739-742`）、countryless な行に「TW が今時間どう読んだか」は答えられない。**観測面を作らずに countryless 化していれば、HOD 系列と origin ベースラインが静かに書かれなくなっていた** — 行は出続けるので外からは正常に見える、本プログラム署名の欠陥形。
+
+**#116 の順位付けが退行していないことは、掃引ではなく対立するテストで固定した**。`avg_spike` と admitted-evidence の fallback が**互いに逆の国を選ぶ**入力を作り、basis が `avg_spike` であること・値が `{IL: 1.0, IR: 8.0}` であること・同じ行で fallback なら IL になることの 3 つを同時に主張する。測定面が失われれば静かに fallback へ落ちるだけなので、「落ちていない」ではなく「落ちたら別の答えになる」を書いた。
+
+**裁定の要求 3 が、はるかに大きい同型を掘り当てた（本 WP でいちばん重い発見）**。本番の `add_rat` 第 1 引数 39 名のうち **27 名がシグナル名**で、`core.py:2039-2041` が国を与えるのは `FOCUSED_ONLY_SENSOR_NAMES` の 12 名だけ。つまり本番はそれら 27 行を countryless として作り、シナリオスコアには **0 点**しか入れない。v3 はそのうち **15 家系に国を付けている**（`cf_bgp_hijack` / `ct_log` / `gdelt` / `gps_jamming` / `greynoise` / `ihr_delay` / `ihr_hegemony` / `ooni_censorship` / `peeringdb_ixp` / `rss_narrative` / `space_weather` / `telegram_mirror` / `threatfox` / `tor_metrics` / `travel_advisory`）。方向は sensitive だが、**#118 を覆した 2 つの論拠がそのまま当てはまる**。本 WP で直さなかったのは、countryless 化が v3 のシナリオ別検知の大半を削る insensitive 変更であり、畳み込み層ではなくプログラム規模の裁定だからである。**代わりに測定可能にした**: `tests/test_v3_country_attribution.py` が本番側（AST）と v3 側（draft 構築の静的解決）を毎回突き合わせ、**ちょうどこの 15 家系**であることを主張する。#118 は「countryless な 3 兄弟の中に 1 つだけ国を持つ行が混じる」形で紛れ込んだので、家系を**集合として**凍結した。**#127 に登録、cutover 前にオーナー裁定が要る**。
+
+**#123 は範囲縮小。供給側は入ったが、連鎖ボーナスはまだ 0 である**。`v3/runtime/events.py` が本番の登録表を転写し、**生ティックとパリティドライバの両方**が同じ関数で供給する（#38 の教訓）。ゲートは CLAUDE.md §5 のとおり `passes_gate()`（FIRED かつ非ミュート、**score 条件なし**）。転写できたのは 4 連鎖種のうち **2 種**（`ISR_SURGE` / `FIRMS_ANOMALY`）で、`NARRATIVE_BURST` は畳み込みが OBSERVED 止まり（30 日ベースライン待ち）、`SYNC_DDOS` は `cf_botnet_overlap` が無い（#122）。partial の最小は 3 種なので **chain_bonus は依然として構造的に 0**。これを `chain_coverage()` が明示的に開示し、テストが `chain_bonus_reachable is False` を主張する — 「連鎖が動くようになった」と読まれないため。live になったのは `temporal_coherence_bonus` の方である。非連鎖種は `AIS_DARK_GAP` / `MIL_AIR_SURGE` / `GPS_JAMMING` / `CENSORSHIP_DETECTED`(OONI) も供給する。
+
+**形の裁定に従った**。`ScoringInputs.arriving_events` は**既定値を廃した** — 供給を忘れると検知箇所の沈黙ではなく構築箇所の `TypeError` になる。構築点は全体で 5 か所しかなく、イベントを持たない側は `()` と明示してそう述べる。
+
+**その過程でもう半分の穴が出た**。`run_tick` は状態を持ち越さないので、`arriving_events` だけ供給しても `prior.sequence_events` は `()` のままであり、**連鎖の記憶は 1 ティックしかない**。3 種類を 24h 以内に揃える連鎖は永久に成立しないので、直したつもりの穴が形だけ塞がる。`scoring.sequence_history` が保持窓ぶんの L1 行から**再導出**する（L1 スキーマ変更なし、1 クエリ、再起動で答えが変わらない）。`occurred_at` は**観測自身のタイムスタンプ**にした — `now` にすると、在 force のまま 4 ティック残る行が毎回新しいリンクを作り、decay 項が永久に「新鮮」を報告する。同一値になるので `advance()` の 300 秒 dedup が畳む。
+
+**本番側の欠陥を 1 件記録した（#128）**。`resolve_seq_fire_targets` の docstring は「secondary へ登録すると、そのセンサーデータを一度も見ていない連鎖に false-provenance のイベントが付く」と書いて禁じているが、ガードの `if core_theater:` は **dual-core では偽になる**ため第 3 分岐が全 effective core を返し、**primary の観測が secondary の連鎖にも登録される** — ガードが自分の条件で迂回されている。v3 は再現しない: 「センサーデータを見ていない国にイベントを付ける」は 2026-08-02 の calibration 事故と同型で、NP1 より上位の規律に触れる。
+
+**ハーネス側の第 2 の不整合も塞いだ**。`driver_v3.py` は `chain_owners` を `spikes` 無しで呼んでいた — 生ティックが `avg_spike` で順位付ける一方、ハーネスは admitted-evidence の fallback で順位付ける。focused ボーナスがどちらの belligerent の連鎖を読むかが両側で変わり、**ハーネスが製造した不一致を発見と呼ぶ**形になっていた。同じ `spike_intensity` を読ませた。
+
+**レビューが未来の沈黙を 1 件塞いだ**（code-reviewer 指摘、MEDIUM）: `sequence_history` は**生の L1 行がカーネル観測になる 3 本目の経路**でありながら `scoreable_rows`（「未裁定インテルは採点しない」の単一述語、docstring 自身が呼び出し側を 2 つと明記）を通していなかった。今日は登録表にインテル源が無いので無害だが、連鎖リンクにインテル由来のシグナルが 1 つ登録された瞬間、未裁定項目がアナリストの門を越えて連鎖に入る — しかも「リンクが増えた連鎖」は「増えるべきだった連鎖」と見分けがつかないので静かに起きる。述語を通した上で、**通していることをテストで固定**した。
+
+**開示（NP6）**: `TickReport.chain_events` が「今生きているリンク（国×種別）」と `chain_coverage()` を**並べて**出す。0 リンクには「エスカレーションが無い」と「それを見せるリンクが未実装」の 2 通りの読みがあり、世界についての結論はそのうち片方だけである。
+
+検証: OONI のラダーと `is_heavy` の等価を 4,000 件の差分掃引（アダプタの `verdict` と照合、両分岐に到達したことを assert）。変異 **5/5 撃墜**（登録表の `min_score` と `event_type`）。本番登録サイトは AST で全数照合し、`REGISTRATIONS` にも `ABSENCES` にも無い種が 1 つでもあれば落ちる。`cf_spike_core` 側も掃引と変異を拡張した — 3 seed × 4,000 の差分掃引に **4 行目**を加え、primary core 選択そのものを 3 通りの代替（最大の測定国 / 最も静かな core / core の平均）で変異させて全部が答えを変えることを確認、`WARMUP_THRESHOLDS` を変異集合に追加（**20/20 撃墜**）。新規テスト **57 件**（`test_runtime_events.py` 46 / `test_v3_country_attribution.py` 11）＋既存拡張 4 件。
+
+
 ---
 
 ## Phase 5 — shadow 並走と cutover

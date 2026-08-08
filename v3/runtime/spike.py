@@ -340,10 +340,10 @@ def spike_verdict(history: Sequence[float], avg_spike: float) -> SpikeVerdict:
 # distribution. Three more entries come off the SAME numbers, and until
 # now v3 emitted none of them.
 #
-# All three are decided ONCE per cycle, not per country, and none of the
-# three is attributed to a country the way `cf_spike_core` is — see
-# `v3/runtime/reduce_cyber.py::_derived_rows` for which production line
-# settles each one.
+# All three are decided ONCE per cycle, not per country, and none of them
+# is attributed to a country — nor is `cf_spike_core` itself, since §7-2
+# #118's retirement. See `v3/runtime/reduce_cyber.py::_derived_rows` for
+# the production line that settles all four.
 
 #: `core.py:1066` — the severe branch. BOTH conditions, on the primary
 #: core's ROUNDED means (`core.py:1064-1065` reads `target_details`, which

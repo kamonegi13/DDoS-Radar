@@ -538,15 +538,80 @@ def _reduce(drafts, baselines=None):
                            baselines=dict(baselines or {}), now=NOW)
 
 
+def _as_observation(draft):
+    """A draft as the scoring kernel would see it, through L1's own shape.
+
+    Built with the kernel's real type rather than a restatement of its
+    rules, so `passes_gate()` / `admits()` answer here exactly what they
+    answer in a tick.
+    """
+    from v3.scoring import CountryWeight, Observation
+    return Observation(
+        sensor="cloudflare_radar", domain=draft.domain, status=draft.status,
+        score=draft.raw_score, signal_source=draft.signal_source,
+        countries=((CountryWeight(draft.country, 1.0),) if draft.country
+                   else ()),
+        value=str(draft.value))
+
+
+def _core_row(reduced):
+    """The countryless `cf_spike_core` entry — production's one row."""
+    return next(d for d in reduced if d.signal_source == CF.SPIKE_SIGNAL)
+
+
+def _target_rows(reduced):
+    """The per-country measurement face, by country."""
+    return {d.country: d for d in reduced
+            if d.signal_source == CF.SPIKE_TARGET_SIGNAL}
+
+
 class TestTheFoldProducesProductionsEntry:
     def test_the_four_origin_rows_become_one_cf_spike_core(self):
         drafts = _origin_drafts("TW", l3={"CN": 40.0}, l7={"CN": 10.0},
                                 base_l3={"CN": 4.0}, base_l7={"CN": 5.0})
-        reduced = _reduce(drafts, {B.ADVERSARY_ORIGINS: ("CN",)})
+        reduced = _reduce(drafts, {B.ADVERSARY_ORIGINS: ("CN",),
+                                   B.EFFECTIVE_CORES: ("TW",)})
         per_country = [d for d in reduced if d.country]
-        assert [d.signal_source for d in per_country] == [CF.SPIKE_SIGNAL]
+        assert [d.signal_source for d in per_country] == [
+            CF.SPIKE_TARGET_SIGNAL]
         assert per_country[0].country == "TW"
         assert per_country[0].flags["avg_spike"] == 10.0
+        # Production's entry itself carries no country (`core.py:2039-2041`).
+        assert _core_row(reduced).country == ""
+        assert _core_row(reduced).flags["core_avg_spike"] == 10.0
+
+    def test_the_measurement_face_never_scores_and_never_gates(self):
+        """§7-2 #118's repair. The per-target row exists so three readers
+        can find `avg_spike`; production reaches no per-target verdict, so
+        a FIRED one here would be a conclusion it never draws — and would
+        put cyber's whole `domain_cap` on v3's side of every scenario."""
+        drafts = _origin_drafts("TW", l3={"CN": 90.0}, l7={"CN": 90.0},
+                                base_l3={"CN": 0.5}, base_l7={"CN": 0.5})
+        row = _target_rows(_reduce(drafts, {
+            B.ADVERSARY_ORIGINS: ("CN",),
+            B.EFFECTIVE_CORES: ("TW",)}))["TW"]
+        assert row.status == STATUS_OBSERVED
+        assert row.raw_score == 0.0
+        # The kernel's own predicates, not a restatement of them.
+        assert _as_observation(row).passes_gate() is False
+        assert _as_observation(row).admits() is False
+
+    def test_the_countryless_entry_is_the_primary_cores_verdict(self):
+        """`core.py:1006` calls `compute_hod_zscore(primary_ec, core_spike)`
+        ONCE. The loud participant does not get to speak for the scenario
+        unless it is the primary core."""
+        drafts = (_origin_drafts("TW", l3={"CN": 4.0}, l7={},
+                                 base_l3={"CN": 4.0}, base_l7={})
+                  + _origin_drafts("JP", l3={"CN": 40.0}, l7={},
+                                   base_l3={"CN": 1.0}, base_l7={}))
+        reduced = _reduce(drafts, {B.EFFECTIVE_CORES: ("TW",),
+                                   "cf_attack_share_baseline": {"TW": (),
+                                                                "JP": ()}})
+        core = _core_row(reduced)
+        assert core.flags["primary_core"] == "TW"
+        # TW is quiet; JP is not a core, so nothing fires.
+        assert core.status == STATUS_OK and core.raw_score == 0.0
+        assert _target_rows(reduced)["JP"].flags["avg_spike"] > 2.0
 
     def test_the_intermediate_rows_do_not_reach_the_ledger(self):
         """L1 is UNIQUE on `(tick_id, sensor, signal_source, country)` and
@@ -567,16 +632,16 @@ class TestTheFoldProducesProductionsEntry:
         reduced = _reduce((bgp,) + _origin_drafts(
             "TW", l3={"CN": 40.0}, l7={}, base_l3={"CN": 4.0}, base_l7={}))
         assert {d.signal_source for d in reduced if d.country} == {
-            CF.BGP_HIJACK_SIGNAL, CF.SPIKE_SIGNAL}
+            CF.BGP_HIJACK_SIGNAL, CF.SPIKE_TARGET_SIGNAL}
 
     def test_the_verdict_fires_with_the_score_production_gives(self):
         history = tuple([0.5] * 7)
         drafts = _origin_drafts("TW", l3={"CN": 40.0}, l7={},
                                 base_l3={"CN": 1.0}, base_l7={})
         reduced = _reduce(drafts, {
-            B.ADVERSARY_ORIGINS: ("CN",),
+            B.ADVERSARY_ORIGINS: ("CN",), B.EFFECTIVE_CORES: ("TW",),
             "cf_attack_share_baseline": {"TW": history}})
-        row = reduced[0]
+        row = _core_row(reduced)
         assert row.status == STATUS_FIRED
         assert row.raw_score == 3.0
         assert row.flags["hod_n"] == 7
@@ -584,37 +649,45 @@ class TestTheFoldProducesProductionsEntry:
     def test_a_cold_baseline_takes_productions_warmup_branch(self):
         drafts = _origin_drafts("TW", l3={"CN": 40.0}, l7={},
                                 base_l3={"CN": 1.0}, base_l7={})
-        reduced = _reduce(drafts, {B.ADVERSARY_ORIGINS: ("CN",),
-                                   "cf_attack_share_baseline": {"TW": ()}})
-        assert reduced[0].status == STATUS_FIRED
-        assert reduced[0].flags["hod_n"] == 0
-        assert "HOD warmup" in reduced[0].value
+        row = _core_row(_reduce(drafts, {
+            B.ADVERSARY_ORIGINS: ("CN",), B.EFFECTIVE_CORES: ("TW",),
+            "cf_attack_share_baseline": {"TW": ()}}))
+        assert row.status == STATUS_FIRED
+        assert row.flags["hod_n"] == 0
+        assert "HOD warmup" in row.value
 
     def test_a_quiet_country_is_OK_not_withheld(self):
         drafts = _origin_drafts("TW", l3={"CN": 4.0}, l7={},
                                 base_l3={"CN": 4.0}, base_l7={})
-        row = _reduce(drafts, {"cf_attack_share_baseline": {"TW": ()}})[0]
+        reduced = _reduce(drafts, {B.EFFECTIVE_CORES: ("TW",),
+                                   "cf_attack_share_baseline": {"TW": ()}})
+        row = _core_row(reduced)
         assert row.status == STATUS_OK and row.raw_score == 0.0
         assert not any(str(v).startswith("pending_l1_")
-                       for v in row.flags.values())
+                       for v in _target_rows(reduced)["TW"].flags.values())
 
     def test_the_disclosure_carries_the_whole_derivation(self):
         drafts = _origin_drafts("TW", l3={"CN": 40.0}, l7={"CN": 10.0},
                                 base_l3={"CN": 4.0}, base_l7={"CN": 5.0})
-        flags = _reduce(drafts, {B.ADVERSARY_ORIGINS: ("CN",)})[0].flags
+        reduced = _reduce(drafts, {B.ADVERSARY_ORIGINS: ("CN",),
+                                   B.EFFECTIVE_CORES: ("TW",)})
+        flags = _target_rows(reduced)["TW"].flags
         for key in ("avg_spike", "avg_l3_spike", "avg_l7_spike",
                     "total_local_pct", "has_baseline", "origins",
-                    "origin_baseline", "adversary_origins", "hod_z",
-                    "hod_n"):
+                    "origin_baseline", "adversary_origins"):
             assert key in flags, key
         assert flags["origins"]["CN"]["spike_factor"] == 10.0
+        # The verdict's own derivation stays on the entry that reached it.
+        for key in ("hod_z", "hod_n", "hod_valid", "core_avg_spike",
+                    "primary_core"):
+            assert key in _core_row(reduced).flags, key
 
     def test_two_countries_fold_independently(self):
         drafts = (_origin_drafts("TW", l3={"CN": 40.0}, l7={},
                                  base_l3={"CN": 4.0}, base_l7={})
                   + _origin_drafts("JP", l3={"CN": 4.0}, l7={},
                                    base_l3={"CN": 4.0}, base_l7={}))
-        reduced = {d.country: d for d in _reduce(drafts)}
+        reduced = _target_rows(_reduce(drafts))
         assert reduced["TW"].flags["avg_spike"] > \
             reduced["JP"].flags["avg_spike"]
 
@@ -649,18 +722,21 @@ class TestTheStoredBaselineIsTheFallback:
                                 base_l3={"CN": 8.0}, base_l7={})
         stored = {"TW": [{"observed_at": NOW - HOUR,
                           "payload": {"l3": {"CN": 1.0}, "l7": {}}}]}
-        row = _reduce(drafts, {B.ADVERSARY_ORIGINS: ("CN",),
-                               "cf_origin_baseline": stored})[0]
+        row = _target_rows(_reduce(drafts, {
+            B.ADVERSARY_ORIGINS: ("CN",),
+            "cf_origin_baseline": stored}))["TW"]
         assert row.flags["avg_spike"] == 5.0
         assert row.flags["baseline_source"] == "fetched"
 
     def test_no_baseline_anywhere_reports_productions_zero(self):
         drafts = _origin_drafts("TW", l3={"CN": 40.0}, l7={},
                                 base_l3={}, base_l7={})
-        row = _reduce(drafts, {B.ADVERSARY_ORIGINS: ("CN",)})[0]
+        reduced = _reduce(drafts, {B.ADVERSARY_ORIGINS: ("CN",),
+                                   B.EFFECTIVE_CORES: ("TW",)})
+        row = _target_rows(reduced)["TW"]
         assert row.flags["has_baseline"] is False
         assert row.flags["avg_spike"] == 0.0
-        assert row.status == STATUS_OK
+        assert _core_row(reduced).status == STATUS_OK
 
 
 # ══ 6. the ledger: the baseline is stored, the HOD series advances ══════
@@ -715,7 +791,8 @@ class TestTheCycleRecordsWhatTheNextOneReads:
                  else {"l3": {"CN": 4.0}, "l7": {}}}
         store.append_signal(SignalObservation(
             tick_id=f"t{int(now)}", sensor="cloudflare_radar",
-            signal_source=CF.SPIKE_SIGNAL, domain="cyber", country=country,
+            signal_source=CF.SPIKE_TARGET_SIGNAL, domain="cyber",
+            country=country,
             evidence=Evidence.observe(flags, observed_at=now,
                                       freshness_horizon_sec=86400.0,
                                       source="cloudflare_radar"),
@@ -844,39 +921,68 @@ class TestTheChainOwnerIsRankedByAvgSpike:
         assert CHAIN.rankings((hollow,), (), spikes={"TW": 9.0}) == {}
 
 
+def _write_target_face(store, country, avg, *, at=NOW - 10):
+    """One `cf_spike_target` row — OBSERVED, unscored, carrying avg_spike."""
+    from v3.kernel import Evidence
+    from v3.ledger.records import SignalObservation
+    flags = {"avg_spike": avg}
+    store.append_signal(SignalObservation(
+        tick_id=f"t{int(at)}", sensor="cloudflare_radar",
+        signal_source=CF.SPIKE_TARGET_SIGNAL, domain="cyber",
+        country=country,
+        evidence=Evidence.observe(flags, observed_at=at,
+                                  freshness_horizon_sec=86400.0,
+                                  source="cloudflare_radar"),
+        status=STATUS_OBSERVED, raw_score=0.0, flags=flags), now=at)
+
+
+def _write_scoring_row(store, country, score, *, at=NOW - 10):
+    """A FIRED row from another sensor — the fallback quantity's food."""
+    from v3.kernel import Evidence
+    from v3.ledger.records import SignalObservation
+    store.append_signal(SignalObservation(
+        tick_id=f"e{int(at)}", sensor="isr_hotspot",
+        signal_source="isr_hotspot", domain="physical", country=country,
+        evidence=Evidence.observe({}, observed_at=at,
+                                  freshness_horizon_sec=86400.0,
+                                  source="isr_hotspot"),
+        status=STATUS_FIRED, raw_score=score, flags={}), now=at)
+
+
 class TestTheRankingReadsTheLedger:
     def test_assemble_ranks_by_the_spike_row_it_finds(self, store, tmp_path):
-        from v3.kernel import Evidence
-        from v3.ledger.records import SignalObservation
-        from v3.runtime.scoring import assemble
+        """§7-2 #116's quantity survives #118's repair.
+
+        The two quantities are deliberately made to DISAGREE: IR has the
+        higher `avg_spike`, IL the larger admitted evidence. If the
+        measurement face were lost with the per-country verdict, the
+        ranking would silently fall back and answer IL — the regression
+        this asserts against.
+        """
+        from v3.runtime.scoring import assemble, spike_intensity
         from v3.scoring import ScoringSettings
 
         for country, avg, score in (("IL", 1.0, 9.0), ("IR", 8.0, 1.0)):
-            flags = {"avg_spike": avg}
-            store.append_signal(SignalObservation(
-                tick_id="t1", sensor="cloudflare_radar",
-                signal_source=CF.SPIKE_SIGNAL, domain="cyber",
-                country=country,
-                evidence=Evidence.observe(flags, observed_at=NOW - 10,
-                                          freshness_horizon_sec=86400.0,
-                                          source="cloudflare_radar"),
-                status="FIRED", raw_score=score, flags=flags), now=NOW - 10)
+            _write_target_face(store, country, avg)
+            _write_scoring_row(store, country, score)
+        assert spike_intensity(store, now=NOW,
+                               tick_interval_sec=900.0) == {"IL": 1.0,
+                                                            "IR": 8.0}
         inputs = assemble(now=NOW, store=store, settings=ScoringSettings(),
-                          scenarios=(_scenario(),))
+                          scenarios=(_scenario(),), arriving_events=())
         assert inputs.chain_countries[DUAL] == "IR"
+        ranking = CHAIN.rankings((_scenario(),), inputs.observations,
+                                 spikes=spike_intensity(
+                                     store, now=NOW, tick_interval_sec=900.0))
+        assert ranking[DUAL]["basis"] == CHAIN.BASIS_AVG_SPIKE
+        assert ranking[DUAL]["values"] == {"IL": 1.0, "IR": 8.0}
+        # and the fallback, on the same rows, would have said IL
+        assert CHAIN.rankings((_scenario(),), inputs.observations,
+                              spikes={})[DUAL]["owner"] == "IL"
 
     def test_the_spike_read_is_the_ticks_window_only(self, store):
         from v3.runtime.scoring import spike_intensity
-        from v3.kernel import Evidence
-        from v3.ledger.records import SignalObservation
-        stale = {"avg_spike": 9.0}
-        store.append_signal(SignalObservation(
-            tick_id="t0", sensor="cloudflare_radar",
-            signal_source=CF.SPIKE_SIGNAL, domain="cyber", country="IL",
-            evidence=Evidence.observe(stale, observed_at=NOW - 100000,
-                                      freshness_horizon_sec=86400.0,
-                                      source="cloudflare_radar"),
-            status="FIRED", raw_score=1.0, flags=stale), now=NOW - 100000)
+        _write_target_face(store, "IL", 9.0, at=NOW - 100000)
         assert spike_intensity(store, now=NOW, tick_interval_sec=900.0) == {}
 
 
@@ -979,7 +1085,7 @@ class TestTheWholeThingRuns:
         store, report = self._run(deployment)
         row = store.latest_signal_at(NOW, sensor="cloudflare_radar",
                                      country="IR",
-                                     signal_source=CF.SPIKE_SIGNAL)
+                                     signal_source=CF.SPIKE_TARGET_SIGNAL)
         assert row is not None
         flags = json.loads(row["flags"])
         assert flags["avg_spike"] == 4.0
@@ -1000,7 +1106,7 @@ class TestTheWholeThingRuns:
         store, _ = self._run(deployment)
         row = store.latest_signal_at(NOW, sensor="cloudflare_radar",
                                      country="IR",
-                                     signal_source=CF.SPIKE_SIGNAL)
+                                     signal_source=CF.SPIKE_TARGET_SIGNAL)
         assert json.loads(row["flags"])["adversary_origins"] == ["CN"]
 
     def test_the_cycle_stores_the_baseline_the_next_one_falls_back_to(
@@ -1142,7 +1248,18 @@ def _production_derived(*, targets, adversary_states, strategic,
     _shift_score = 2 if _shift_severe else (1 if core_shifted else 0)
     _adv_count = len(adversary_strikes)
     _adv_score = 3 if _adv_count >= 3 else (2 if _adv_count >= 1 else 0)
+    # `core.py:872-876` — the dual-core branch, which is the shape this
+    # re-typing has (no declared `core_theater`). `core.py:1006` then
+    # reaches ONE hour-of-day verdict on it; with no same-hour history
+    # the warm-up rungs at `:1015-1016` decide.
+    _core_spike = max(
+        (target_details.get(ec, {}).get("avg_spike", 0)
+         for ec in effective_cores), default=0)
+    _spike_score, _spike_fired = _production_spike_ladder(
+        0.0, False, 0, _core_spike)
     return {
+        "cf_spike_core": (_spike_fired, float(_spike_score)),
+        "core_spike": _core_spike,
         "cf_vector_shift": (core_shifted, float(_shift_score)),
         "cf_adversary_strike": (major_adversary, float(_adv_score)),
         "cf_coordinated": (is_coordinated, 1.0 if is_coordinated else 0.0),
@@ -1169,7 +1286,7 @@ def _share_drafts(country, *, l3=None, l7=None):
 
 
 def _derived(reduced):
-    """`{signal_source: draft}` for the three countryless rows."""
+    """`{signal_source: draft}` for the four countryless rows."""
     return {d.signal_source: d for d in reduced if not d.country}
 
 
@@ -1219,7 +1336,14 @@ def _random_tick(rng):
 
 
 class TestTheThreeRowsAreProductionsAndCountryless:
-    """§7-2 #121, and the attribution question #118 raised about it."""
+    """§7-2 #121, and the attribution question #118 settled.
+
+    #118 is RETIRED here: `cf_spike_core` joins its three siblings as a
+    countryless entry, which is what production emits. The family is
+    asserted as a SET (`COUNTRYLESS_SIGNALS`) rather than member by
+    member, because #118 was precisely a member that acquired a country
+    while the enumeration beside it stayed right.
+    """
 
     def test_production_files_all_three_under_signal_names(self):
         source = CORE.read_text()
@@ -1236,8 +1360,8 @@ class TestTheThreeRowsAreProductionsAndCountryless:
         production's own Signal for each carries no country at all.
         """
         from radar.scenarios import FOCUSED_ONLY_SENSOR_NAMES
-        for name in (RC.VECTOR_SHIFT_SIGNAL, RC.ADVERSARY_STRIKE_SIGNAL,
-                     RC.COORDINATED_SIGNAL):
+        assert RC.COUNTRYLESS_SIGNALS
+        for name in RC.COUNTRYLESS_SIGNALS:
             assert name not in FOCUSED_ONLY_SENSOR_NAMES
         source = CORE.read_text()
         assert "if rat.sensor in _FOCUSED_ONLY_SENSOR_NAMES else \"\"" in source
@@ -1258,10 +1382,9 @@ class TestTheThreeRowsAreProductionsAndCountryless:
                                          base_l3={"CN": 4.0}, base_l7={}),
                           {B.ADVERSARY_ORIGINS: ("CN",),
                            B.EFFECTIVE_CORES: ("TW",)})
-        rows = _derived(reduced)
-        assert set(rows) == {RC.VECTOR_SHIFT_SIGNAL,
-                             RC.ADVERSARY_STRIKE_SIGNAL,
-                             RC.COORDINATED_SIGNAL}
+        rows = {d.signal_source: d for d in reduced
+                if d.signal_source in RC.COUNTRYLESS_SIGNALS}
+        assert set(rows) == set(RC.COUNTRYLESS_SIGNALS)
         assert all(d.country == "" for d in rows.values())
         assert all(d.domain == CYBER for d in rows.values())
 
@@ -1399,11 +1522,15 @@ class TestTheDerivedSweepAgreesWithProduction:
                 global_l3=share_l3, global_l7=share_l7)
             rows = _derived(_reduce(drafts, {B.ADVERSARY_ORIGINS: adversaries,
                                              B.EFFECTIVE_CORES: cores}))
-            for name in (RC.VECTOR_SHIFT_SIGNAL, RC.ADVERSARY_STRIKE_SIGNAL,
-                         RC.COORDINATED_SIGNAL):
+            for name in sorted(RC.COUNTRYLESS_SIGNALS):
                 mine = rows[name]
                 assert (mine.status == "FIRED", mine.raw_score) == \
                     theirs[name], (name, seed, targets, adversaries, cores)
+            # §7-2 #118: the entry's verdict is the PRIMARY core's spike,
+            # chosen the way `core.py:872-884` chooses it.
+            assert rows[RC.SPIKE_SIGNAL].country == ""
+            assert rows[RC.SPIKE_SIGNAL].flags["core_avg_spike"] == \
+                theirs["core_spike"]
             shift = rows[RC.VECTOR_SHIFT_SIGNAL]
             assert shift.flags["shifted_targets"] == theirs["shifted"]
             assert shift.flags["primary_core"] == theirs["primary_ec"]
@@ -1412,6 +1539,60 @@ class TestTheDerivedSweepAgreesWithProduction:
                 theirs["elevated"]
             assert rows[RC.ADVERSARY_STRIKE_SIGNAL].flags["strike_count"] == \
                 theirs["strike_count"]
+
+
+class TestThePrimaryCoreSelectionIsLoadBearing:
+    """§7-2 #118's arithmetic, mutated.
+
+    The entry's verdict is the PRIMARY core's spike (`core.py:872-884`
+    picks it, `:1006` judges it). Three plausible alternatives — the
+    loudest measured target, the quietest core, the mean — must each
+    change an answer, or the selection is not doing anything.
+    """
+
+    @staticmethod
+    def _corpus():
+        rng = random.Random(909)
+        built = []
+        while len(built) < 400:
+            case = _random_tick(rng)
+            if case[0] and len(case[0]) >= 2:
+                built.append(case)
+        return built
+
+    @pytest.mark.parametrize("pick", ["loudest_measured", "quietest_core",
+                                      "mean_of_cores"])
+    def test_an_alternative_selection_disagrees(self, pick):
+        for targets, drafts, share_l3, share_l7, adv, cores in self._corpus():
+            theirs = _production_derived(
+                targets=targets, adversary_states=adv,
+                strategic=set(targets), effective_cores=cores,
+                global_l3=share_l3, global_l7=share_l7)
+            rows = _derived(_reduce(drafts, {B.ADVERSARY_ORIGINS: adv,
+                                             B.EFFECTIVE_CORES: cores}))
+            measured = {d.country: d.flags["avg_spike"]
+                        for d in _reduce(drafts,
+                                         {B.ADVERSARY_ORIGINS: adv,
+                                          B.EFFECTIVE_CORES: cores})
+                        if d.signal_source == CF.SPIKE_TARGET_SIGNAL}
+            in_cores = [measured[c] for c in cores if c in measured]
+            if pick == "loudest_measured":
+                alternative = max(measured.values(), default=0.0)
+            elif pick == "quietest_core":
+                alternative = min(in_cores, default=0.0)
+            else:
+                alternative = (sum(in_cores) / len(in_cores)) if in_cores \
+                    else 0.0
+            mutant_score, mutant_fired = _production_spike_ladder(
+                0.0, False, 0, alternative)
+            mine = rows[RC.SPIKE_SIGNAL]
+            if (mutant_fired, float(mutant_score)) != (
+                    mine.status == "FIRED", mine.raw_score):
+                assert (mine.status == "FIRED",
+                        mine.raw_score) == theirs["cf_spike_core"]
+                return
+        pytest.fail(f"selecting the {pick} never changed the verdict: the "
+                    f"primary-core rule is not load-bearing here")
 
 
 class TestTheDerivedMutantsAreCaught:
@@ -1432,6 +1613,9 @@ class TestTheDerivedMutantsAreCaught:
         "SHIFT_SCORE": 9.0, "STRIKE_MANY": 99, "STRIKE_MANY_SCORE": 9.0,
         "STRIKE_ANY_SCORE": 9.0, "ELEVATED_SPIKE_MIN": 0.0,
         "COORDINATED_MIN": 99, "COORDINATED_SCORE": 9.0,
+        # the hour-of-day warm-up rungs, which now decide the ONE
+        # `cf_spike_core` entry rather than one entry per participant
+        "WARMUP_THRESHOLDS": (0.0, 0.0, 0.0),
     }
 
     @staticmethod
@@ -1463,8 +1647,7 @@ class TestTheDerivedMutantsAreCaught:
                 global_l3=share_l3, global_l7=share_l7)
             rows = _derived(_reduce(drafts, {B.ADVERSARY_ORIGINS: adv,
                                              B.EFFECTIVE_CORES: cores}))
-            for signal in (RC.VECTOR_SHIFT_SIGNAL, RC.ADVERSARY_STRIKE_SIGNAL,
-                           RC.COORDINATED_SIGNAL):
+            for signal in sorted(RC.COUNTRYLESS_SIGNALS):
                 if (rows[signal].status == "FIRED",
                         rows[signal].raw_score) != theirs[signal]:
                     return
@@ -1746,7 +1929,8 @@ class TestTheRecorderDoesNotResetTheAge:
                  "origin_baseline": {"l3": {"CN": 4.0}, "l7": {}}}
         store.append_signal(SignalObservation(
             tick_id=f"t{int(now)}", sensor="cloudflare_radar",
-            signal_source=CF.SPIKE_SIGNAL, domain="cyber", country="TW",
+            signal_source=CF.SPIKE_TARGET_SIGNAL, domain="cyber",
+            country="TW",
             evidence=Evidence.observe(flags, observed_at=now,
                                       freshness_horizon_sec=86400.0,
                                       source="cloudflare_radar"),
@@ -1826,7 +2010,7 @@ class TestTheDailyGateHoldsEndToEnd:
         self._tick(deployment, NOW + 900)
         row = store.latest_signal_at(NOW + 900, sensor="cloudflare_radar",
                                      country="IR",
-                                     signal_source=CF.SPIKE_SIGNAL)
+                                     signal_source=CF.SPIKE_TARGET_SIGNAL)
         flags = json.loads(row["flags"])
         assert flags["baseline_source"] == RC.BASELINE_STORED
         assert flags["avg_spike"] == 4.0        # the same verdict as tick 1

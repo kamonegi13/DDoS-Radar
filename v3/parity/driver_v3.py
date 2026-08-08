@@ -22,6 +22,7 @@ from typing import Iterable, Mapping, Optional, Sequence
 from v3.intel import adjudication as INTEL
 from v3.ledger import LedgerStore
 from v3.runtime import chain as CHAIN
+from v3.runtime import events as EVENTS
 from v3.parity.adapter import LedgerInputAdapter, to_v3_observations
 from v3.parity.compare import THREAT_LEVEL, Contributor, Reading, TickKey
 from v3.scoring import (PriorState, Scenario, ScoringInputs, ScoringSettings,
@@ -58,8 +59,18 @@ def replay(store: LedgerStore, scenarios: Sequence[Scenario], *,
     per run: production selects it from each tick's own spike, so a
     replay that carried one country for the whole window would measure a
     system nobody runs. It is recomputed per tick from that tick's rows,
-    through the same rule the live tick uses (§7-2 #115).
+    through the same rule the live tick uses (§7-2 #115) — and by the
+    same QUANTITY: `spike_intensity` is read here as well, because a
+    harness ranking on the admitted-evidence fallback while the tick
+    ranks on `avg_spike` would attribute the focused bonus to a different
+    belligerent on the two sides and call the resulting disagreement a
+    finding.
     """
+    # Imported here, not at module scope: `v3.runtime.scoring` imports
+    # `v3.parity.adapter`, so a top-level import closes a cycle that only
+    # resolves by luck of ordering.
+    from v3.runtime import scoring as SCORING
+
     effective = settings or ScoringSettings()
     adapter = LedgerInputAdapter(store, tick_interval_sec=tick_interval_sec)
     focused = focused_scenario_id or (
@@ -82,9 +93,20 @@ def replay(store: LedgerStore, scenarios: Sequence[Scenario], *,
             observations=observations,
             scenarios=tuple(scenarios),
             settings=effective,
+            # The SAME derivation the live tick runs (§7-2 #123, and the
+            # #38 lesson): a harness that supplied a different set of
+            # arriving events — most of all the empty set the field used
+            # to default to — would measure agreement or disagreement
+            # manufactured by the harness rather than by either system.
+            arriving_events=EVENTS.arriving_from(observations, scenarios,
+                                                 now=tick.tick_ts),
             focused_scenario_id=focused,
             prior=prior,
-            chain_countries=CHAIN.chain_owners(scenarios, observations),
+            chain_countries=CHAIN.chain_owners(
+                scenarios, observations,
+                spikes=SCORING.spike_intensity(
+                    store, now=tick.tick_ts,
+                    tick_interval_sec=tick_interval_sec)),
         ))
         for scenario_id, scored in result.results.items():
             reading = Reading(

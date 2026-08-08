@@ -13,9 +13,12 @@ perform because it sees one payload by construction (§2-2):
           THREE further entries production derives from the same numbers,
           which §7-2 #121 registered as missing: `cf_vector_shift`,
           `cf_adversary_strike`, `cf_coordinated` (`core.py:1063-1076`).
-          Those three are decided once per cycle rather than per country
-          and carry NO country, which is production's own attribution —
-          `_derived_rows` names the line that settles it.
+          ALL FOUR are decided once per cycle rather than per country and
+          carry NO country, which is production's own attribution —
+          `_derived_rows` names the line that settles it. The per-target
+          numbers those four are made of stay on `cf_spike_target`, the
+          OBSERVED measurement face that mirrors production's
+          `target_details` (`core.py:831`).
 
 Moved out of `reduce_physical.py` when the second half landed: that
 module is the physical-domain folds, and one adapter's two halves living
@@ -35,9 +38,10 @@ from v3.adapters.cyber.cloudflare_radar import (BGP_HIJACK_SIGNAL,
                                                 LEAK_FIRE_THRESHOLD,
                                                 ORIGIN_L3, ORIGIN_L3_BASELINE,
                                                 ORIGIN_L7, ORIGIN_L7_BASELINE,
-                                                ORIGIN_SIGNALS, SPIKE_SIGNAL)
-from v3.adapters.types import (CYBER, STATUS_FIRED, STATUS_OK,
-                               ObservationDraft)
+                                                ORIGIN_SIGNALS, SPIKE_SIGNAL,
+                                                SPIKE_TARGET_SIGNAL)
+from v3.adapters.types import (CYBER, STATUS_FIRED, STATUS_OBSERVED,
+                               STATUS_OK, ObservationDraft)
 from v3.runtime.baselines import ADVERSARY_ORIGINS, EFFECTIVE_CORES
 from v3.runtime.reduce_common import _by_country, _first_url, _min_confidence
 from v3.runtime.spike import (OriginSpike, adversary_strike_verdict,
@@ -59,6 +63,15 @@ SHARE_BASELINE_REF = "cf_attack_share_baseline"
 VECTOR_SHIFT_SIGNAL = "cf_vector_shift"
 ADVERSARY_STRIKE_SIGNAL = "cf_adversary_strike"
 COORDINATED_SIGNAL = "cf_coordinated"
+
+#: Every entry the cloudflare fold files under a SIGNAL name, which is
+#: the whole reason each is countryless (`core.py:2039-2041`). Named as a
+#: set so a test can assert the property over the family instead of over
+#: whichever member the author remembered — §7-2 #118 was a member added
+#: with a country while its three siblings had none.
+COUNTRYLESS_SIGNALS: frozenset = frozenset({
+    SPIKE_SIGNAL, VECTOR_SHIFT_SIGNAL, ADVERSARY_STRIKE_SIGNAL,
+    COORDINATED_SIGNAL})
 
 #: The global TARGET shares, whose `share_pct` decides which origins are
 #: eligible to be `shift_actors` (`core.py:744-745`, `:806`).
@@ -174,13 +187,23 @@ def stored_baseline(snapshot: Optional[Mapping[str, Sequence]],
 def _fold_cf_spike(drafts: Sequence[ObservationDraft],
                    baselines: Mapping[str, Any],
                    now: float) -> list[ObservationDraft]:
-    """Four origin payloads -> production's four cloudflare spike entries.
+    """Four origin payloads -> the measurement face, then the four entries.
 
     **The four inputs never reach L1.** Production writes ONE rationale
-    record per country per cycle (`core.py:1025`); the per-window,
-    per-layer rows exist only so that four payloads can survive the
-    ledger's uniqueness key long enough to be joined, and keeping them
-    would be four observations production never made.
+    record per cycle (`core.py:1025`); the per-window, per-layer rows
+    exist only so that four payloads can survive the ledger's uniqueness
+    key long enough to be joined, and keeping them would be four
+    observations production never made.
+
+    **What IS per-country is the measurement, not the verdict.**
+    `cf_spike_target` carries one target's `avg_spike` and the numbers
+    behind it, OBSERVED and unscored, because that is what production
+    keeps per target: `target_details` (`core.py:831`) is a working
+    structure the rationale entry never sees. Three readers need it —
+    the chain owner (`core.py:878-881`), the hour-of-day sample
+    (`core.py:824-825`) and the stored origin baseline
+    (`core.py:739-742`) — and in v3 a fold reaches its readers only
+    through L1, so the working values are written rather than passed.
 
     **A country with no CURRENT origin payload gets no row at all.** A
     fetch that did not happen is not a measurement of calm, and an
@@ -222,21 +245,27 @@ def _fold_cf_spike(drafts: Sequence[ObservationDraft],
                              adversaries=adversaries,
                              global_l3_pct=_share_pct(group, _SHARE_L3_SIGNAL),
                              global_l7_pct=_share_pct(group, _SHARE_L7_SIGNAL))
-        verdict = spike_verdict(history.get(country, ()), spike.avg_spike)
         present = list(rows.values())
         measured[country] = spike
         contributing.extend(present)
         reduced.append(ObservationDraft(
-            signal_source=SPIKE_SIGNAL, domain=CYBER, country=country,
-            status=STATUS_FIRED if verdict.fired else STATUS_OK,
-            raw_score=verdict.score,
+            signal_source=SPIKE_TARGET_SIGNAL, domain=CYBER, country=country,
+            # OBSERVED and 0.0: production reaches no per-target verdict
+            # (`compute_hod_zscore` is called once, on `primary_ec` —
+            # `core.py:1006`), so a per-target FIRED here would be a
+            # conclusion production never draws. OBSERVED also keeps the
+            # row out of `passes_gate()` and `admits()`, so the
+            # measurement face cannot score or justify a chain link.
+            status=STATUS_OBSERVED, raw_score=0.0,
             confidence=_min_confidence(present),
-            value=verdict.value, reason=verdict.reason,
+            value=f"{spike.avg_spike:.2f}x [baseline {source}]", reason="",
             flags={"avg_spike": spike.avg_spike,
                    "avg_l3_spike": round(spike.avg_l3_spike, 2),
                    "avg_l7_spike": round(spike.avg_l7_spike, 2),
                    "total_local_pct": round(spike.total_local_pct, 2),
                    "has_baseline": spike.has_baseline,
+                   "is_vector_shift": spike.is_vector_shift,
+                   "shift_actors": list(spike.shift_actors),
                    "origins": dict(spike.origins),
                    # Carried on the row because the NEXT cycle's fallback
                    # is written from it (`v3/runtime/record.py`) — the
@@ -245,35 +274,35 @@ def _fold_cf_spike(drafts: Sequence[ObservationDraft],
                    "origin_baseline": {"l3": base_l3, "l7": base_l7},
                    "baseline_source": source,
                    "adversary_origins": sorted(adversaries),
-                   "hod_z": (None if verdict.z is None
-                             else round(verdict.z, 2)),
-                   "hod_n": verdict.n, "hod_valid": verdict.valid,
+                   "production_ref": "radar/routes/core.py:831 "
+                                     "(target_details)",
                    "folded_sources": [d.signal_source for d in present]},
             evidence_url=_first_url(present)))
     # A cycle in which no target produced a current distribution makes no
-    # derived claim either. Production would emit three OK/0 rows here;
+    # derived claim either. Production would emit four OK/0 rows here;
     # v3 does not, for the reason the per-country loop skips a country
     # with no payload — a fetch that did not happen is not a measurement
     # of calm. Score is 0 on both sides, so nothing numeric moves.
     if measured:
         reduced.extend(_derived_rows(measured, cores=cores,
-                                     contributing=contributing))
+                                     contributing=contributing,
+                                     history=history))
     return reduced
 
 
 def _derived_rows(measured: Mapping[str, OriginSpike], *,
                   cores: Sequence[str],
-                  contributing: Sequence[ObservationDraft]
+                  contributing: Sequence[ObservationDraft],
+                  history: Mapping[str, Sequence[float]]
                   ) -> list[ObservationDraft]:
-    """The three entries §7-2 #121 registered as missing. One set per cycle.
+    """The FOUR entries production makes of one cycle's origin data.
 
-    **None of the three is per-scenario, and none is per-country in the way
-    `cf_spike_core` is.** The line that settles it is
-    `radar/routes/core.py:2039-2041`, where a rationale entry acquires a
-    country ONLY if `rat.sensor in FOCUSED_ONLY_SENSOR_NAMES`. That
-    frozenset (`radar/scenarios.py:75-79`) holds sensor names —
-    `cloudflare_radar`, `ioda_bgp`, ... — and these three entries are
-    filed under SIGNAL names, so none of them matches and all three
+    **None of the four is per-scenario, and none carries a country.** The
+    line that settles it is `radar/routes/core.py:2039-2041`, where a
+    rationale entry acquires a country ONLY if `rat.sensor in
+    FOCUSED_ONLY_SENSOR_NAMES`. That frozenset (`radar/scenarios.py:75-79`)
+    holds sensor names — `cloudflare_radar`, `ioda_bgp`, ... — and all four
+    entries are filed under SIGNAL names, so none matches and all four
     become countryless Signals (`radar/scoring.py:79`). Countryless is
     not a gap here: it is production's own attribution, it is what
     `compute_global_threat` aggregates (`radar/scoring.py:1177-1215`), and
@@ -282,16 +311,32 @@ def _derived_rows(measured: Mapping[str, OriginSpike], *,
     (`radar/scoring.py:1452-1453`). v3 reaches the same place through
     `Observation.is_global` and S1-SCORE-012.
 
+    `cf_spike_core` was the fourth for one release and was emitted per
+    participant instead (§7-2 #118). The register called that a
+    sensitive-direction widening of "one row into N"; it was in fact
+    "zero into N x coupling weight", because the countryless row scores
+    nothing per scenario. Phase 9 (2026-05-13) decoupled global signals
+    precisely to delete "the ~1.5 constant floor that previously
+    contaminated every scenario" (`radar/scoring.py:1448-1451`), and a
+    floor that rises equally on a quiet day is bias rather than
+    detection, so NP1 does not shelter it. Worse, the parity harness
+    could not see the difference at all: `v3/parity/adapter.py:175-177`
+    takes `country` from the STORED row, so production's countryless
+    history stays countryless on both sides and the divergence lived
+    only in v3's live fold, where nothing measured it.
+
     `source_country=_adv_top_actor` at `core.py:1075` does NOT contradict
     this: that argument is consumed by `classify_direction` and the two
     context helpers inside `add_rat` (`core.py:956-971`) and never reaches
     `RationaleEntry`, so it decorates the CAC direction and nothing else.
     Carried in the flags for the same reason production computes it.
 
-    The set the three range over is the CYCLE's countries, where
+    The set the four range over is the CYCLE's countries, where
     production's is the focused scenario's `strategic_theaters`. v3 scores
-    every scenario from one acquisition, so the union is what exists; the
-    widening is §7-2 #118's, and it is the direction NP1 accepts.
+    every scenario from one acquisition, so the union is what exists. That
+    widening is §7-2 #124's, and it is the direction NP1 accepts — the
+    rows carry `targets_measured` / `effective_cores` / `primary_core` so
+    which set decided them is readable off the row.
     """
     shifted = sorted(country for country, spike in measured.items()
                      if spike.is_vector_shift)
@@ -320,6 +365,17 @@ def _derived_rows(measured: Mapping[str, OriginSpike], *,
     core_l3 = round(measured[primary].avg_l3_spike, 2) \
         if primary in measured else 0
 
+    # `core.py:872-884` — `core_spike` is the primary core's own
+    # `avg_spike`, by BOTH branches: the dual-core branch takes
+    # `max(avg_spike)` while `primary_ec` takes the argmax of the same
+    # lookup, and the single-core branch reads `core_theater`, which is
+    # its only effective core. Production's default for a core with no
+    # entry is 0 (`target_details.get(ec, {}).get("avg_spike", 0)`).
+    core_spike = measured[primary].avg_spike if primary in measured else 0.0
+    # `core.py:1006` — ONE hour-of-day verdict per cycle, on the primary
+    # core's series. Not one per participant: that is §7-2 #118.
+    spike = spike_verdict(history.get(primary, ()), core_spike)
+
     shift = vector_shift_verdict(shifted_targets=shifted,
                                  core_shifted=core_shifted,
                                  core_l7_spike=core_l7, core_l3_spike=core_l3)
@@ -330,6 +386,17 @@ def _derived_rows(measured: Mapping[str, OriginSpike], *,
               "effective_cores": list(ranked),
               "primary_core": primary}
     return [
+        _derived_draft(SPIKE_SIGNAL, spike, contributing,
+                       # `core_avg_spike`, never `avg_spike`: the
+                       # per-country name belongs to the measurement face
+                       # and a countryless row answering to it would be
+                       # read as a target's reading by anything that
+                       # scans for the key.
+                       {**shared, "core_avg_spike": core_spike,
+                        "hod_z": (None if spike.z is None
+                                  else round(spike.z, 2)),
+                        "hod_n": spike.n, "hod_valid": spike.valid,
+                        "production_ref": "radar/routes/core.py:1006-1025"}),
         _derived_draft(VECTOR_SHIFT_SIGNAL, shift, contributing,
                        {**shared, "shifted_targets": shifted,
                         "core_shifted": core_shifted,
@@ -389,4 +456,5 @@ __all__ = ["_fold_cloudflare", "_fold_cf_bgp", "_fold_cf_spike",
            "_derived_rows", "stored_baseline", "ORIGIN_BASELINE_REF",
            "SHARE_BASELINE_REF", "BASELINE_FETCHED", "BASELINE_STORED",
            "BASELINE_ABSENT", "VECTOR_SHIFT_SIGNAL",
-           "ADVERSARY_STRIKE_SIGNAL", "COORDINATED_SIGNAL"]
+           "ADVERSARY_STRIKE_SIGNAL", "COORDINATED_SIGNAL",
+           "COUNTRYLESS_SIGNALS"]

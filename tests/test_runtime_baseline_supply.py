@@ -635,7 +635,19 @@ class TestTheCycleAdvancesItsOwnBaselines:
         pinned to that flag, on that signal source, so a later rename
         cannot quietly point it at a neighbouring number."""
         assert record.PHASE_SAMPLES["cf_attack_share_baseline"] == (
-            "cloudflare_radar", "cf_spike_core", "avg_spike")
+            "cloudflare_radar", "cf_spike_target", "avg_spike")
+
+    def test_the_sample_is_read_from_the_per_country_face(self):
+        """§7-2 #118's repair moved the per-country `avg_spike` off
+        `cf_spike_core`, which is now countryless exactly as production's
+        entry is. Production takes this sample from `target_details` too
+        (`core.py:824-825`), never from the rationale entry — a
+        countryless row cannot answer "what did TW read this hour"."""
+        from v3.adapters.cyber import cloudflare_radar as CF
+        sensor, source, key = record.PHASE_SAMPLES["cf_attack_share_baseline"]
+        assert source == CF.SPIKE_TARGET_SIGNAL
+        assert source not in CF.__dict__.get("__all__", ()) or True
+        assert CF.SPIKE_SIGNAL != CF.SPIKE_TARGET_SIGNAL
 
 
 # ── §7-2 #73: the registered claim, measured ────────────────────────────

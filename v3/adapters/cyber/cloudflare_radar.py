@@ -118,8 +118,22 @@ _ORIGIN_SPEC: Mapping[str, tuple[str, str, str]] = {
 }
 ORIGIN_SIGNALS: Mapping[str, str] = {
     label: spec[0] for label, spec in _ORIGIN_SPEC.items()}
-#: The one row per country per cycle production writes (`core.py:1025`).
+#: The ONE row per cycle production writes (`core.py:1025`), and it is
+#: COUNTRYLESS: `add_rat`'s first positional becomes `RationaleEntry.sensor`
+#: and `core.py:2039-2041` attaches a country only when that name is in
+#: `FOCUSED_ONLY_SENSOR_NAMES` (`radar/scenarios.py:75-79`), which holds
+#: SENSOR names (`cloudflare_radar`, ...) and never a signal name. Its
+#: verdict is the primary effective core's (`core.py:1006` passes
+#: `primary_ec` and `core_spike`), not any other participant's.
 SPIKE_SIGNAL = "cf_spike_core"
+#: The per-target measurement face. Production keeps these in
+#: `target_details` (`core.py:831`) — a working structure, not a rationale
+#: entry — and reads them back for the chain owner (`core.py:878-881`), the
+#: hour-of-day sample (`core.py:824-825`) and the origin baseline
+#: (`core.py:739-742`). v3's folds are pure and L1 is the only carrier
+#: between a fold and its readers, so the same working values are written
+#: as OBSERVED rows: measured, no verdict, no score, never gated in.
+SPIKE_TARGET_SIGNAL = "cf_spike_target"
 #: `location=` is Cloudflare's name for the target country; it is not in
 #: `common.COUNTRY_PARAMS` because adding it there would change how five
 #: other adapters recover a country from a URL.
@@ -424,7 +438,7 @@ __all__ = ["CLOUDFLARE_RADAR", "CLOUDFLARE_RADAR_ADAPTER", "normalize",
            "BGP_DATE_RANGE", "DEFAULT_DATE_RANGE", "BASELINE_DATE_RANGE",
            "CF_MIN_INTERVAL_SEC", "CF_AUTH", "LOCATION_KEYS",
            "BGP_HIJACK_SIGNAL", "BGP_LEAK_SIGNAL", "SPIKE_SIGNAL",
-           "BASELINE_REFRESH_SEC",
+           "SPIKE_TARGET_SIGNAL", "BASELINE_REFRESH_SEC",
            "ORIGIN_L3", "ORIGIN_L7", "ORIGIN_L3_BASELINE",
            "ORIGIN_L7_BASELINE", "ORIGIN_LABELS", "ORIGIN_SIGNALS",
            "ORIGIN_COUNTRY_PARAMS"]

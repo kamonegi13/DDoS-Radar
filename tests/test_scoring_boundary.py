@@ -67,7 +67,8 @@ class TestScoringImportIsInert:
             " participants=(Participant('TW', Ratio(1.0)),))\n"
             "result = score_tick(ScoringInputs(now=1700000000.0,"
             " observations=(obs,), scenarios=(scenario,),"
-            " settings=ScoringSettings(), focused_scenario_id='s'))\n"
+            " settings=ScoringSettings(), arriving_events=(),"
+            " focused_scenario_id='s'))\n"
             "print(result.results['s'].threat_level.value,"
             " any(m.startswith('radar') for m in sys.modules))")
         assert proc.returncode == 0, proc.stderr

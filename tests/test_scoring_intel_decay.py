@@ -222,7 +222,7 @@ class TestDecayReachesTheTick:
         return ScoringInputs(
             now=NOW, observations=(intel(score=6.0, age_sec=age_sec),),
             scenarios=(taiwan(),), settings=ScoringSettings(),
-            focused_scenario_id=None)
+            arriving_events=(), focused_scenario_id=None)
 
     def test_an_aged_item_scores_below_a_fresh_one(self):
         from v3.scoring import score_tick

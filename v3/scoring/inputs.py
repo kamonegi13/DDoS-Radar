@@ -427,9 +427,17 @@ class ScoringInputs:
     observations: tuple[Observation, ...]
     scenarios: tuple[Scenario, ...]
     settings: ScoringSettings
+    #: REQUIRED, and that is the repair for §7-2 #123. The field defaulted
+    #: to `()` and no caller ever set it, so `sequence.advance()` ran every
+    #: tick with nothing arriving: a finished state machine, no input, and
+    #: a green suite because the kernel's own tests pass events directly.
+    #: Without a default the omission is a TypeError at the construction
+    #: site instead of a silence at the detection site — a caller with no
+    #: events must now say `()` and mean it.
+    #: `v3/runtime/events.py` is what the two production callers pass.
+    arriving_events: tuple[SequenceEvent, ...]
     focused_scenario_id: Optional[str] = None
     prior: PriorState = field(default_factory=PriorState)
-    arriving_events: tuple[SequenceEvent, ...] = ()
     score_series: Mapping[str, tuple] = field(default_factory=dict)
     pattern_flags: Mapping[str, PatternFlags] = field(default_factory=dict)
     chain_countries: Mapping[str, str] = field(default_factory=dict)
@@ -553,9 +561,12 @@ class ScoringInputs:
         # mappingproxy cannot be pickled, and deepcopy follows the same
         # path. Rebuilding through the constructor re-runs validation, so
         # a round-tripped tick is a validated tick.
+        # Positional, so it follows the FIELD order — `arriving_events` is
+        # now required and therefore sits fourth-from-front, not among the
+        # defaulted tail.
         return (type(self), (self.now, self.observations, self.scenarios,
-                             self.settings, self.focused_scenario_id,
-                             self.prior, self.arriving_events,
+                             self.settings, self.arriving_events,
+                             self.focused_scenario_id, self.prior,
                              dict(self.score_series),
                              dict(self.pattern_flags),
                              dict(self.chain_countries)))

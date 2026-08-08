@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
-from v3.adapters.cyber.cloudflare_radar import SPIKE_SIGNAL
+from v3.adapters.cyber.cloudflare_radar import SPIKE_TARGET_SIGNAL
 from v3.ledger import records
 from v3.ledger.baselines import record_bucket_sample
 from v3.runtime.baselines import ENTITY_BASELINES, PHASE_BASELINES
@@ -31,11 +31,17 @@ from v3.runtime.reduce_cyber import BASELINE_FETCHED
 #: a series that means something else. It is here now because the quantity
 #: is the same one: `v3/runtime/spike.py::origin_spike` transcribes
 #: `core.py:762-817` and the fold puts it on the row this reads.
+#:
+#: The row is `cf_spike_target`, not `cf_spike_core`. Production takes
+#: this sample from `target_details` too (`core.py:824-825` reads
+#: `avg_spike_record`, the same per-target number), never from the
+#: rationale entry — which is countryless and therefore cannot answer
+#: "what did TW read this hour" at all.
 PHASE_SAMPLES: Mapping[str, tuple] = {
     "bgp_hod": ("ripe_bgp", "bgp", "announced_prefixes"),
     "checkhost_hod": ("check_host", "check_host", "success_rate"),
     "gdelt_dow_tone": ("gdelt", "gdelt", "tone"),
-    "cf_attack_share_baseline": ("cloudflare_radar", SPIKE_SIGNAL,
+    "cf_attack_share_baseline": ("cloudflare_radar", SPIKE_TARGET_SIGNAL,
                                  "avg_spike"),
 }
 
@@ -187,7 +193,7 @@ def _record_cf_origin_baseline(store, *, now: float, country: str) -> int:
     request goes out 96 times a day and the row still says `stored`.
     """
     flags = _row(store, now=now, sensor="cloudflare_radar",
-                 signal_source=SPIKE_SIGNAL, country=country)
+                 signal_source=SPIKE_TARGET_SIGNAL, country=country)
     if flags.get("baseline_source") != BASELINE_FETCHED:
         return 0
     baseline = flags.get("origin_baseline") or {}
