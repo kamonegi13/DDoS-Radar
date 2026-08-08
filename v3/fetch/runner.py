@@ -20,7 +20,7 @@ again.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Mapping, Optional, Sequence
 
 from v3.adapters.types import (FALLBACK_ON_FAILURE_OR_EMPTY, AdapterId,
@@ -207,6 +207,71 @@ def run_due(now: float, adapters: Sequence[SourceAdapter],
 # ── the impure half ─────────────────────────────────────────────────────
 
 @dataclass(frozen=True, slots=True)
+class CycleHooks:
+    """What the composition root lends the kernel for one cycle.
+
+    Four things the kernel must DO but must not DECIDE. Each is a function
+    supplied by `v3/runtime/`, defaulting to "no change", so the kernel
+    keeps working unhooked and every hook is visible at one call site
+    instead of spread across the adapters.
+
+    Passing functions rather than handles is deliberate and is the design
+    sheet's wording (§7-2 #45): giving `bg_observer_rss` a ledger handle
+    would let an adapter write, and asking the adapter to classify its own
+    feed after the kernel already parsed it would parse the same bytes
+    twice.
+    """
+
+    #: `(adapter_id, drafts) -> drafts`. The N-to-one fold, §7-2 #11.
+    #: Runs before anything is written, so the collision it prevents never
+    #: reaches the ledger's UNIQUE constraint.
+    reduce: Optional[object] = None
+    #: `{adapter_id: payload -> outcome}`. Turns "HTTP 200 with HTML in
+    #: it" into `returns_html` in `fetch_log.outcome` rather than `ok`
+    #: (§7-2 #45 / A10: "returned zero items" and "has been serving HTML
+    #: since June" stop being one counter).
+    classify_outcome: Mapping[str, object] = field(default_factory=dict)
+    #: `{adapter_id: attempt_index -> headers}`. Per-request header
+    #: selection, which a fixed `RequestSpec.headers` cannot express —
+    #: §7-2 #50's UA pool.
+    request_headers: Mapping[str, object] = field(default_factory=dict)
+    #: `{adapter_id: note}` recorded alongside every fetch that adapter
+    #: makes, so "ran anonymously" is a fact in the ledger and not only in
+    #: a start-up message nobody re-reads.
+    credential_notes: Mapping[str, str] = field(default_factory=dict)
+
+    def folded(self, adapter_id: str, drafts):
+        return tuple(self.reduce(adapter_id, drafts)) if self.reduce \
+            else tuple(drafts)
+
+    def outcome_for(self, adapter_id: str, outcome):
+        """Reclassify a SUCCESSFUL fetch, never a failed one.
+
+        A classifier that could overwrite `timeout` would be a second
+        opinion on whether the request happened at all; what it may say is
+        what the bytes turned out to be.
+        """
+        classifier = self.classify_outcome.get(adapter_id)
+        if classifier is None or not outcome.succeeded \
+                or outcome.payload is None:
+            return outcome.outcome
+        return str(classifier(outcome.payload)) or outcome.outcome
+
+    def headers_for(self, adapter_id: str, index: int):
+        chooser = self.request_headers.get(adapter_id)
+        return dict(chooser(index)) if chooser else {}
+
+    def note_for(self, adapter_id: str) -> str:
+        return str(self.credential_notes.get(adapter_id, ""))
+
+
+def _annotated(detail: str, note: str) -> str:
+    if not note:
+        return detail
+    return f"{note}; {detail}" if detail else note
+
+
+@dataclass(frozen=True, slots=True)
 class AdapterResult:
     """What executing one adapter produced."""
 
@@ -231,7 +296,9 @@ class CycleResult:
 def execute_plan(plan: FetchPlan, registry, *, client, store,
                  tick_id: str, credentials_present: bool = True,
                  limiter_state: Optional[LimiterState] = None,
-                 countries: Sequence[str] = ()) -> CycleResult:
+                 countries: Sequence[str] = (),
+                 context_for=None,
+                 hooks: Optional[CycleHooks] = None) -> CycleResult:
     """Carry out a plan. The ONLY impure entry point in this module.
 
     Adapters do not write to L1 (§2-2): `normalize` returns drafts and
@@ -240,6 +307,7 @@ def execute_plan(plan: FetchPlan, registry, *, client, store,
     entrance B-03 came through.
     """
     limits = limiter_state or LimiterState()
+    lent = hooks or CycleHooks()
     results: list[AdapterResult] = []
 
     for item in plan.planned:
@@ -248,6 +316,8 @@ def execute_plan(plan: FetchPlan, registry, *, client, store,
         fetched: list = []
         outcome_name = client_module.OK
         detail = ""
+        attempt_index = 0
+        classified: dict = {}
 
         # ── I/O first, OUTSIDE the transaction ──────────────────────────
         # Network calls are slow and can hang; holding SQLite's write lock
@@ -262,15 +332,27 @@ def execute_plan(plan: FetchPlan, registry, *, client, store,
             satisfied = False
             last_failure = None
             for spec in step.alternatives:
+                # §7-2 #50: a per-request header the declaration cannot
+                # hold. The spec is REPLACED, not mutated — a shared
+                # declaration edited in place is edited for every later
+                # cycle too.
+                chosen = lent.headers_for(adapter.name, attempt_index)
+                attempt_index += 1
+                if chosen:
+                    spec = replace(spec,
+                                   headers={**dict(spec.headers), **chosen})
                 outcome = client.fetch(spec, now=plan.now, auth=adapter.auth)
                 limits = limits.record(adapter.rate_limit_group, plan.now)
                 fetched.append(outcome)
+                classified[id(outcome)] = lent.outcome_for(adapter.name,
+                                                           outcome)
                 if not _answers(outcome, step.advance_on):
                     last_failure = outcome
                     continue
-                context = NormalizeContext(
-                    adapter_id=adapter.adapter_id, now=plan.now,
-                    countries=tuple(countries))
+                context = (context_for(adapter) if context_for is not None
+                           else NormalizeContext(
+                               adapter_id=adapter.adapter_id, now=plan.now,
+                               countries=tuple(countries)))
                 drafts.extend(adapter.normalize(outcome.payload, context))
                 # "A then B(A)": the second request only becomes
                 # addressable now, from the answer just received. It runs
@@ -314,14 +396,17 @@ def execute_plan(plan: FetchPlan, registry, *, client, store,
         # where the log records a fetch whose breaker step was lost, and
         # the next cycle then reasons from a state that never existed.
         written = 0
+        note = lent.note_for(adapter.name)
         with store.transaction() as conn:
             for outcome in fetched:
                 recorder.record_fetch(
                     store, adapter.name, requested_at=plan.now,
-                    url_sha256=outcome.url_sha256, outcome=outcome.outcome,
+                    url_sha256=outcome.url_sha256,
+                    outcome=classified.get(id(outcome), outcome.outcome),
                     http_status=outcome.status, latency_ms=outcome.latency_ms,
                     body_sha256=outcome.body_sha256,
-                    breaker_state=item.breaker.state, detail=outcome.detail,
+                    breaker_state=item.breaker.state,
+                    detail=_annotated(outcome.detail, note),
                     connection=conn)
                 if (adapter.record_body and outcome.succeeded
                         and outcome.payload is not None):
@@ -329,7 +414,11 @@ def execute_plan(plan: FetchPlan, registry, *, client, store,
                                          body=outcome.payload.body,
                                          recorded_at=plan.now, connection=conn)
             if succeeded:
-                written = _append_drafts(store, adapter, drafts,
+                # The fold runs INSIDE the transaction that writes, so a
+                # reduction failure aborts the write rather than leaving
+                # half a cycle recorded.
+                written = _append_drafts(store, adapter,
+                                         lent.folded(adapter.name, drafts),
                                          tick_id=tick_id, now=plan.now,
                                          connection=conn)
             recorder.save_state(store, state, updated_at=plan.now,
@@ -422,6 +511,7 @@ def _append_drafts(store, adapter: SourceAdapter, drafts, *, tick_id: str,
 
 
 __all__ = ["run_due", "execute_plan", "FetchPlan", "PlannedFetch",
+           "CycleHooks",
            "SkippedFetch", "CycleResult", "AdapterResult",
            "NOT_DUE", "BREAKER_OPEN", "RATE_LIMITED", "DISABLED",
            "UNRESOLVED", "FIRED_REASON_FLAG"]

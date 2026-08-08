@@ -5,9 +5,13 @@ The kernel's guarantees are enforced by the types at runtime. Two of them
 are also cheap to check statically, and both are properties a reviewer
 cannot reliably eyeball:
 
-  1. **No direct environment reads anywhere under v3/.** Threshold is the
-     only sanctioned path to a configured value, and `os.getenv` is
-     exactly how 95 of 98 registered keys ended up unread (G-15).
+  1. **No direct environment reads anywhere under v3/**, with ONE named
+     exception: `v3/runtime/secrets.py`, the composition root's credential
+     mouth (WP-4.1, design sheet §1-2). Threshold is the only sanctioned
+     path to a configured value, and `os.getenv` is exactly how 95 of 98
+     registered keys ended up unread (G-15). The exception is scoped to a
+     file rather than to `v3/runtime/` so that a second reader is a
+     visible edit here plus a failing test, not a quiet inheritance.
 
   2. **No module-scope import of the legacy application.** Importing any
      `radar.*` module runs radar/__init__.py, which boots the Flask app
@@ -62,6 +66,20 @@ _HTTP_MODULES = frozenset({
 })
 # The one sanctioned egress. Anything else naming an HTTP library fails.
 _HTTP_OWNER = "v3/fetch/client.py"
+# WP-4.1: the composition root owns threads, clocks AND credentials
+# (design sheet §1-2), so exactly one module has to be able to read the
+# process environment — the alternative is credentials arriving through a
+# side channel nobody audits.
+#
+# The exemption is scoped to a FILE, not to `v3/runtime/`. A package-wide
+# exemption would let the next module quietly become a second reader,
+# which is the G-15 shape the rule exists to prevent: 95 of 98 registered
+# keys became unreadable because `os.getenv` was available everywhere.
+# `tests/test_runtime_boundary.py` asserts both halves — that this name is
+# the only entry, and that an AST sweep of all of `v3/` finds no second
+# module reading `os.environ` — so widening the licence fails a test
+# rather than passing silently.
+_ENV_OWNER = "v3/runtime/secrets.py"
 # Names that suggest a threat level / a unit-bearing value. Heuristic:
 # these rules depend on naming, and the runtime types enforce the same
 # contracts regardless.
@@ -156,6 +174,7 @@ class _KernelVisitor(ast.NodeVisitor):
                                 for marker in _TEST_PATH_MARKERS)
         self.is_seam_owner = rel_path.endswith(_SEAM_OWNER)
         self.is_http_owner = rel_path.endswith(_HTTP_OWNER)
+        self.is_env_owner = rel_path.endswith(_ENV_OWNER)
 
     # ── module-scope legacy imports ────────────────────────────────────
     def visit_FunctionDef(self, node):  # noqa: N802
@@ -215,8 +234,9 @@ class _KernelVisitor(ast.NodeVisitor):
     def visit_Call(self, node):  # noqa: N802
         callee = _name_of(node.func)
         resolved = _resolve(callee, self.bindings)
-        if resolved in (_CANON_GETENV, f"{_CANON_ENVIRON}.get",
-                        f"{_CANON_ENVIRON}.setdefault"):
+        if not self.is_env_owner and resolved in (
+                _CANON_GETENV, f"{_CANON_ENVIRON}.get",
+                f"{_CANON_ENVIRON}.setdefault"):
             self.findings.append(Finding(
                 self.rel_path, node.lineno, "direct-env-read",
                 f"{callee}() resolves to {resolved} — not a configuration "
@@ -243,7 +263,8 @@ class _KernelVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Subscript(self, node):  # noqa: N802
-        if _resolve(_name_of(node.value), self.bindings) == _CANON_ENVIRON:
+        if not self.is_env_owner and \
+                _resolve(_name_of(node.value), self.bindings) == _CANON_ENVIRON:
             self.findings.append(Finding(
                 self.rel_path, node.lineno, "direct-env-read",
                 "os.environ[...] is not a configuration path in v3; use "
@@ -251,7 +272,8 @@ class _KernelVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Attribute(self, node):  # noqa: N802
-        if _resolve(_name_of(node), self.bindings) == _CANON_ENVIRON:
+        if not self.is_env_owner and \
+                _resolve(_name_of(node), self.bindings) == _CANON_ENVIRON:
             self.findings.append(Finding(
                 self.rel_path, node.lineno, "direct-env-read",
                 "os.environ access is not a configuration path in v3; use "
