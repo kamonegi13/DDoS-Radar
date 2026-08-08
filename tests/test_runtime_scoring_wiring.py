@@ -112,12 +112,21 @@ def _adapter(name, category, drafts):
 
 
 def _registry():
-    """Three domains, each well above the caps this test moves."""
+    """Three domains, each well above the caps this test moves.
+
+    Every family here is one production ALSO attributes to a country
+    (`bgp` via `ripe_bgp`, `ripe_atlas`, and the per-country RSS observer),
+    because §7-2 #127 moved nine families' score onto a countryless row
+    and a scenario score is zero for those by construction. The subject of
+    this module is the configuration chain, so its fixture must not sit on
+    the one thing that makes every scenario score 0 regardless.
+    """
     return AdapterRegistry([
-        _adapter("threatfox", "cyber", (_fire("threatfox", CYBER, 4.0),)),
+        _adapter("ripe_bgp", "cyber", (_fire("bgp", CYBER, 4.0),)),
         _adapter("ripe_atlas", "physical",
                  (_fire("ripe_atlas", PHYSICAL, 4.0),)),
-        _adapter("gdelt", "info", (_fire("gdelt", INFO, 4.0),)),
+        _adapter("bg_observer_rss", "info",
+                 (_fire("bg_observer", INFO, 4.0),)),
     ])
 
 
@@ -242,7 +251,7 @@ class TestTheAssemblySeamIsCallableOutsideTheTick:
             scenario_ids=(SCENARIO,), settings=settings)
         assert [s.scenario_id for s in inputs.scenarios] == [SCENARIO]
         assert {o.sensor for o in inputs.observations} == {
-            "threatfox", "ripe_atlas", "gdelt"}
+            "ripe_bgp", "ripe_atlas", "bg_observer_rss"}
         assert inputs.settings is settings
 
     def test_assembly_takes_counterfactual_settings_without_a_ledger_write(

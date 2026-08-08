@@ -39,6 +39,7 @@ from v3.fetch import recorder
 from v3.fetch.runner import CycleHooks, FetchPlan, execute_plan, run_due
 from v3.kernel.errors import DomainError
 from v3.runtime import attention as attention_module
+from v3.runtime import attribution as attribution_module
 from v3.runtime import baselines as baselines_module
 from v3.runtime import chain as chain_module
 from v3.runtime import expansion as expansion_module
@@ -106,8 +107,19 @@ def build_hooks(state: _CycleState, *, baselines: Mapping, now: float,
             state.produced[adapter_id] = reduced
             state.suppressors = suppression_module.read_suppressors(
                 state.produced)
-        return suppression_module.apply(adapter_id, reduced,
-                                        suppressors=state.suppressors)
+        # §7-2 #127. AFTER suppression, never before: `apply` decides per
+        # country (`_fires` reads `severe_weather.get(draft.country)`) and
+        # GDELT's weather-noise join is exactly that shape, so a row that
+        # went countryless first would look up `""` and stop being
+        # suppressed without a word. Collapsing here copies the primary
+        # core's already-decided suppression, which is production's own
+        # order (`radar/sensors/gdelt.py:58` decides, `core.py:1132`
+        # files).
+        return attribution_module.collapse(
+            adapter_id,
+            suppression_module.apply(adapter_id, reduced,
+                                     suppressors=state.suppressors),
+            cores=baselines.get(baselines_module.EFFECTIVE_CORES) or ())
 
     def rotate(index: int) -> Mapping[str, str]:
         # Deterministic where production uses `random.choice`

@@ -63,12 +63,25 @@ def weekday_phase(weekday: int) -> int:
 #: baseline name -> (sensor, flag key on the prior row).
 #: The names are the adapters' own `baseline_refs` values, so the registry
 #: and this table cannot drift apart without a test noticing.
+#:
+#: `gps_prev_ratio` (`("gps_jamming", "ratio")`) lived here through WP-4.1b,
+#: and `coverage()` counted it ANSWERED the whole time, but
+#: `gps_jamming._flags()` never wrote a `"ratio"` key — only `max_level` /
+#: `avg_level` — so `previous_cycle()` always resolved it to nothing, and no
+#: fold ever read the name to notice: a registry entry reporting itself
+#: wired while nothing could ever answer it (G-15). Moved to `UNANSWERABLE`
+#: 2026-08-09 with the measured reason; the adapter's `baseline_refs` stays
+#: (DP3 — the dependency on cross-cycle state must stay visible in the
+#: registry even though nothing currently resolves it).
+#: `tests/test_runtime_baseline_supply.py::TestNoDeclaredScalarIsDecorative`
+#: asserts every remaining entry's flag key against the adapter that is
+#: supposed to write it, so a future entry in this shape fails a test
+#: instead of inflating `coverage()`.
 PREVIOUS_CYCLE_SCALARS: Mapping[str, tuple] = {
     "atlas_prev_probe_count": ("ripe_atlas", "active"),
     "tor_prev_relay_count": ("tor_metrics", "running"),
     "tor_prev_user_count": ("tor_metrics", "bridge_users"),
     "ooni_prev_anomaly_count": ("ooni_censorship", "anomaly_count"),
-    "gps_prev_ratio": ("gps_jamming", "ratio"),
     "travel_advisory_previous_level": ("travel_advisory", "level"),
 }
 
@@ -203,6 +216,23 @@ EFFECTIVE_CORES = "effective_cores"
 #: An unanswerable baseline that is simply absent from every mapping is
 #: indistinguishable from one nobody wired.
 UNANSWERABLE: Mapping[str, str] = {
+    "gps_prev_ratio":
+        "declared (`gps_jamming.baseline_refs`, DP3 — production kept the "
+        "prior ratio in an instance dict, `self._prev_levels`, which a "
+        "restart silently erases) but nothing can ever write the flag key "
+        "it names: `gps_jamming._flags()` "
+        "(v3/adapters/physical/gps_jamming.py) writes `max_level` / "
+        "`avg_level`, never `\"ratio\"`. Not a wiring gap to close, "
+        "either: the quantity this would feed — a surge-over-previous-"
+        "ratio verdict — has no reader anywhere in production, not just "
+        "in v3. `radar/sensors/gps_jamming.py:198-213` computes `surge` / "
+        "`prev_avg` into `jamming_data[code]`, but `core.py`'s gps_jamming "
+        "score is threshold-only (`:1810`, `is_critical`/`is_jammed`, "
+        "neither reads `surge`) and no route or UI reads either field. "
+        "The sole production reader is `flag_catalog.py`'s silence "
+        "detector on the flag's OWN firing pattern (`:125`), not a "
+        "consumer of the value. Wiring one in v3 would be originating a "
+        "capability neither side of the port uses (found G-15, 2026-08-09)",
     "airspace_hod":
         "hour-of-day statistic keyed by AIRPORT in production "
         "(`airspace_baseline.airport_code`, radar/database.py:783-786) "

@@ -45,7 +45,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping, Optional, Sequence
 
-from v3.runtime import chain
+from v3.runtime import attribution, chain
 from v3.scoring import Observation, Scenario
 from v3.scoring.inputs import SequenceEvent
 
@@ -54,13 +54,18 @@ from v3.scoring.inputs import SequenceEvent
 class Registration:
     """One row of production's registration table.
 
-    `min_score` is how a ladder rung becomes a gate. OONI is the only
-    case: the row FIRES at `is_censoring` (`core.py:1707`) but the event
-    is registered on `_ooni_heavy` (`core.py:1710`), and heavy is exactly
-    the rung that scores 2 in both systems (`core.py:1700` /
-    `v3/adapters/cyber/ooni_censorship.py:123`). Reading the rung keeps
-    the condition inside the Observation the kernel already has, instead
-    of asking the event layer to re-open a payload.
+    `min_score` is how a ladder rung becomes a gate, and no registration
+    uses it any more. OONI was the one case — the row FIRES at
+    `is_censoring` (`core.py:1707`) while the event is registered on
+    `_ooni_heavy` (`core.py:1710`), the rung that scores 2 — and §7-2 #127
+    moved that score off the per-country row onto the countryless one
+    (`v3/runtime/attribution.py`), which left the rung unreadable here:
+    `Observation` carries no `flags`. The rung is now a row of its own
+    (`attribution.OONI_HEAVY`), FIRED with score 0, emitted only where the
+    reading was heavy AND the source row passed the gate — production's
+    two conditions, restated where the kernel can see them. `min_score`
+    stays on this type because the next graded registration will need it
+    and deleting it would hide that the question exists.
     """
 
     event_type: str
@@ -113,8 +118,9 @@ REGISTRATIONS: tuple[Registration, ...] = (
         event_type="GPS_JAMMING", signal_source="gps_jamming",
         production_ref="radar/routes/core.py:1819-1822"),
     Registration(
-        event_type="CENSORSHIP_DETECTED", signal_source="ooni_censorship",
-        production_ref="radar/routes/core.py:1710-1713", min_score=2.0),
+        event_type="CENSORSHIP_DETECTED",
+        signal_source=attribution.OONI_HEAVY,
+        production_ref="radar/routes/core.py:1710-1713"),
 )
 
 ABSENCES: tuple[Absence, ...] = (

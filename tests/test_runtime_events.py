@@ -23,9 +23,10 @@ import pathlib
 
 import pytest
 
-from v3.adapters.types import (PHYSICAL, STATUS_FIRED, STATUS_OBSERVED,
-                               STATUS_OK)
+from v3.adapters.types import (CYBER, PHYSICAL, ObservationDraft,
+                               STATUS_FIRED, STATUS_OBSERVED, STATUS_OK)
 from v3.kernel.errors import DomainError
+from v3.runtime import attribution as A
 from v3.runtime import events as E
 from v3.scoring import (CountryWeight, Observation, Participant, Scenario,
                         ScoringInputs, ScoringSettings)
@@ -43,6 +44,21 @@ def _scenario(scenario_id="middle_east", cores=("IL", "IR"), enabled=True):
             for c in cores) + (Participant(country="US", weight=0.5,
                                            role="primary_ally"),),
         enabled=enabled)
+
+
+def _ooni_draft(country, *, score, status=STATUS_FIRED, suppressed=False):
+    return ObservationDraft(
+        signal_source="ooni_censorship", domain=CYBER, country=country,
+        status=status, raw_score=score, suppressed=suppressed,
+        suppress_reason="analyst_mute" if suppressed else None,
+        value="anomaly=0.4 confirmed=0.2")
+
+
+def _ooni_rungs(*drafts):
+    """The rung rows §7-2 #127's fold emits, isolated from the rest."""
+    return tuple(d for d in A.collapse("ooni_censorship", drafts,
+                                       cores=("IL", "IR"))
+                 if d.signal_source == A.OONI_HEAVY)
 
 
 def _obs(signal_source, country, *, status=STATUS_FIRED, score=2.0,
@@ -158,16 +174,39 @@ class TestTheGateIsAddRatsReturn:
 class TestTheOoniRungIsTheHeavyBranch:
     """Production registers CENSORSHIP_DETECTED on `_ooni_heavy`
     (`core.py:1710`), not on `_ooni_censoring` which is what makes the row
-    FIRE (`core.py:1707`). Heavy is the rung that scores 2."""
+    FIRE (`core.py:1707`). Heavy is the rung that scores 2.
 
-    def test_censoring_but_not_heavy_registers_nothing(self):
+    Since §7-2 #127 the per-country `ooni_censorship` row no longer carries
+    that score — it moved to the countryless row — so the rung is a row of
+    its own (`attribution.OONI_HEAVY`), emitted by the same fold that moved
+    the score and gated on the same two facts production reads.
+    """
+
+    def test_the_scoring_row_can_no_longer_anchor_anything(self):
+        """The countryless row is where the score went, and a row with no
+        country anchors nothing — which is why the rung needed a face."""
         assert E.arriving_from(
-            (_obs("ooni_censorship", "IL", score=1.0),), (_scenario(),)) == ()
+            (_obs("ooni_censorship", "", score=2.0),), (_scenario(),)) == ()
+        assert E.arriving_from(
+            (_obs("ooni_censorship", "IL", score=2.0),), (_scenario(),)) == ()
 
-    def test_heavy_registers(self):
-        events = E.arriving_from((_obs("ooni_censorship", "IL", score=2.0),),
-                                 (_scenario(),))
+    def test_censoring_but_not_heavy_emits_no_rung(self):
+        assert _ooni_rungs(_ooni_draft("IL", score=1.0)) == ()
+
+    def test_heavy_registers_through_the_rung(self):
+        rungs = _ooni_rungs(_ooni_draft("IL", score=2.0))
+        assert [d.signal_source for d in rungs] == [A.OONI_HEAVY]
+        assert rungs[0].raw_score == 0.0        # gates, never scores
+        events = E.arriving_from(
+            (_obs(A.OONI_HEAVY, "IL", score=0.0),), (_scenario(),))
         assert [e.event_type for e in events] == ["CENSORSHIP_DETECTED"]
+
+    def test_a_muted_heavy_reading_emits_no_rung(self):
+        """`_ooni_active` is the other half of production's condition."""
+        assert _ooni_rungs(
+            _ooni_draft("IL", score=2.0, status=STATUS_OK)) == ()
+        assert _ooni_rungs(
+            _ooni_draft("IL", score=2.0, suppressed=True)) == ()
 
     def test_the_rung_and_the_flag_agree_over_the_whole_input_space(self):
         """A differential sweep, because reading the gate off the ladder is
@@ -182,13 +221,10 @@ class TestTheOoniRungIsTheHeavyBranch:
             confirmed = round(rng.uniform(0.0, anomaly), 4)
             is_censoring, is_heavy, _ = OONI.verdict(anomaly, confirmed)
             score = 2.0 if is_heavy else (1.0 if is_censoring else 0.0)
-            registration = next(r for r in E.REGISTRATIONS
-                                if r.signal_source == "ooni_censorship")
-            admitted = registration.admits(
-                _obs("ooni_censorship", "IL",
-                     status=STATUS_FIRED if is_censoring else STATUS_OK,
-                     score=score))
-            assert admitted is bool(is_heavy)
+            emitted = _ooni_rungs(_ooni_draft(
+                "IL", score=score,
+                status=STATUS_FIRED if is_censoring else STATUS_OK))
+            assert bool(emitted) is bool(is_heavy)
             seen_heavy += bool(is_heavy)
             seen_light += bool(is_censoring and not is_heavy)
         assert seen_heavy and seen_light   # the sweep reached both branches
@@ -455,8 +491,8 @@ class TestTheRemainderIsDisclosed:
 class TestTheMutantsAreCaught:
     @pytest.mark.parametrize("mutant", [
         {"signal_source": "isr_hotspot", "min_score": 1.0},
-        {"signal_source": "ooni_censorship", "min_score": 1.0},
-        {"signal_source": "ooni_censorship", "min_score": 3.0},
+        {"signal_source": A.OONI_HEAVY, "min_score": 1.0},
+        {"signal_source": A.OONI_HEAVY, "event_type": "ISR_SURGE"},
         {"signal_source": "isr_hotspot", "event_type": "SYNC_DDOS"},
         {"signal_source": "nasa_eonet", "event_type": "ISR_SURGE"},
     ])

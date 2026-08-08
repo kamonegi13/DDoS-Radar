@@ -156,6 +156,8 @@ Phase D の診断ではなく、**v3 への移植中に本番コードを 1 行�
 
 | H-02 | **`resolve_seq_fire_targets` が自身の docstring が禁じる帰属を dual-core で行う**: docstring は「センサーデータを一度も検査していない連鎖に偽の来歴イベントを登録する」ことを禁じているが、`if core_theater:` ガードは **dual-core（`core_country=null`）のときちょうど偽になる**ため、第 3 分岐が primary の読みを**全 core に対して**登録する。**2026-08-02 のクロスシナリオ帰属 failure と同じ形**であり、較正インシデント 3 件のうち最も新しいものの再演路である | **HIGH** | radar/routes/core.py（`resolve_seq_fire_targets` 実読） | v3 は再現しない（§7-2 #128）。**現行系側は残る** |
 
+| H-03 | **個別異常事象に 27 家系が構造的に現れない（NP4 違反の疑い）**: `derive_anomaly` は `state.contributions` を読む（`radar/conclusions/anomaly.py:187`）が、それは `compute_scenario_score` が組む `deduped`（`radar/scoring.py:1555`）であり、同関数 `:1452` が `GLOBAL_SIGNALS_DECOUPLED` 下で**国なし signal を落とす**。国が付くのは `FOCUSED_ONLY_SENSOR_NAMES` の 12 センサー名 + IODA per-country 注入 + `llm_intel` + `bg_observer` だけなので、**`gdelt` / `ct_log` / `threatfox` / `tor_metrics` / `ooni_censorship` / `ihr_*` / `gps_jamming` / `cf_bgp_hijack` 等 27 家系は、個別異常事象として一度も提示されない**<br>**原則への影響**: ツール定義は「個別異常事象」を 4 出力の 1 つに数え、NP4 は結論最大化を要求する。Phase 9（2026-05-13）の global 切り離しは**スコア**の定数フロア除去が目的だったが、`derive_anomaly` が同じ集合を読んでいるため**異常事象の提示範囲まで同時に狭まった**。意図された副作用かは不明 | **HIGH** | radar/conclusions/anomaly.py:187、radar/scoring.py:1452,1555（実読） | v3 は §7-2 #127 で本番に整列済（回帰テストで固定）。**「国なし signal は個別異常事象になれるべきか」は cutover 後に現行系ごと問い直す設計課題**であり、移植中に v3 側だけ変えない |
+
 **未起票（本セッションで発見、記述は次セッションに持ち越し）**: ISO2 誤帰属スキャン / 非機能 Defer の 2 件。
 
 **訂正**: S4 が「バックアップ欠測を新規発見」と報告したが、これは**既知のインシデント**（04:00 cron の PATH に docker が無く 2026-07-04〜08-03 に沈黙欠測、その後修正済み）。実測でも 07-04 / 08-03 / **08-04 04:00** の 3 世代が存在し、cron は現在復旧している。ただし `KEEP=14` に対し 3 世代しか無い事実は残り、**欠測を検知する仕組みが無い**という指摘（S4-NF-053: 最新バックアップ経過時間の指標化 MUST）は有効。

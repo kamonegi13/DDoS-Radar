@@ -17,13 +17,14 @@ Three obligations:
               score production produces.
 """
 import ast
+import inspect
 import math
 import pathlib
 import random
 
 import pytest
 
-from v3.adapters.catalog import build_registry
+from v3.adapters.catalog import ALL_ADAPTERS, build_registry
 from v3.adapters.types import (INFO, PHYSICAL, CYBER, STATUS_FIRED,
                                STATUS_OBSERVED, STATUS_OK, ObservationDraft)
 from v3.etl.mapping import MIGRATABLE
@@ -143,6 +144,112 @@ class TestTheAccountIsStillHonest:
                 "ct_log_known_ca_per_domain", "ct_log_domain_first_observed",
                 "checkhost_latency_history", "ais_vessel_history"} <= set(
                     report["answered"])
+
+
+class TestNoDeclaredScalarIsDecorative:
+    """The G-15 shape, on `PREVIOUS_CYCLE_SCALARS` specifically.
+
+    `coverage()` counts a name ANSWERED the moment it appears in
+    `PREVIOUS_CYCLE_SCALARS`, regardless of whether `previous_cycle()` ever
+    actually resolves a value for it. `gps_prev_ratio` sat there through
+    WP-4.1b answering that description while `gps_jamming._flags()` never
+    wrote the `"ratio"` key it named — the read at `previous_cycle()` was
+    unconditionally empty, every cycle, and nothing noticed because
+    `coverage()`'s own honesty metric does not check the write side.
+
+    This test closes that blind spot for the one category where it is
+    checkable without re-deriving each baseline's semantics: a
+    `PREVIOUS_CYCLE_SCALARS` entry is a literal `(sensor, flag_key)` pair
+    naming a specific dict key on a specific adapter's output, so whether
+    the named adapter can ever write that key is answerable from the
+    adapter's own source — the same technique
+    `test_adapters_physical_geo.py::flag_values` already uses to pin what a
+    module writes into one key, generalised to "does this key appear at
+    all". `PHASE_BASELINES` and `ENTITY_BASELINES` are deliberately NOT
+    covered here: they are resolved from dedicated L1 tables written by
+    `record.py`/the ETL, not from a prior cycle's `ObservationDraft.flags`,
+    so "does the adapter's flags dict contain this key" is not the right
+    question for them and a check built for one shape would give false
+    confidence applied to the other.
+    """
+
+    @staticmethod
+    def _dict_literal_keys(source_text: str) -> set:
+        """Every string literal used as a `dict` key anywhere in a module.
+
+        Deliberately broad rather than scoped to `ObservationDraft(flags=
+        ...)` call sites: `gps_jamming` (and others) build the flags dict
+        in a separate `_flags()` helper that RETURNS a dict literal, so a
+        call-site-only scan would miss exactly the shape this test exists
+        to catch. A key the adapter writes via any other mechanism (e.g.
+        `dict(**other)`) would not be seen either way — this is a lower
+        bound on what the adapter can emit, which is the direction that
+        makes a false PASS (declaring the key present when it is not) the
+        failure mode to worry about, not a false FAIL.
+        """
+        keys = set()
+        for node in ast.walk(ast.parse(source_text)):
+            if not isinstance(node, ast.Dict):
+                continue
+            for key_node in node.keys:
+                if isinstance(key_node, ast.Constant) and \
+                        isinstance(key_node.value, str):
+                    keys.add(key_node.value)
+        return keys
+
+    def test_every_previous_cycle_scalars_key_is_something_its_adapter_writes(
+            self):
+        by_id = {adapter.adapter_id.value: adapter for adapter in
+                 ALL_ADAPTERS}
+        for name, (sensor, key) in baselines.PREVIOUS_CYCLE_SCALARS.items():
+            adapter = by_id.get(sensor)
+            assert adapter is not None, (
+                f"{name} declares sensor {sensor!r}, which is not in "
+                f"ALL_ADAPTERS — a baseline naming an adapter that does "
+                f"not exist cannot be a scalar anyone reads")
+            source_file = inspect.getsourcefile(adapter.normalize)
+            source_text = pathlib.Path(source_file).read_text()
+            written = self._dict_literal_keys(source_text)
+            assert key in written, (
+                f"{name} names flags[{key!r}] on {sensor!r}, but "
+                f"{source_file} never writes that key into any dict "
+                f"literal — previous_cycle() can only ever resolve this "
+                f"entry to nothing, yet coverage() counts it ANSWERED. "
+                f"This is the gps_prev_ratio shape (moved to UNANSWERABLE "
+                f"2026-08-09): either make the adapter write the key, or "
+                f"move the entry from PREVIOUS_CYCLE_SCALARS to "
+                f"UNANSWERABLE with a measured reason (baseline_refs stays "
+                f"— DP3 — unless the adapter's cross-cycle dependency is "
+                f"itself gone)")
+
+    def test_gps_prev_ratio_moved_to_unanswerable_not_deleted(self):
+        """Pinned by name so the specific regression this test was written
+        for has its own failure message, not just the generic one above.
+
+        `baseline_refs` STAYS on the adapter (DP3: production's dependency
+        on cross-cycle state, `self._prev_levels`, must stay visible in the
+        registry even though nothing currently resolves the name) — only
+        the false ANSWERED claim moves to an honest UNANSWERABLE one.
+        """
+        from v3.adapters.physical.gps_jamming import GPS_JAMMING_ADAPTER
+        assert "gps_prev_ratio" in GPS_JAMMING_ADAPTER.baseline_refs
+        assert "gps_prev_ratio" not in baselines.PREVIOUS_CYCLE_SCALARS
+        assert "gps_prev_ratio" in baselines.UNANSWERABLE
+        report = baselines.coverage(build_registry().all())
+        assert "gps_prev_ratio" not in report["answered"]
+        assert "gps_prev_ratio" in report["unanswered"]
+        assert len(report["reasons"]["gps_prev_ratio"]) > 40
+
+    def test_the_check_would_have_caught_the_original_defect(self):
+        """A mutation test on the audit itself: re-declaring the removed
+        entry must fail `_dict_literal_keys` against the real adapter
+        source, or this test suite is not actually checking anything."""
+        from v3.adapters.physical.gps_jamming import GPS_JAMMING_ADAPTER
+        source_file = inspect.getsourcefile(GPS_JAMMING_ADAPTER.normalize)
+        written = self._dict_literal_keys(
+            pathlib.Path(source_file).read_text())
+        assert "ratio" not in written
+        assert {"max_level", "avg_level"} <= written
 
 
 # ── the shared statistic, swept against production's arithmetic ─────────

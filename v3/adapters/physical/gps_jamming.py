@@ -279,6 +279,14 @@ def _countries_in_scope(context):
         yield code, ((point[0], point[1]) if point else None)
 
 
+# `baseline_refs` stays `("gps_prev_ratio",)` — DP3 requires the
+# dependency to stay VISIBLE in the registry (production kept it in an
+# instance dict, `self._prev_levels`, which a restart silently erases), not
+# that the name currently resolves to anything. It never will resolve as
+# things stand: `_flags()` writes no `"ratio"` key (2026-08-09, G-15), so
+# `gps_prev_ratio` moved from `PREVIOUS_CYCLE_SCALARS` (falsely ANSWERED)
+# to `UNANSWERABLE` (honestly not) in `v3/runtime/baselines.py`, which has
+# the full account and the measured reason.
 GPS_JAMMING_ADAPTER = SourceAdapter(
     adapter_id=GPS_JAMMING, category=PHYSICAL,
     requests=(RequestSpec(url=_MANIFEST_URL, expect_content="csv",
