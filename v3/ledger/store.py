@@ -48,6 +48,7 @@ from v3.kernel.errors import DomainError
 from v3.ledger import schema as schema_module
 from v3.ledger.records import (CommandRecord, ConclusionRecord,
                                SignalObservation, TLObservation)
+from v3.ledger.store_attention import AttentionLedgerMixin
 from v3.ledger.store_calibration import CalibrationLedgerMixin
 from v3.ledger.store_entities import EntityStateMixin
 from v3.ledger.store_migration import MigrationSupportMixin
@@ -101,11 +102,11 @@ def _command_row(row) -> dict:
     return decoded
 
 
-class LedgerStore(CalibrationLedgerMixin, EntityStateMixin,
-                  MigrationSupportMixin):
+class LedgerStore(AttentionLedgerMixin, CalibrationLedgerMixin,
+                  EntityStateMixin, MigrationSupportMixin):
     """The v3 observation ledger, baselines, and conclusion storage.
 
-    ONE object with one connection pair, assembled from three modules for
+    ONE object with one connection pair, assembled from four modules for
     the 800-line house limit. The bases carry methods, never state: the
     connections, the lock and the schema live here, so "single
     jurisdiction" (A-09) is unchanged by the split.

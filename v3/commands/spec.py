@@ -24,11 +24,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from v3.commands import attention as A
 from v3.commands import state as S
 from v3.kernel.errors import DomainError
 
 TARGET_KINDS: frozenset = frozenset({S.TARGET_SCENARIO, S.TARGET_CONCLUSION,
-                                     S.TARGET_CONFIG})
+                                     S.TARGET_CONFIG, S.TARGET_PROPOSAL,
+                                     A.TARGET_ATTENTION,
+                                     A.TARGET_ATTENTION_THRESHOLDS})
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +136,98 @@ SPECS: tuple[CommandSpec, ...] = (
                 "same reason it is on the way in: reverting a dial during "
                 "an incident is a decision, and an unexplained one cannot "
                 "be audited afterwards."),
+    # ── WP-3.3 / P7 C5 — proposal adjudication ──────────────────────────
+    #
+    # Three of the lifecycle's five edges. `proposal.revive` and
+    # `proposal.supersede` are deliberately NOT here: they are automatic
+    # transitions the calibration pass makes, and an analyst-facing verb
+    # for them would let a human write a row the state machine believes an
+    # automaton wrote (production can only tell the two apart by a marker
+    # string inside `state_changed_by` — ACCIDENTAL A9).
+    CommandSpec(
+        action=S.PROPOSAL_APPLY,
+        target_kind=S.TARGET_PROPOSAL,
+        resolve=S.resolve_proposal,
+        apply=S.apply_proposal_apply,
+        requires_reason=True,
+        effect_key="proposal",
+        summary="P7 C5 — an analyst applies a calibration proposal. A "
+                "reason is required because applying one moves a threshold "
+                "the tool concludes with, and all three calibration "
+                "disasters were changes whose basis nobody could recover."),
+    CommandSpec(
+        action=S.PROPOSAL_DISMISS,
+        target_kind=S.TARGET_PROPOSAL,
+        resolve=S.resolve_proposal,
+        apply=S.apply_proposal_dismiss,
+        requires_reason=True,
+        effect_key="proposal",
+        summary="P7 C5's refusal. Production lets a dismissal of a "
+                "non-pending proposal match zero rows and report success, "
+                "so the analyst believes they decided something that was "
+                "never recorded; here the illegal edge raises."),
+    CommandSpec(
+        action=S.PROPOSAL_DEFER,
+        target_kind=S.TARGET_PROPOSAL,
+        resolve=S.resolve_proposal,
+        apply=S.apply_proposal_defer,
+        requires_reason=True,
+        effect_key="proposal",
+        summary="P7 C5's 'not now'. NOTE (裁定要求 11, ruled 2026-08-08): "
+                "production's revival restores `pending` without moving "
+                "`emitted_at` while auto-dismiss reads `emitted_at`, so with "
+                "snooze and staleness both at 30 days a deferred proposal is "
+                "dismissed on the first tick after it revives. v3 preserves "
+                "that behaviour (§7-2 #82) rather than diverging before the "
+                "parity window opens."),
+    # ── WP-4.1f / P7 C4 — the attention list's analyst half ─────────────
+    CommandSpec(
+        action=A.ATTENTION_ACK,
+        target_kind=A.TARGET_ATTENTION,
+        resolve=A.resolve_item,
+        apply=A.apply_ack,
+        requires_reason=False,
+        effect_key="attention_item",
+        summary="P7 C4 — the analyst has dealt with this row. Per-actor, "
+                "on the server: production kept it in `localStorage`, so it "
+                "was per-browser, invisible to the tool and lost with the "
+                "cache. It has a reader in two places — R6 annotates the "
+                "row, and the next ranking's `analyst_blindness` drops "
+                "because the command row IS the evidence somebody looked."),
+    CommandSpec(
+        action=A.ATTENTION_SNOOZE,
+        target_kind=A.TARGET_ATTENTION,
+        resolve=A.resolve_item,
+        apply=A.apply_snooze,
+        requires_reason=False,
+        effect_key="attention_item",
+        summary="P7 C4 — not now, for a bounded while. Per-actor, where "
+                "production's triage snooze was `target_kind='global'` and "
+                "one analyst muting the lane muted it for everyone."),
+    CommandSpec(
+        action=A.ATTENTION_DISMISS,
+        target_kind=A.TARGET_ATTENTION,
+        resolve=A.resolve_item,
+        apply=A.apply_dismiss,
+        requires_reason=False,
+        effect_key="attention_item",
+        summary="P7 C4 — not this, for 24h (production's fixed TTL). Also "
+                "per-actor, and also annotation rather than removal: R6 "
+                "still returns the row, because a row that vanishes makes "
+                "'I dealt with it' and 'I never saw it' look identical."),
+    CommandSpec(
+        action=A.ATTENTION_THRESHOLDS,
+        target_kind=A.TARGET_ATTENTION_THRESHOLDS,
+        resolve=A.resolve_thresholds,
+        apply=A.apply_thresholds,
+        requires_reason=False,
+        effect_key="thresholds",
+        summary="P7 C4's threshold half — THE G-02 endpoint. Production "
+                "stores per-user thresholds that its evaluation path never "
+                "reads. Here `resolve` is the function the R6 projection "
+                "itself calls, so commit()'s effect check is a proof that "
+                "the ranking reads the analyst's floor rather than a claim "
+                "that it does."),
 )
 
 ACTIONS: tuple[str, ...] = tuple(spec.action for spec in SPECS)

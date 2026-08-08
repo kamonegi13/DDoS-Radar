@@ -22,15 +22,19 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from v3.api.authorization import Access
+from v3.api.handlers import attention as H_attention
 from v3.api.handlers import commands as H_commands
+from v3.api.handlers import decisions as H_decisions
 from v3.api.handlers import conclusions as H_conclusions
 from v3.api.handlers import config as H_config
 from v3.api.handlers import disclosure as H_disclosure
 from v3.api.handlers import evidence as H_evidence
+from v3.api.handlers import proposals as H_proposals
 from v3.api.handlers import reliability as H_reliability
 from v3.api.handlers import scenarios as H_scenarios
+from v3.api.handlers import whatif as H_whatif
 from v3.api.vocabulary import (API_PREFIX, DELETE, GET, METHODS, POST,
-                               ROLE_ANALYST, ROLE_VIEWER, SAFE_METHODS)
+                               PUT, ROLE_ANALYST, ROLE_VIEWER, SAFE_METHODS)
 from v3.kernel.errors import DomainError
 
 _READ_ONLY = ("読み取り射影。AP3 の透明性情報を含め viewer に開放する"
@@ -111,6 +115,34 @@ def _command(route_id: str, path: str, handler: Callable, serves: tuple,
                  handler=handler, serves=serves, side_effect=True, note=note)
 
 
+#: A POST that changes nothing. The set is CLOSED and each member states
+#: why, because "an unsafe method with no declared effect" is otherwise
+#: indistinguishable from a command whose author forgot to declare one —
+#: and that one would be handed a read context and would silently do
+#: nothing. Membership is not a promise: the dispatcher gives these routes
+#: a `ReadContext`, which holds no writer and a `mode=ro` connection, so
+#: the claim is enforced by the type they receive.
+DRY_RUN_ROUTES: dict = {
+    "C6": "反実仮想。L2 カーネルを dry-run で呼ぶだけで台帳へ 1 行も書かない"
+          "（POST なのは本体を持つため。書けないことは ReadContext が保証）",
+}
+
+
+def _dry_run(route_id: str, path: str, handler: Callable, serves: tuple,
+             *, access: Optional[Access] = None, note: str = "") -> Route:
+    """A POST with a body and no effect. Must be listed in DRY_RUN_ROUTES."""
+    if route_id not in DRY_RUN_ROUTES:
+        raise DomainError(
+            f"route {route_id} is an unsafe method declaring no side effect "
+            f"and is not in DRY_RUN_ROUTES. An undeclared effect is a command "
+            f"the dispatcher hands a read context — a POST that answers 200 "
+            f"having done nothing.")
+    return Route(route_id=route_id, method=POST, path=path,
+                 access=access or Access.at_least(ROLE_ANALYST,
+                                                  reason=_ANALYST_WRITE),
+                 handler=handler, serves=serves, side_effect=False, note=note)
+
+
 ROUTES: tuple[Route, ...] = (
     _read("R1", f"{API_PREFIX}/scenarios", H_scenarios.read_scenarios,
           ("I-2",), note="シナリオ台帳 + focus 状態 + TL サマリ"),
@@ -168,6 +200,49 @@ ROUTES: tuple[Route, ...] = (
              ("I-2",), method=DELETE,
              note="override の解除。削除ではなく追記 — 誰がいつ既定へ戻したかが"
                   "判断履歴に残る（AP4）"),
+    # ── WP-4.1f: the attention ledger, its commands, and the rest of the
+    #    read surface that was waiting on it ──────────────────────────────
+    _read("R6", f"{API_PREFIX}/attention", H_attention.read_attention,
+          ("O-9",),
+          note="S8 台帳が書いた順位をそのまま射影する（フロント再計算の"
+               "禁止 = P5 O-8 / G-03）。行ごとに導出（3 因子の実効値）と"
+               "利用者別状態を含む"),
+    _read("R9", f"{API_PREFIX}/decisions", H_decisions.read_decisions,
+          ("O-12",),
+          note="統一判断台帳（AP4）。command_record の全 target_kind + S8 "
+               "順位スナップショットの 1 射影。監査 5 面を 1 本化"),
+    _read("R9i", f"{API_PREFIX}/decisions/<command_id>",
+          H_decisions.read_decision, ("O-12",)),
+    _read("R13", f"{API_PREFIX}/proposals", H_proposals.read_proposals,
+          ("I-2",),
+          note="較正・センサー無効化・シナリオ改善の統一提案キュー。"
+               "?at= は発行窓と裁定 fold の両方を束縛する"),
+    _command("C4a", f"{API_PREFIX}/attention/<item_id>/ack",
+             H_attention.ack_attention, ("I-2",),
+             note="利用者ごと。次の順位付けの analyst_blindness が下がる"
+                  "（= 読み手が 2 つある）"),
+    _command("C4s", f"{API_PREFIX}/attention/<item_id>/snooze",
+             H_attention.snooze_attention, ("I-2",),
+             note="minutes 既定 30 / 上限 1440（本番の clamp と同一）"),
+    _command("C4d", f"{API_PREFIX}/attention/<item_id>/dismiss",
+             H_attention.dismiss_attention, ("I-2",),
+             note="24h（本番の固定 TTL と同一）。行は消えず状態が付く"),
+    _command("C4t", f"{API_PREFIX}/attention/thresholds",
+             H_attention.set_thresholds, ("I-2",), method=PUT,
+             note="G-02 の当事者。resolve は R6 の射影が呼ぶ関数そのもので、"
+                  "commit の効果検証が『順位付けが読んでいる』ことの証明になる"),
+    _command("C5a", f"{API_PREFIX}/proposals/<proposal_id>/apply",
+             H_proposals.apply_proposal, ("I-2",)),
+    _command("C5d", f"{API_PREFIX}/proposals/<proposal_id>/dismiss",
+             H_proposals.dismiss_proposal, ("I-2",)),
+    _command("C5f", f"{API_PREFIX}/proposals/<proposal_id>/defer",
+             H_proposals.defer_proposal, ("I-2",),
+             note="裁定要求 11: 本番の Defer は復活後 1 ティックで自動却下"
+                  "される。v3 は parity 窓の手前で差分を作らないため保存"
+                  "（§7-2 #82）"),
+    _dry_run("C6", f"{API_PREFIX}/whatif", H_whatif.simulate, ("I-2",),
+             note="反実仮想 1 系統。assemble + score を呼び L1 へ書かない。"
+                  "POST だが side_effect=False — ReadContext が構造的に保証"),
 )
 
 

@@ -77,6 +77,19 @@ class ScenarioRef:
     participants: Mapping[str, float] = field(default_factory=dict)
     adversaries: tuple[str, ...] = ()
     focused: bool = False
+    #: `{country: role}`. Carried because C6 rebuilds the kernel's
+    #: scenarios from these refs rather than from `geo_data.json`, and a
+    #: contribution whose role came back empty would differ from the tick's
+    #: for a reason that has nothing to do with the counterfactual.
+    roles: Mapping[str, str] = field(default_factory=dict)
+    #: Which belligerent owns the sequence chain. NOT derived, for the
+    #: reason `v3/runtime/scoring.py::scenarios_for` gives: production
+    #: picks it by live spike, and any static rule picks the same country
+    #: forever — wrong for exactly the scenario that motivates the field
+    #: (middle_east has IL and IR both at weight 1.0). The composition root
+    #: supplies it to the tick and supplies it here, so a counterfactual
+    #: and the tick score the same scenario the same way.
+    chain_country: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.scenario_id, str) or \
@@ -84,12 +97,15 @@ class ScenarioRef:
             raise DomainError("a scenario ref needs a non-empty scenario_id")
         object.__setattr__(self, "participants", dict(self.participants))
         object.__setattr__(self, "adversaries", tuple(self.adversaries))
+        object.__setattr__(self, "roles", dict(self.roles))
 
     def as_dict(self) -> dict:
         return {"scenario_id": self.scenario_id,
                 "participants": dict(self.participants),
                 "adversaries": list(self.adversaries),
-                "focused": self.focused}
+                "focused": self.focused,
+                "roles": dict(self.roles),
+                "chain_country": self.chain_country}
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +131,18 @@ class ReadContext:
     #: R14 and the C7 commands raise rather than guess (`None` reaches
     #: them as `None`).
     config: Optional[Any] = None
+    #: WHO is reading, stamped by the dispatcher after authorization.
+    #: Needed because R6 is a per-reader projection — the ack state on a
+    #: row and the score floor that decides whether it surfaces are the
+    #: caller's own — and a projection that guessed the reader would serve
+    #: one analyst another's decisions. Defaults to ANONYMOUS rather than
+    #: to a user id, so a context nobody stamped cannot impersonate.
+    principal: Any = None
+    #: The request body, and ONLY for a declared dry run (P7 C6). A GET
+    #: has no body and a command's body lives on the `WriteContext`, so
+    #: this stays empty for every other route — a body reachable from an
+    #: ordinary read context would be an input nobody declared.
+    body: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.config is not None and not isinstance(self.config,
@@ -137,6 +165,34 @@ class ReadContext:
         object.__setattr__(self, "scenarios", tuple(self.scenarios))
         object.__setattr__(self, "adapters", tuple(self.adapters))
         object.__setattr__(self, "app_config", dict(self.app_config))
+        if not isinstance(self.body, Mapping):
+            raise DomainError("a read context's body must be a mapping")
+        object.__setattr__(self, "body", dict(self.body))
+        if self.principal is None:
+            object.__setattr__(self, "principal", ANONYMOUS)
+        elif not (self.principal is ANONYMOUS
+                  or isinstance(self.principal, Principal)):
+            raise DomainError(
+                f"a read context's principal is a Principal or ANONYMOUS, "
+                f"got {type(self.principal).__name__}: a bare string here is "
+                f"how a per-reader projection comes to serve whoever the "
+                f"caller claimed to be")
+
+    @property
+    def actor_id(self) -> Optional[str]:
+        """WHO is reading, and deliberately not what they may do.
+
+        A per-reader projection needs an identity; it must never need a
+        role. G-01 was a permission decision living in a handler body, so
+        the suite refuses the whole role vocabulary — `principal` included
+        — anywhere under `v3/api/handlers/`. This property is the identity
+        WITHOUT the decision: a handler can say "whose acknowledgements are
+        these" and has no way to say "and may they".
+        """
+        principal = self.principal
+        if principal is None or getattr(principal, "is_anonymous", True):
+            return None
+        return principal.user_id
 
     def scenario(self, scenario_id: str) -> Optional[ScenarioRef]:
         for ref in self.scenarios:

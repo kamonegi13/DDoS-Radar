@@ -23,7 +23,8 @@ from v3.api import errors as E
 from v3.api import routes as R
 from v3.api.authorization import authorize
 from v3.api.envelope import ApiResponse, failure_response, with_freshness
-from v3.api.request import ApiRequest, ReadContext
+from v3.api.vocabulary import SAFE_METHODS
+from v3.api.request import ANONYMOUS, ApiRequest, ReadContext
 from v3.api.write import CommandJournal, WriteContext
 from v3.kernel.errors import DomainError
 
@@ -51,6 +52,35 @@ def _handler_kwargs(route: R.Route, request: ApiRequest,
     return kwargs
 
 
+def _with_principal(context, request: ApiRequest):
+    """Stamp WHO is asking onto the read context, once, for every route.
+
+    Done here rather than by the composition root's factory for the same
+    reason the freshness stamp is: a field each factory must remember is a
+    field one factory will not. R6 is a per-reader projection, and a
+    projection served against the wrong reader would show one analyst
+    another's acknowledgements without anything failing.
+
+    For a command the actor comes from the WRITE context — the principal
+    the composition root resolved and built the writer with — and the two
+    are cross-checked rather than assumed equal, because a command that
+    audited one actor while reading another's state would be a decision
+    trail that names the wrong person.
+    """
+    if isinstance(context, WriteContext):
+        actor = context.principal
+        if request.principal is not ANONYMOUS and \
+                request.principal != actor:
+            raise DomainError(
+                f"the authorized caller ({request.principal.user_id!r}) and "
+                f"the write context's actor ({actor.user_id!r}) disagree. "
+                f"The audit row would name one and the state read belong to "
+                f"the other, which is a decision trail pointing at the wrong "
+                f"analyst.")
+        return replace(context, read=replace(context.read, principal=actor))
+    return replace(context, principal=request.principal)
+
+
 def _context_for(route: R.Route, context, request: ApiRequest):
     """The read half for a projection, the write seam for a command.
 
@@ -60,7 +90,14 @@ def _context_for(route: R.Route, context, request: ApiRequest):
     than of what the handler happens to reach for.
     """
     if not route.side_effect:
-        return context.read if isinstance(context, WriteContext) else context
+        read = context.read if isinstance(context, WriteContext) else context
+        if route.method in SAFE_METHODS:
+            return read
+        # A declared dry run (P7 C6): an unsafe method with no effect. It
+        # gets the body because that is why it is a POST, and it still gets
+        # a ReadContext — so "it cannot write" is the object it holds
+        # rather than a promise about its body.
+        return replace(read, body=dict(request.body))
     if not isinstance(context, WriteContext):
         # First in S2-PROP-016's order, and the honest answer: this
         # deployment was given no way to write. Saying 404 or 405 would
@@ -115,7 +152,8 @@ def handle(request: ApiRequest, context) -> ApiResponse:
         failure = authorize(route.access, request.principal)
         if failure is not None:
             raise failure
-        handler_context = _context_for(route, context, request)
+        handler_context = _context_for(
+            route, _with_principal(context, request), request)
         kwargs = _handler_kwargs(route, request, path_params)
         response = route.handler(handler_context, **kwargs)
         if not isinstance(response, ApiResponse):

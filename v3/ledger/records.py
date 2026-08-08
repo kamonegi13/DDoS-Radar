@@ -500,5 +500,106 @@ class ProposalRecord:
                 "payload": dict(self.payload)}
 
 
+#: The three factors AP1 names, in the order the formula multiplies them.
+#: Spelled once, here, because the table has a column per factor AND the
+#: provenance blob repeats their inputs — two places that must agree about
+#: what a factor is called, and a third spelling would make the audit read
+#: one name against another.
+ATTENTION_FACTORS: tuple[str, ...] = ("novelty", "confidence_delta",
+                                      "analyst_blindness")
+
+
+@dataclass(frozen=True, slots=True)
+class AttentionRankRecord:
+    """One ranked item in one S8 snapshot, with the factors that ranked it.
+
+    G-03 was that `attention_score` existed only in `triage_score.js`: the
+    order an analyst acted on was computed in a browser, from a per-browser
+    `localStorage` view timestamp, and left no trace anywhere. So AP4 could
+    replay every automated judgement EXCEPT the one that decided what the
+    analyst looked at first.
+
+    The three factors are columns rather than keys inside `components`
+    because AP1 requires the rationale to be visible, and a factor that is
+    only inside a JSON blob is a factor no query can order by, band or
+    audit. `components` holds the INPUTS of each factor (the timestamps and
+    confidences the factor was computed from), which is what makes the row
+    re-derivable rather than merely readable (NP6).
+    """
+
+    snapshot_id: str
+    computed_at: float
+    scenario_id: str
+    item_kind: str
+    item_id: str
+    rank_position: int
+    score: float
+    novelty: float
+    confidence_delta: float
+    analyst_blindness: float
+    formula_ref: str
+    narrative_template_ref: str
+    narrative: str
+    components: Mapping[str, Any] = field(default_factory=dict)
+
+    def __init_subclass__(cls, **kwargs):
+        raise TypeError("AttentionRankRecord is final.")
+
+    def __post_init__(self) -> None:
+        for name in ("snapshot_id", "scenario_id", "item_kind", "item_id",
+                     "formula_ref", "narrative_template_ref", "narrative"):
+            object.__setattr__(self, name,
+                               _require_text(getattr(self, name), name=name))
+        computed_at = _optional_number(self.computed_at, name="computed_at")
+        if computed_at is None or computed_at <= 0:
+            raise DomainError(
+                f"computed_at must be a positive timestamp, got "
+                f"{self.computed_at!r}")
+        object.__setattr__(self, "computed_at", computed_at)
+        if isinstance(self.rank_position, bool) or \
+                not isinstance(self.rank_position, int):
+            raise DomainError(
+                f"rank_position must be an int, got {self.rank_position!r}")
+        if self.rank_position < 1:
+            raise DomainError(
+                f"rank_position is 1-based, got {self.rank_position}: a rank "
+                f"of 0 reads as 'unranked' in one place and 'first' in "
+                f"another")
+        for name in ("score",) + ATTENTION_FACTORS:
+            value = _optional_number(getattr(self, name), name=name)
+            if value is None or not (0.0 <= value <= 1.0):
+                raise DomainError(
+                    f"{name} must be within [0, 1], got "
+                    f"{getattr(self, name)!r}. Clamping happens in the pure "
+                    f"scorer where it is disclosed; a value arriving here "
+                    f"out of range means the scorer was bypassed.")
+            object.__setattr__(self, name, value)
+        if not isinstance(self.components, Mapping):
+            raise DomainError(
+                f"components must be a mapping, got "
+                f"{type(self.components).__name__}")
+        object.__setattr__(self, "components",
+                           MappingProxyType(dict(self.components)))
+        _json(dict(self.components), name="components")
+
+    def components_json(self) -> str:
+        return _json(dict(self.components), name="components")
+
+    def as_dict(self) -> dict:
+        return {"snapshot_id": self.snapshot_id,
+                "computed_at": self.computed_at,
+                "scenario_id": self.scenario_id,
+                "item_kind": self.item_kind, "item_id": self.item_id,
+                "rank_position": self.rank_position, "score": self.score,
+                "novelty": self.novelty,
+                "confidence_delta": self.confidence_delta,
+                "analyst_blindness": self.analyst_blindness,
+                "formula_ref": self.formula_ref,
+                "narrative_template_ref": self.narrative_template_ref,
+                "narrative": self.narrative,
+                "components": dict(self.components)}
+
+
 __all__ = ["SignalObservation", "TLObservation", "ConclusionRecord",
-           "CommandRecord", "LabelRecord", "ProposalRecord"]
+           "CommandRecord", "LabelRecord", "ProposalRecord",
+           "AttentionRankRecord", "ATTENTION_FACTORS"]

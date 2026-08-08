@@ -140,15 +140,26 @@ class TestOnlyTheBindingKnowsAboutTheWeb:
                     continue
                 if _WEB_FRAMEWORKS & set(roots):
                     naming.append(path.name)
-        assert sorted(set(naming)) == ["binding.py"], naming
+        # Two, since WP-4.1f: the REST binding and the websocket
+        # transport. Both hold the same contract — the framework import is
+        # inside the factory, so `v3/api/` stays importable with no web
+        # framework installed — and the next test asserts that for each.
+        assert sorted(set(naming)) == ["binding.py", "ws_publish.py"], naming
 
     def test_the_binding_imports_flask_inside_the_factory(self):
-        tree = ast.parse(BINDING.read_text(encoding="utf-8"))
-        for node in tree.body:
-            assert not isinstance(node, (ast.Import, ast.ImportFrom)) or \
-                (node.module or "").split(".")[0] not in _WEB_FRAMEWORKS, (
-                    "a module-scope Flask import makes the package "
-                    "un-importable without a web framework")
+        for path in (BINDING, API_DIR / "ws_publish.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in tree.body:
+                assert not isinstance(node, (ast.Import, ast.ImportFrom)) or \
+                    (node.module or "").split(".")[0] not in _WEB_FRAMEWORKS, (
+                        f"a module-scope framework import in {path.name} "
+                        f"makes the package un-importable without a web "
+                        f"framework")
+
+    def test_the_websocket_transport_builds_no_channel_at_import(self):
+        proc = _run("import v3.api.ws_publish as w; "
+                    "print(hasattr(w, 'create_channel'))")
+        assert proc.stdout.strip() == "True", proc.stderr
 
     def test_no_handler_imports_the_binding(self):
         for path in (API_DIR / "handlers").glob("*.py"):

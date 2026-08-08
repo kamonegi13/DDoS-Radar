@@ -38,6 +38,7 @@ from v3.conclusions.persistence import persist
 from v3.fetch import recorder
 from v3.fetch.runner import CycleHooks, FetchPlan, execute_plan, run_due
 from v3.kernel.errors import DomainError
+from v3.runtime import attention as attention_module
 from v3.runtime import baselines as baselines_module
 from v3.runtime import expansion as expansion_module
 from v3.runtime import health as health_module
@@ -148,6 +149,11 @@ class TickReport:
     #: value came from. Disclosed on the report because a published score
     #: whose thresholds are not stated is not reproducible (NP6).
     settings: Mapping[str, object] = field(default_factory=dict)
+    #: Step S8's result: the attention ranking, and whether it moved.
+    #: On the report because `attention_update` is published from it —
+    #: a websocket event whose payload is not also in the tick's own
+    #: record is an event nobody can check afterwards (AP4).
+    attention: Mapping[str, object] = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return {"tick_id": self.tick_id, "now": self.now,
@@ -161,7 +167,8 @@ class TickReport:
                 "suppressors": dict(self.suppressors),
                 "coverage": dict(self.coverage),
                 "scoring": dict(self.scoring),
-                "settings": dict(self.settings)}
+                "settings": dict(self.settings),
+                "attention": dict(self.attention)}
 
 
 def fetch_cycle(*, now: float, registry, store, client,
@@ -317,6 +324,13 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
             result=results_by_scenario.get(scenario_id),
             participants=participants_of(geography, scenario_id))
 
+    # Step S8: rank what was just concluded. AFTER the conclusions are
+    # written, because the ranker's novelty and confidence_delta read the
+    # conclusion stream — ranking first would order this tick's findings
+    # by last tick's numbers.
+    ranking = attention_module.rank_cycle(
+        now=now, store=store, scenario_ids=scenarios)
+
     return TickReport(
         tick_id=identity, now=now, scenario_ids=scenarios,
         planned=cycle.plan.planned_ids,
@@ -330,7 +344,8 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
         coverage=expansion_module.coverage_report(geography, countries),
         scoring={scenario_id: scored.as_dict()
                  for scenario_id, scored in results_by_scenario.items()},
-        settings=settings_disclosure)
+        settings=settings_disclosure,
+        attention=ranking.as_dict())
 
 
 __all__ = ["run_tick", "fetch_cycle", "score_cycle", "conclude",

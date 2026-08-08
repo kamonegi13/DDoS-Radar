@@ -161,6 +161,13 @@ class TestTheSurfaceAccounting:
         assert report["served"] + report["deferred"] == report["p7_total"]
         assert report["routes"] == len(R.ROUTES)
 
+    def test_the_surface_grew_rather_than_the_accounting_loosening(self):
+        """WP-4.1f: 13 served -> 21. Pinned so a future change that shrinks
+        coverage has to say so out loud rather than pass quietly."""
+        report = REG.coverage()
+        assert report["served"] >= 21, report
+        assert report["deferred"] <= 7, report
+
 
 class TestEveryRouteIsAProjection:
     """Condition 1 restated over the table, in both directions.
@@ -180,12 +187,35 @@ class TestEveryRouteIsAProjection:
                 assert route.side_effect is False, route.route_id
 
     def test_every_unsafe_method_route_declares_its_side_effect(self):
+        """...unless it is a DECLARED dry run, which C6 is.
+
+        Narrowed by WP-4.1f rather than dropped. The rule's purpose is that
+        an author cannot forget to declare an effect — a POST handed a read
+        context would answer 200 having done nothing. A counterfactual is
+        genuinely a POST with no effect, so the exemption is a named set
+        with a stated reason per member, and the NEXT test proves the claim
+        instead of trusting it.
+        """
         from v3.api.vocabulary import SAFE_METHODS
         unsafe = [route for route in R.ROUTES
                   if route.method not in SAFE_METHODS]
         assert unsafe, "the command surface is empty"
         for route in unsafe:
+            if route.route_id in R.DRY_RUN_ROUTES:
+                assert route.side_effect is False, route.route_id
+                assert R.DRY_RUN_ROUTES[route.route_id].strip(), route.route_id
+                continue
             assert route.side_effect is True, route.route_id
+
+    def test_a_dry_run_route_cannot_be_declared_without_being_listed(self):
+        with pytest.raises(DomainError) as excinfo:
+            R._dry_run("CX", "/api/v3/x", lambda ctx: None, ("I-2",))
+        assert "DRY_RUN_ROUTES" in str(excinfo.value)
+
+    def test_every_dry_run_entry_names_a_route_that_exists(self):
+        for route_id in R.DRY_RUN_ROUTES:
+            route = R.by_id(route_id)
+            assert route is not None and route.side_effect is False, route_id
 
     def test_a_get_declaring_a_side_effect_is_refused(self):
         from v3.api.authorization import Access

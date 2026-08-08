@@ -35,17 +35,16 @@ class Owner:
     defect this work package exists to end.
     """
 
-    API_COMMANDS = "WP-4.1d (L6: 指令面の残り)"
-    ATTENTION = "WP-3.3b (S8 注目台帳) + WP-4.1d"
-    DECISIONS = "WP-4.1d (統一判断台帳の射影)"
-    INTEL = "WP-4.1d (インテルキュー読み取り)"
-    PROPOSALS = "WP-4.1d (提案キュー統合)"
-    # CONFIG は WP-4.1d で解消（R14 / C7 が着地）。オーナー定数を残すと
-    # 「誰かが負っている」の見た目だけが残るため削除する。
-    NARRATIVE = "WP-4.1d (P7 §4 決定論ナラティブ)"
-    SCORING_TICK = "WP-4.1d + 採点ティック配線 (v3/runtime)"
-    AUTH = "WP-4.1d (認証・利用者ストア)"
-    FRONTEND = "WP-4.2 (L7 フロントエンド)"
+    API_COMMANDS = "WP-4.1g (L6: 指令面の残り)"
+    INTEL = "WP-4.1g (インテルキュー読み取り)"
+    # ATTENTION / DECISIONS / PROPOSALS は WP-4.1f で解消（R6/C4, R9,
+    # R13/C5 が着地）。CONFIG は WP-4.1d で解消（R14 / C7）。NARRATIVE も
+    # WP-4.1f で解消（v3/attention/narrative.py が P7 §4 の唯一のエンジン）。
+    # 誰も負っていないオーナー定数は残さない — 「誰かが負っている」の
+    # 見た目だけが残るため。
+    SCORING_TICK = "WP-4.1g + 抑制規則の fold 配線 (v3/runtime)"
+    AUTH = "WP-4.1g (認証・利用者ストア)"
+    NOTIFICATIONS = "WP-4.2 (通知スライス。v3 に通知系そのものが無い)"
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,55 +94,32 @@ SERVED: tuple[Served, ...] = (
     Served("C9", "人手 ground truth（GET/POST）", ("C9g", "C9p")),
     # ── WP-4.1d: the override layer, once it had a reader ───────────────
     Served("C7", "可変キーの変更・解除（POST/DELETE）", ("C7s", "C7d")),
+    # ── WP-4.1f: the attention ledger, and everything it unblocked ──────
+    # P7 R6 also says 「L5 の drift signal も注目行として合流」. There is
+    # nothing to merge: v3 has no drift-signal family at all — P7 §5 sent
+    # `drift_signals` x2 into R13/C5 and the L5 monitors into R7's
+    # breakdown — so the ranked kind is `conclusion` alone. Stated here
+    # rather than left as a quiet shortfall; a second `item_kind` is a row
+    # in the same table when a drift family exists.
+    Served("R6", "順位付き注目リスト（AP1、S8 台帳の射影。item_kind は "
+                 "conclusion のみ — v3 に drift signal 族が無いため）",
+           ("R6",)),
+    Served("R9", "統一判断台帳（AP4）— 指令台帳 + 順位スナップショット",
+           ("R9", "R9i")),
+    Served("R13", "較正・センサー・シナリオ改善の統一提案キュー", ("R13",)),
+    Served("C4", "注目 ack/snooze/dismiss + 利用者別閾値",
+           ("C4a", "C4s", "C4d", "C4t")),
+    Served("C5", "提案 apply/dismiss/defer", ("C5a", "C5d", "C5f")),
+    Served("C6", "反実仮想 1 系統（L2 カーネルの dry-run）", ("C6",)),
 )
 
 DEFERRED: tuple[Deferred, ...] = (
-    Deferred("R6", "順位付き注目リスト（AP1）", Owner.ATTENTION,
-             "**未着手**。WP-3.3 は較正台帳 2 面（ラベル・提案）を出したが "
-             "S8 注目台帳は出していない。順位を書く表が L1 に無い状態は "
-             "変わらず、フロントで再計算すると P5 O-8（台帳に残らない順位）"
-             "を再生産する。attention_score の入力（novelty / "
-             "confidence_delta / analyst_blindness）はいずれも L1 の既存表"
-             "から導けるため、阻害は設計ではなく単純に未実装"),
-    Deferred("R9", "統一判断台帳（AP4）", Owner.DECISIONS,
-             "**供給側は 5 面中 4 面が揃った**（WP-3.3）: focus / label / "
-             "config / ground_truth に加えて提案裁定が command_record に載り、"
-             "v3/commands/state.py::proposal_history が 1 提案の時系列を返す。"
-             "**decision 表を新設する必要は無い** — command_record が既に"
-             "統一台帳であり、R9 は複数 target_kind を跨ぐ 1 射影で足りる。"
-             "残る阻害は 5 面目（R6 の注目 ack）と、射影ハンドラそのもの"),
     Deferred("R11", "インテルキュー読み取り", Owner.INTEL,
              "intel item は L1 の観測として落ちる（§4-2）が、キューの "
              "裁定状態を持つ表がまだ無い"),
-    Deferred("R13", "統一提案キュー", Owner.PROPOSALS,
-             "**阻害は解消**（WP-3.3）: calibration_proposal 表が着地し、"
-             "v3/calibration/queue.py::entries が「発行行 + 畳んだ状態 + "
-             "裁定履歴」を返す。?at= 過去断面も同じ 1 射影で答える。"
-             "残るのは L6 のルート束縛とレスポンス語彙のみで、"
-             "読み手不在ではなくなった"),
     Deferred("C3", "インテル裁定 4 動詞", Owner.INTEL,
              "R11 と対。キューの裁定状態を持つ表が無く、確定した裁定を"
              "読み返す先が存在しない"),
-    Deferred("C4", "注目 ack/snooze/dismiss + 閾値", Owner.ATTENTION,
-             "R6 が未着地のため ack する対象そのものが射影されない。"
-             "指令台帳は着地済（ack 状態は fold で表現できる）が、"
-             "順位を書く S8 台帳が無い以上 ack は読み手のいない書込みになる"
-             "（= G-15）。R6 と同時に着地させる"),
-    Deferred("C5", "提案 apply/dismiss/defer", Owner.PROPOSALS,
-             "**阻害 2 件とも解消**（WP-3.3）: ①同一性は "
-             "lifecycle.proposal_id_for（epoch を含む決定論的 id）②生成入力 "
-             "CalibrationEvidence は labels.evidence_for が L1 から組む。"
-             "遷移関数（resolve_proposal / apply_proposal_*）も "
-             "v3/commands/state.py に着地済で、読み手（R13）も存在する。"
-             "残るのは CommandSpec 登録とルート束縛 = L6 スライスのみ"),
-    Deferred("C6", "反実仮想 1 系統", Owner.API_COMMANDS,
-             "**入力組み立ての阻害は解消**（WP-4.1e）: "
-             "v3/runtime/scoring.py::assemble が ScoringInputs を採点ティック"
-             "外で構成し、settings を引数で受ける純関数境界を持つ。反実仮想は "
-             "assemble(..., settings=<別値>) + score() で、L1 へ 1 行も書かない"
-             "（test_runtime_scoring_wiring.py が実証）。残るのは L6 側だけ — "
-             "side_effect=False の POST ハンドラと、どの値を反実仮想の対象に"
-             "許すかの語彙。分割・配線ではなく API スライス"),
     Deferred("C8", "ノイズ除外規則", Owner.SCORING_TICK,
              "消費者（採点ティック）は WP-4.1e で着地したが、それは阻害の"
              "片方でしかない。残るのは規則そのものを fold / gating に読ませる"
@@ -166,21 +142,25 @@ DEFERRED: tuple[Deferred, ...] = (
 )
 
 
-#: P7 §1.3's transport, registered as deferred rather than left as an
-#: absence. WP-4.1c examined it and declined; the reason is here so the
-#: decline is reviewable (「黙って残す選択肢は存在しない」).
+#: P7 §1.3's transport. WP-4.1f shipped it (`v3/api/ws_publish.py`) for the
+#: three events that have a publisher; the fourth is registered here rather
+#: than left as an absence, because 「黙って残す選択肢は存在しない」.
+#:
+#: The deferral is now ONE EVENT, not the channel. `emissions_for` derives
+#: every payload from a `TickReport`, so what a client receives is also in
+#: the tick's own record — the AP4 property the transport was waiting for,
+#: and the reason it could not ship before the ranking existed.
 WS_TRANSPORT: Deferred = Deferred(
-    "WS", "1 チャネル 4 イベントの socket 層", Owner.FRONTEND,
-    "語彙（v3/api/ws.py）は着地済で、`theater` 系イベントは既に消えている。"
-    "transport を出さなかった理由は依存ではなく**発行者が存在しない**こと。"
-    "**4 イベント中 2 件は解消**（WP-4.1e）: 採点ティックが配線され "
-    "(v3/runtime/tick.py::score_cycle)、TickReport が scenario 毎の "
-    "ScoringResult と InputHealth を返すので conclusion_update / "
-    "sensor_status には発行者がある。残る 2 件は依然として発行者ゼロ — "
-    "attention_update は R6（WP-3.3 の S8 注目台帳）、notification_result は "
-    "v3 に通知系そのものが無い。半分だけ発行するチャネルは"
-    "「4 イベント契約」を満たさないため、R6 の着地と同時に出す。"
-    "flask-socketio は依存に存在するため技術的障害は無い")
+    "WS.notification_result", "通知結果イベント", Owner.NOTIFICATIONS,
+    "**チャネルは着地**（WP-4.1f、v3/api/ws_publish.py）。3/4 イベントは "
+    "TickReport から導出される — conclusion_update / sensor_status は "
+    "WP-4.1e の採点ティック配線、attention_update は WP-4.1f の S8 台帳。"
+    "残る 1 件だけが依然として発行者ゼロで、しかも阻害は束縛ではない: "
+    "**v3 に通知系そのものが存在しない**（Telegram 送出も、その結果を"
+    "保持する表も無い）ため、報告すべき『結果』が無い。空で流すと"
+    "「通知は成功した」と読めるため出さない。"
+    "`ws_publish.UNPUBLISHED_EVENTS` がクライアント向けの同じ宣言で、"
+    "PUBLISHED と合わせて ws.EVENTS を過不足なく分割する")
 
 
 @dataclass(frozen=True, slots=True)

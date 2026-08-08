@@ -56,11 +56,14 @@ _READ_HANDLE = "_read_connection"
 #: The forwarded set. Verified against the source by
 #: `audit_store_methods()`; do not edit by hand without re-running it.
 READ_METHODS: frozenset = frozenset({
+    "attention_ranks_for_item",
+    "attention_snapshot",
     "baseline_bucket_count",
     "baseline_phase_values",
     "baseline_value_rows",
     "checkpoint",
     "command_records",
+    "count_attention_ranks",
     "conclusion_by_id",
     "conclusions_between",
     "count_commands",
@@ -79,6 +82,7 @@ READ_METHODS: frozenset = frozenset({
     "entity_series_values",
     "labels_for_conclusion",
     "labels_in_epoch",
+    "latest_attention_snapshot_id",
     "latest_baseline_bucket",
     "latest_conclusion_at",
     "latest_signal_at",
@@ -99,6 +103,7 @@ READ_METHODS: frozenset = frozenset({
 #: `test_the_two_sets_are_disjoint_and_total` — a default is how G-01
 #: happened, so there is no default.
 WRITE_METHODS: frozenset = frozenset({
+    "append_attention_snapshot",
     "append_command",
     "append_conclusion",
     "append_entity_observation",

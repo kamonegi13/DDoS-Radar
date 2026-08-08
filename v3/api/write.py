@@ -161,6 +161,16 @@ class WriteContext:
     def now(self) -> float:
         return self.read.now
 
+    @property
+    def actor_id(self) -> str:
+        """The acting analyst's id, without their role.
+
+        Same reason as `ReadContext.actor_id`: a command handler needs to
+        name the actor it acts for (C4's thresholds are per-analyst) and
+        must have no way to make a permission decision about them.
+        """
+        return self.principal.user_id
+
     def commit(self, change: Change) -> Committed:
         """Resolve, apply, append, verify. The only write in the surface."""
         if not isinstance(change, Change):

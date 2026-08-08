@@ -150,18 +150,28 @@ def prior_state(store, *, now: float, scenario_ids: Sequence[str],
     return PriorState(previous_tl=levels, sequence_events=sequence_events)
 
 
-def assemble(*, now: float, store, geography: Geography,
-             scenario_ids: Sequence[str], settings: ScoringSettings,
+def assemble(*, now: float, store, geography: Optional[Geography] = None,
+             scenario_ids: Sequence[str] = (),
+             settings: ScoringSettings,
              focused_scenario_id: Optional[str] = None,
              prior: Optional[PriorState] = None,
              chain_countries: Optional[Mapping[str, str]] = None,
-             tick_interval_sec: float = DEFAULT_TICK_INTERVAL_SEC
+             tick_interval_sec: float = DEFAULT_TICK_INTERVAL_SEC,
+             scenarios: Optional[Sequence[Scenario]] = None
              ) -> ScoringInputs:
     """One tick's complete scoring input. Reads L1; writes nothing.
 
-    The seam C6 is blocked on. Everything impure happens here, so `score`
+    The seam C6 is built on. Everything impure happens here, so `score`
     below is a pure function of the value this returns and a counterfactual
-    is this call with different `settings`.
+    is this call with different `settings` or different `scenarios`.
+
+    `scenarios` is the counterfactual door and it is deliberately the ONLY
+    one. C6 varies coupling weights, and the alternative — letting the
+    caller pass a mutated `Geography` — would make the deployment's own
+    scenario definitions a thing a request could rewrite. Supplied here,
+    the substitution is confined to one call and `geography` is not
+    consulted at all, so a what-if cannot leak into the tick's view of the
+    world.
     """
     if not isinstance(settings, ScoringSettings):
         raise DomainError(
@@ -169,7 +179,21 @@ def assemble(*, now: float, store, geography: Geography,
             f"{type(settings).__name__}. Resolution is the caller's step "
             f"(settings_for); assembling one here would put a configuration "
             f"read inside the path that must be replayable.")
-    scenarios = scenarios_for(geography, scenario_ids)
+    if scenarios is None:
+        if geography is None:
+            raise DomainError(
+                "assemble needs either a Geography (the tick's path) or an "
+                "explicit `scenarios` tuple (C6's counterfactual path); with "
+                "neither there is nothing to score and an empty result would "
+                "read as a quiet world")
+        scenarios = scenarios_for(geography, scenario_ids)
+    else:
+        scenarios = tuple(scenarios)
+        if not all(isinstance(item, Scenario) for item in scenarios):
+            raise DomainError(
+                "assemble's `scenarios` are kernel Scenario values; a dict "
+                "here would skip the weight and country validation the "
+                "kernel does at construction")
     if focused_scenario_id is not None and \
             focused_scenario_id not in {s.scenario_id for s in scenarios}:
         raise DomainError(
