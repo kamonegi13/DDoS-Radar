@@ -956,6 +956,32 @@ L2 の条項レジストリと同じ機構であり、**転写のドリフトが
 > 利用者ストアは表を作らず `command_record` の fold にした — 繰延理由に書かれていた
 > 「キューの裁定状態を持つ表」も同様に不要で、**表が要ると読んだこと自体が誤り**だった。
 
+> **WP-4.4（L8 合成の配線 — entrypoint / 影配備）の更新（2026-08-08）**: 本 WP は
+> **新規登録 4 件（#112〜#115）**、**retire 0 件・範囲縮小 0 件**（L0 アダプタの転写にも
+> L1 台帳にも触れず、既存の全部品を**接続しただけ**であるため既存エントリの解消条件に触れない）。
+> 着地は `v3/server/`（`isolation` / `settings` / `ui` / `composition` / `app` / `main`）、
+> `Dockerfile.v3` + `requirements-v3.txt` + compose の `v3_shadow` サービス（profile 後置）、
+> 運用手順書 `docs/design/v3/OPS-shadow-runbook.md`。
+> **本 WP の登録 4 件のうち #113 / #115 は insensitive 方向であり、Phase 5 で実測すべき対象である。**
+>
+> 配線して初めて分かった事実を 2 件記録する。
+> **(1) 唯一生きていた「v1 を起動する経路」は転写漏れではなく解決経路だった。**
+> `v3/kernel/threshold.py::_default_resolver` は registry-backed な `Threshold` が
+> resolver 無しで解決されたときに `from radar import config_layered` を実行する。
+> 規律ゲートは「モジュール毎の import」を禁じているだけなので、この**関数内 import は
+> 合法**であり、静的検査では影のプロセスが v1 を起動しうることを排除できない。
+> 対策は文書ではなく構造にした: 合成ルートが `sys.meta_path` に
+> `LegacyImportBarrier` を立て、`radar.*` の import を**例外にする**。
+> 地雷は「静かに v1 が起動する」から「スタックトレース」に変わった。
+> **(2) focus を設定すると採点が静かに止まる状態が存在した。**
+> `ScoringInputs.chain_country_for` は「dual-core の所有国は導出しない」という裁定どおり
+> **例外を投げる**が、`v3/runtime/scoring.py::scenarios_for` は `core_country` をどのシナリオにも
+> 設定しない。起動直後は focus が無いので露見せず、最初の C1 で以後のティックが毎回失敗し、
+> NP3 がループを生かすため症状は「落ちる」ではなく「結論行が静かに増えなくなる」になる。
+> 導出で埋めることは裁定違反なので、合成ルートは**起動時に所有国未供給のシナリオを名指しで
+> 告知する**（`Deployment.scenarios_without_chain_owner` / `absent.sequence_chain_owner`）。
+> これが #115 の登録内容である。
+
 > **WP-4.3（cutover 阻害の解消・L7 ログインゲート・裁定要求 13 の実装）の更新（2026-08-08）**:
 > 本 WP は **retire 2 件（#103 / #99）**、**範囲縮小 1 件（#105）**、**新規登録 3 件（#109〜#111）**。
 > **#103 は本プログラム唯一の cutover 阻害項目であり、これで阻害はゼロになった**。
@@ -1129,6 +1155,10 @@ L2 の条項レジストリと同じ機構であり、**転写のドリフトが
 | 109 | L6 refresh cookie の名前とパス（**WP-4.3**、S1-SVC-004） | **cookie 名は v3 独自** (`noroshi_v3_refresh` / `noroshi_v3_csrf_refresh`)、**refresh cookie のパスは v3 の refresh ルート自身** (`/api/v3/auth/refresh`)。本番は `radar_refresh_jwt` / `csrf_refresh_token` を `/api/auth/refresh` に置く | 中立（姿勢は同一 — httpOnly / SameSite=Strict / Secure 既定 on / session cookie / CSRF cookie は `/` かつ非 httpOnly。差分は識別子とプレフィックスだけ） | **登録**（WP-4.3、2026-08-08）。v1 と v3 は同一ホストに並走する（ADR-V3-009）。同名 cookie が 2 本あると、どちらがどちらか**ブラウザの側でも人の側でも見分けられない**。鍵 ID を分けた #100 と同じ理由の輸送層版。**解消条件**: なし（意図的差分・恒久）。証跡: `TestThePostureIsProductions`（6 件、本番側は `radar/auth.py` と導入済 `flask_jwt_extended` の AST 実測） |
 | 110 | L6 CSRF トークンの生成（**WP-4.3**、S1-SVC-004 / NP6） | **署名鍵からの決定論的導出** (`hmac(key, "csrf\x1f" + jti)` の先頭 32 桁)。本番 flask-jwt-extended は `secrets.token_hex(16)` の乱数 | 中立（強度は同じ — 攻撃者が持たない鍵の HMAC。値は本番と同じく**署名済トークンの内側**にも入るため、cookie を書ける攻撃者は対を偽造できない） | **登録**（WP-4.3、2026-08-08）。`jti` を決定論にしたのと同じ理由: `issue` が引数の関数であることで、判断履歴の再生が同じセッション識別子を再構築する（NP6）。乱数はこの性質を 1 か所だけ壊す。**解消条件**: なし（意図的差分）。証跡: `test_the_csrf_value_is_derived_from_the_signing_key` / `test_an_access_token_carries_no_csrf_claim` |
 | 111 | L7 access token の保持場所（**WP-4.3**、S1-UI-002） | **access token はメモリのみ。`localStorage` に書かない**。本番 SPA は `localStorage` に保存する（`app.js` の旧 `noroshi.v3.token` 読み取りは**誰も書かないキー**だった） | 中立〜**sensitive（セキュリティ軸）**（v3 の方が強い。永続化された bearer token は、ブラウザが生きている限りページが実行する任意のスクリプトから読める） | **登録**（WP-4.3、2026-08-08）。再読込を越えて生き残るのは httpOnly refresh cookie の方であり、それは JS から読めない — つまり「セッションが再読込を生き延びる」(S1-UI-004) は**サーバに訊く**ことで満たせる。#103 が refresh token について閉じた窃取経路を、access token についても縮める。**解消条件**: なし（意図的差分）。証跡: `test_no_bearer_token_is_ever_written_to_localStorage` |
+| 112 | L8 WebSocket チャネルを合成しない（**WP-4.4**、P7 §1.3） | **影配備は socket 面を一切マウントしない**。本番は socket.io で `threat_update` 等を押し出す。v3 のイベント語彙と発行者の有無は `v3/api/ws_publish.py` に着地済だが、`create_channel` を呼ぶ合成が存在しない | 中立（画面はポーリングで同じ射影を読む。検知内容は変わらない） | **登録**（WP-4.4、2026-08-08）。理由は実測: **`v3/ui/` に socket クライアントが 1 つも無い**（`grep -n "socket" v3/ui/*.js` が 0 件）。読み手ゼロの並行面を影稼働に足すのは、parity と無関係な故障要因を増やすだけである。`notification_result` の不発行（#93）とは別の話で、あちらは**発行者**が無く、こちらは**受け手**が無い。**解消条件**: `v3/ui/` に socket クライアントが着地したとき（P8 のライブ更新スライス）。証跡: `TestDeliberateAbsences::test_no_socket_channel_is_mounted` / `composition.WEBSOCKET_ABSENT` |
+| 113 | L8 実行モデル（**WP-4.4**、S4-NF / P4） | **1 プロセス・gunicorn gthread ワーカー 1・取得ループ 1 スレッド・gevent monkey-patch 無し**。本番は gevent + `GeventWebSocketWorker` で、import 時に約 40 スレッドを起こし、センサーを並行に走らせる。v3 の 1 サイクルはアダプタを**逐次**に回る | **insensitive になりうる**（サイクル所要時間が取得間隔を超えると、周期内に全アダプタを回りきれず、遅い側の観測が落ちる。落ちた観測は「静かな世界」と区別がつかない） | **登録**（WP-4.4、2026-08-08）。並行度とサイクル順序は明示的に合成ルートの決定事項（§1-2）であり、**逐次は「まだ測っていない既定」であって最適化の結論ではない**。並行化を先に入れると、レート制限・サーキットブレーカー・抑制の生産者順序（`order_producers_first`）が同時に動くため、遅延の原因が特定できなくなる。**解消条件**: Phase 5 の影稼働で 1 サイクルの実測所要時間が `NOROSHI_V3_TICK_INTERVAL_SEC` を超えることが観測された時点。まず間隔を伸ばし、それでも足りなければ並行度を入れる（順序は逆にしない）。証跡: `TickReport.planned` / `skipped` と `fetch_log` |
+| 114 | L8 設定の入口（**WP-4.4**、G-15 / S1-SVC-010） | **影配備はプロセス内で `config.env` を読まない**。環境変数は docker CLI がホスト側で `env_file` として読み、コンテナに渡す。v3 が読む名前は `v3/server/settings.py::KEY_IDS` + 設定レジストリの可変キー + アダプタが宣言した資格情報 ID の**合併に限定**され、その集合は宣言から導出される。本番は python-dotenv でプロセス内に読み込み、鍵が無ければ生成して `config.env` に**追記**する | 中立（読む値は同じ。書かない点が違う） | **登録**（WP-4.4、2026-08-08）。#100 が「鍵を生成しない」を閉じたのに対し、こちらは「**あのファイルへの書き込みハンドルを持たない**」を配備の形で閉じる（`Dockerfile.v3` は `config.env` を COPY せず、compose はマウントしない）。稼働中の秘密を持つファイルに第 2 の書き手が現れると、負けた側の鍵の変更が全アナリストをログアウトさせる。さらに `env_file` はファイルを丸ごと渡すため、compose の `environment:` が **`JWT_SECRET_KEY` と `DEFAULT_ADMIN_PASSWORD` を空で上書き**する — v3 はどちらも読まないが、影が侵害されたときに v1 のトークンを偽造できる材料を持たせない（最小権限）。**解消条件**: なし（意図的差分・恒久）。証跡: `TestTheDeploymentShapeIsBesideV1NotInsteadOfIt`（`test_v1s_own_secrets_are_blanked_in_the_shadow` を含む）/ `--check` の `environment_keys` |
+| 115 | L8 系列連鎖の所有国が既定で未供給（**WP-4.4**、S1-PIPE-016） | **`NOROSHI_V3_CHAIN_COUNTRIES` を供給しない限り、どのシナリオにも chain owner が無い**。本番は生スパイク平均で dual-core の primary_ec を選ぶ（`radar/routes/core.py:878-881`）。v3 は裁定どおり導出せず、未供給のまま focus されると `chain_country_for` が例外を投げる | **insensitive**（focused ボーナスの系列・時間的一貫性の加点が出ない。さらに例外により当該ティック全体が失敗するため、その周期の結論行が書かれない） | **登録**（WP-4.4、2026-08-08）。導出で埋めることは裁定違反（静的規則は middle_east のように IL/IR が同重みのシナリオで永久に同じ国を選ぶ）。合成ルートは**起動時に未供給のシナリオを名指しで告知**し、症状が「静かに結論が増えなくなる」になる前に運用者へ渡す。**解消条件**: 生スパイクから所有国を選ぶ供給側（`v3/runtime/scoring.py` のスライス）が着地したとき。それまでは運用手順書 §1 のとおり運用者が明示供給する。証跡: `test_a_scenario_with_no_chain_owner_is_announced_before_it_bites` |
 
 ---
 

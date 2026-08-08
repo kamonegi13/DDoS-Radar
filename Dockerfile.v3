@@ -1,0 +1,66 @@
+# Noroshi v3 — the shadow image.
+#
+# Built and run BESIDE the live v1 container, never instead of it (R4: the
+# old system stays authoritative until parity passes). Three properties of
+# this file are the deployment half of that isolation, and each is a COPY
+# that is not here:
+#
+#   * `radar/` is not copied. The legacy tree does not exist in this
+#     image, so the import that boots the live application cannot succeed
+#     even if something asked for it. The runtime barrier
+#     (`v3/server/isolation.py`) is the second line, not the first.
+#   * `config.env` is not copied and not mounted. It holds v1's
+#     auto-generated secrets; the compose service reads it on the HOST
+#     through `env_file`, so this container never has a handle to write.
+#   * `radar/persistence` does not exist. The v3 ledger lives in its own
+#     volume at /app/v3data, and `v3/server/settings.py` refuses any path
+#     that names a v1 database or sits in v1's persistence directory.
+#
+# The port is 8300, not 8000.
+
+FROM python:3.12-slim
+
+# lxml and argon2-cffi build against these on slim.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gcc \
+        libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements-v3.txt .
+RUN pip install --no-cache-dir -r requirements-v3.txt
+
+# The whole v3 tree, and the one data file it reads. Nothing else.
+COPY v3/           v3/
+COPY geo_data.json .
+
+# The ledger's directory. Mounted as a named volume in compose; created
+# here so a run without the volume still has somewhere legal to write —
+# and somewhere that is emphatically not radar/persistence/.
+RUN mkdir -p /app/v3data
+
+EXPOSE 8300
+
+# `v3.server.main:build_wsgi()` is an app FACTORY, called by gunicorn.
+# A module-level `app` would make import active, which is the invariant
+# the whole v3 tree is built on.
+#
+# -w 1 is not tuning. The ledger serialises writers in-process and one
+# SQLite file with two writing processes is out of scope by design; the
+# runtime also refuses a second loop in the same process.
+#
+# --preload is deliberately ABSENT: it would compose in the master and
+# fork, and a thread does not survive fork — the loop would exist in the
+# master's status and tick in nobody.
+CMD ["gunicorn", \
+     "-k", "gthread", \
+     "-w", "1", \
+     "--threads", "4", \
+     "--bind", "0.0.0.0:8300", \
+     "--timeout", "300", \
+     "--graceful-timeout", "60", \
+     "--log-level", "info", \
+     "--access-logfile", "-", \
+     "--error-logfile", "-", \
+     "v3.server.main:build_wsgi()"]

@@ -35,5 +35,80 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  # ── v3 shadow (Phase 5, R4) ─────────────────────────────────────────────
+  #
+  # Runs BESIDE `radar`, never instead of it. Behind a compose PROFILE, so
+  # a plain `docker compose up -d` cannot start it by accident and the
+  # `radar` service definition above is untouched by its presence.
+  #
+  #   start:   docker compose --profile shadow up -d --build v3_shadow
+  #   stop:    docker compose --profile shadow stop v3_shadow
+  #   logs:    docker compose --profile shadow logs --tail 50 v3_shadow
+  #
+  # Nothing here is shared with `radar`: a different image (no radar/ in
+  # it), a different container name, a different port (8300), a different
+  # volume (v3-shadow-data), a different database file. `config.env` is
+  # read by the docker CLI ON THE HOST through `env_file` and is NOT
+  # mounted, so this container has no handle that could write the file
+  # holding v1's auto-generated secrets. v3 reads its own key ids
+  # (NOROSHI_V3_*) and the adapter credentials; it never reads
+  # JWT_SECRET_KEY.
+  v3_shadow:
+    profiles: ["shadow"]
+    build:
+      context: .
+      dockerfile: Dockerfile.v3
+    image: noroshi-v3:latest
+    container_name: noroshi-v3-shadow
+    restart: unless-stopped
+    stop_grace_period: 60s
+    ports:
+      - "8300:8300"
+    volumes:
+      # The v3 ledger. A SEPARATE named volume — `radar-data` is not
+      # mounted here and must never be.
+      - v3-shadow-data:/app/v3data
+    env_file:
+      # Host-side read for the adapter credentials, so the shadow's source
+      # coverage matches production's. Requires config.env to exist, which
+      # the `radar` service above already does.
+      - config.env
+    environment:
+      # Everything below overrides whatever config.env happened to hold.
+      #
+      # v1's OWN secrets are blanked first. v3 reads neither name — it
+      # signs with NOROSHI_V3_JWT_SECRET (§7-2 #100) — but a shadow
+      # container holding the live session signing key is a container
+      # whose compromise forges v1 tokens. Least privilege, spelled out:
+      # the shadow gets the adapter credentials and nothing else.
+      - JWT_SECRET_KEY=
+      - DEFAULT_ADMIN_PASSWORD=
+      - NOROSHI_V3_LEDGER_PATH=/app/v3data/noroshi_v3.db
+      - NOROSHI_V3_HOST=0.0.0.0
+      - NOROSHI_V3_PORT=8300
+      # Empty means "not supplied", and the composition root says so out
+      # loud at start-up rather than inventing a key: with no signing key
+      # every /api/v3/auth/* route answers 503.
+      - NOROSHI_V3_JWT_SECRET=${NOROSHI_V3_JWT_SECRET:-}
+      - NOROSHI_V3_BOOTSTRAP_PASSWORD=${NOROSHI_V3_BOOTSTRAP_PASSWORD:-}
+      # Empty means every enabled scenario in geo_data.json.
+      - NOROSHI_V3_SCENARIOS=${NOROSHI_V3_SCENARIOS:-}
+      - NOROSHI_V3_TICK_INTERVAL_SEC=${NOROSHI_V3_TICK_INTERVAL_SEC:-60}
+      # http on a loopback-published port; flip to true behind TLS.
+      - NOROSHI_V3_COOKIE_SECURE=${NOROSHI_V3_COOKIE_SECURE:-false}
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8300/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
 volumes:
   radar-data:
+  v3-shadow-data:
