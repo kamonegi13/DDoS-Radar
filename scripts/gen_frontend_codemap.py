@@ -35,6 +35,21 @@ DEFAULT_TARGETS: tuple[str, ...] = (
     "radar.js",
     "tradecraft.js",
     "radar.css",
+    # WP-4.2 — the v3 presentation layer. Small by design (pure-core + thin
+    # DOM, P1 §11), but included so the freshness gate notices when a module
+    # is added, split or removed: an un-mapped module is one a future session
+    # full-reads, which is the budget failure CLAUDE.md §5.5 exists to stop.
+    "v3/ui/app.js",
+    "v3/ui/board.js",
+    "v3/ui/client.js",
+    "v3/ui/conclusions.js",
+    "v3/ui/format.js",
+    "v3/ui/freshness.js",
+    "v3/ui/lane.js",
+    "v3/ui/render.js",
+    "v3/ui/strings.js",
+    "v3/ui/trust.js",
+    "v3/ui/v3.css",
 )
 
 # Allow leading whitespace because radar.js wraps everything in an IIFE

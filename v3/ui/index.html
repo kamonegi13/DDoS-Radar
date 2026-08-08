@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noroshi v3</title>
+<link rel="stylesheet" href="v3.css">
+</head>
+<body>
+
+<!--
+  The page IS the analyst's primary loop (P8 §1). Five sections, in the
+  order the loop runs them, numbered in the markup so the structure is
+  legible without the stylesheet:
+
+    1  状況確認      Tier 0 — target 10 s
+    2  トリアージ    Tier 0 top / Tier 1 all — target 30 s
+    3  ドリルダウン  Tier 1
+    4  フィードバック Tier 1
+    5  検証          Tier 2
+
+  There are no floating panels. P8 §7 retires the panel accumulation, and a
+  surface whose shape is the loop does not need a panel manager.
+-->
+
+<!--
+  NP7, first element of the document and never conditional (S1-UI-024a).
+  The text is static and local: an envelope that fails to arrive must not be
+  able to take the disclaimer with it.
+-->
+<header id="np7-bar" role="note">
+  <span data-i18n="ui.np7.banner"></span>
+</header>
+
+<p id="disclaimer-breach" class="breach" role="alert" hidden
+   data-i18n="ui.np7.breach"></p>
+
+<p id="replay-badge" class="replay-badge" role="status" hidden></p>
+
+<div id="toast-rail" class="toast-rail" aria-live="polite"></div>
+
+<main>
+
+  <!-- ── 1. 状況確認 ─────────────────────────────────────────────── -->
+  <section id="stage-1" class="stage" aria-labelledby="stage-1-title">
+    <div class="stage-head">
+      <h2 id="stage-1-title"><span class="stage-n">1</span>
+        <span data-i18n="ui.stage.situation"></span></h2>
+      <p class="stage-question" data-i18n="ui.stage.situation_q"></p>
+      <div class="stage-tools">
+        <span id="board-freshness" class="freshness-slot"></span>
+        <span id="trust-slot"></span>
+        <button type="button" id="refresh-btn" data-i18n="ui.action.refresh"></button>
+      </div>
+    </div>
+    <div id="board-cards" class="cards"></div>
+  </section>
+
+  <!-- ── 2. トリアージ ───────────────────────────────────────────── -->
+  <section id="stage-2" class="stage" aria-labelledby="stage-2-title">
+    <div class="stage-head">
+      <h2 id="stage-2-title"><span class="stage-n">2</span>
+        <span data-i18n="ui.stage.triage"></span></h2>
+      <p class="stage-question" data-i18n="ui.stage.triage_q"></p>
+      <div class="stage-tools">
+        <span id="lane-freshness" class="freshness-slot"></span>
+        <button type="button" id="lane-more"></button>
+      </div>
+    </div>
+    <p id="lane-summary" class="lane-summary"></p>
+    <p id="lane-suppressed" class="lane-suppressed"></p>
+    <ol id="lane-rows" class="lane"></ol>
+  </section>
+
+  <!-- ── 3. ドリルダウン ─────────────────────────────────────────── -->
+  <section id="stage-3" class="stage" aria-labelledby="stage-3-title">
+    <div class="stage-head">
+      <h2 id="stage-3-title"><span class="stage-n">3</span>
+        <span data-i18n="ui.stage.drilldown"></span></h2>
+      <p class="stage-question" data-i18n="ui.stage.drilldown_q"></p>
+      <div class="stage-tools">
+        <span id="face-freshness" class="freshness-slot"></span>
+        <label class="replay-control">
+          <span data-i18n="ui.replay.label"></span>
+          <input type="datetime-local" id="replay-at">
+        </label>
+      </div>
+    </div>
+    <p id="face-unreadable" class="warn"></p>
+    <div id="face-sections" class="face"></div>
+  </section>
+
+  <!-- ── 4. フィードバック ───────────────────────────────────────── -->
+  <section id="stage-4" class="stage" aria-labelledby="stage-4-title">
+    <div class="stage-head">
+      <h2 id="stage-4-title"><span class="stage-n">4</span>
+        <span data-i18n="ui.stage.feedback"></span></h2>
+      <p class="stage-question" data-i18n="ui.stage.feedback_q"></p>
+    </div>
+    <div id="feedback-slot" class="feedback-slot"></div>
+
+    <h3 data-i18n="ui.proposals.title"></h3>
+    <ul id="proposal-rows" class="proposals"></ul>
+    <p class="deferred" data-deferred="R11"></p>
+    <p class="deferred" data-deferred="C10"></p>
+  </section>
+
+  <!-- ── 5. 検証 ─────────────────────────────────────────────────── -->
+  <section id="stage-5" class="stage" aria-labelledby="stage-5-title">
+    <div class="stage-head">
+      <h2 id="stage-5-title"><span class="stage-n">5</span>
+        <span data-i18n="ui.stage.verify"></span></h2>
+      <p class="stage-question" data-i18n="ui.stage.verify_q"></p>
+    </div>
+
+    <h3 data-i18n="ui.derivation.title"></h3>
+    <div id="derivation-body" class="derivation"></div>
+
+    <h3 data-i18n="ui.selfeval.title"></h3>
+    <table class="grid">
+      <thead><tr>
+        <th data-i18n="ui.selfeval.col.component"></th>
+        <th data-i18n="ui.selfeval.col.state"></th>
+        <th data-i18n="ui.selfeval.col.value"></th>
+        <th data-i18n="ui.selfeval.col.boundary"></th>
+        <th data-i18n="ui.selfeval.col.source"></th>
+        <th data-i18n="ui.selfeval.col.detail"></th>
+      </tr></thead>
+      <tbody id="selfeval-components"></tbody>
+    </table>
+
+    <h3 data-i18n="ui.sensors.title"></h3>
+    <table class="grid">
+      <thead><tr>
+        <th data-i18n="ui.sensors.col.sensor"></th>
+        <th data-i18n="ui.sensors.col.domain"></th>
+        <th data-i18n="ui.sensors.col.observations"></th>
+        <th data-i18n="ui.sensors.col.fired"></th>
+        <th data-i18n="ui.sensors.col.suppressed"></th>
+        <th data-i18n="ui.sensors.col.silent"></th>
+      </tr></thead>
+      <tbody id="sensor-rows"></tbody>
+    </table>
+
+    <h3 data-i18n="ui.decisions.title"></h3>
+    <table class="grid">
+      <thead><tr>
+        <th data-i18n="ui.decisions.col.at"></th>
+        <th data-i18n="ui.decisions.col.type"></th>
+        <th data-i18n="ui.decisions.col.action"></th>
+        <th data-i18n="ui.decisions.col.target"></th>
+        <th data-i18n="ui.decisions.col.actor"></th>
+        <th data-i18n="ui.decisions.col.reason"></th>
+      </tr></thead>
+      <tbody id="decision-rows"></tbody>
+    </table>
+
+    <h3 data-i18n="ui.whatif.title"></h3>
+    <p class="hint" data-i18n="ui.whatif.hint"></p>
+    <textarea id="whatif-overlay" rows="4"
+              data-i18n-ph="ui.whatif.placeholder"></textarea>
+    <button type="button" id="whatif-run" data-i18n="ui.whatif.run"></button>
+    <table class="grid">
+      <thead><tr>
+        <th data-i18n="ui.whatif.col.scenario"></th>
+        <th data-i18n="ui.whatif.col.baseline"></th>
+        <th data-i18n="ui.whatif.col.counterfactual"></th>
+        <th data-i18n="ui.whatif.col.severity_delta"></th>
+        <th data-i18n="ui.whatif.col.score_delta"></th>
+      </tr></thead>
+      <tbody id="whatif-body"></tbody>
+    </table>
+
+    <p class="deferred" data-deferred="C8"></p>
+    <p class="deferred" data-deferred="C11"></p>
+    <p class="deferred" data-deferred="C12"></p>
+    <p class="deferred" data-deferred="C13"></p>
+    <p class="deferred" data-deferred="C3"></p>
+  </section>
+
+</main>
+
+<script src="strings.js"></script>
+<script src="format.js"></script>
+<script src="freshness.js"></script>
+<script src="trust.js"></script>
+<script src="board.js"></script>
+<script src="lane.js"></script>
+<script src="conclusions.js"></script>
+<script src="client.js"></script>
+<script src="render.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
