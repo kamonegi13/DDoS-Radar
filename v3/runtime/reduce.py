@@ -40,6 +40,7 @@ from v3.adapters.cyber.cloudflare_radar import (BGP_HIJACK_SIGNAL,
                                                 LEAK_FIRE_THRESHOLD)
 from v3.adapters.info.gdelt import BASELINE_SIGNAL_SOURCE as \
     GDELT_BASELINE_SIGNAL
+from v3.adapters.info.gdelt import FIRED_REASON as GDELT_FIRED_REASON
 from v3.adapters.info.gdelt import SIGNAL_SOURCE as GDELT_SIGNAL
 from v3.adapters.info.rss_narrative import feed_source as _feed_source
 from v3.adapters.info.telegram_mirror import CHANNEL_SOURCE_PREFIX
@@ -66,6 +67,7 @@ from v3.adapters.types import (INFO, PHYSICAL, STATUS_FIRED, STATUS_NO_DATA,
                                STATUS_OBSERVED, STATUS_OK, STATUS_SUPPRESSED,
                                ObservationDraft)
 from v3.kernel.errors import DomainError
+from v3.runtime import verdicts
 
 #: Production's per-URL "this URL is up" line (`checkhost.py:225-233`),
 #: taken from the adapter that already declares it rather than restated.
@@ -102,7 +104,7 @@ class Reduction:
     """
 
     adapter_id: str
-    fold: Callable[[Sequence[ObservationDraft], Mapping[str, Any]],
+    fold: Callable[[Sequence[ObservationDraft], Mapping[str, Any], float],
                    Sequence[ObservationDraft]]
     register_ref: str
     production_ref: str
@@ -121,6 +123,27 @@ def _first_url(drafts: Sequence[ObservationDraft]) -> Optional[str]:
         if draft.evidence_url:
             return draft.evidence_url
     return None
+
+
+def _mmsi_last_seen(snapshot) -> Optional[dict]:
+    """`{mmsi: last_ts}` from the entity series' newest row per vessel.
+
+    None when the series was not supplied at all — which is not the same
+    as an empty one. An empty history means every hull is a first
+    sighting and no gap can be claimed; an absent history means the
+    verdict was never attempted, and those must not print the same.
+    """
+    if snapshot is None:
+        return None
+    latest = {}
+    for mmsi, rows in snapshot.items():
+        for row in rows:
+            stamp = (row.get("payload") or {}).get("last_ts")
+            if stamp is None:
+                stamp = row.get("value")
+            if stamp is not None:
+                latest[str(mmsi)] = float(stamp)
+    return latest
 
 
 def _min_confidence(drafts: Sequence[ObservationDraft]) -> float:
@@ -160,7 +183,8 @@ def _coverage(measured: Sequence, total: Sequence) -> dict:
 # ── §3-5 H-1(b)(c): ISR hotspots ────────────────────────────────────────
 
 def _fold_isr(drafts: Sequence[ObservationDraft],
-              baselines: Mapping[str, Any]) -> list[ObservationDraft]:
+              baselines: Mapping[str, Any],
+              now: float) -> list[ObservationDraft]:
     """Sum the country's zones, THEN threshold (`isr_hotspot.py:85-107`).
 
     `hotspots[]` is concatenated rather than summarised because two
@@ -199,7 +223,8 @@ def _fold_isr(drafts: Sequence[ObservationDraft],
 
 
 def _fold_mil_air(drafts: Sequence[ObservationDraft],
-                  baselines: Mapping[str, Any]) -> list[ObservationDraft]:
+                  baselines: Mapping[str, Any],
+              now: float) -> list[ObservationDraft]:
     """`mil_support_air.py:128-158`. Sum per category, then the OR ladder.
 
     Three thresholds, each applied to a country total: tankers >= 2,
@@ -248,7 +273,8 @@ def _fold_mil_air(drafts: Sequence[ObservationDraft],
 # ── §7-2 #12/#13: Cloudflare BGP disjunction ────────────────────────────
 
 def _fold_cf_bgp(drafts: Sequence[ObservationDraft],
-                 baselines: Mapping[str, Any]) -> list[ObservationDraft]:
+                 baselines: Mapping[str, Any],
+              now: float) -> list[ObservationDraft]:
     """hijack OR leak -> the single `cf_bgp_hijack` entry (`core.py:1150-1170`).
 
     The port's docstring assumed S1-SCORE-008's MAX fold would reassemble
@@ -298,7 +324,7 @@ def _fold_cf_bgp(drafts: Sequence[ObservationDraft],
 # ── §7-2 #11: space weather's two endpoints ─────────────────────────────
 
 def _fold_space_weather(drafts: Sequence[ObservationDraft],
-                        baselines: Mapping[str, Any]
+                        baselines: Mapping[str, Any], now: float
                         ) -> list[ObservationDraft]:
     """Kp OR X-ray -> one suppressor row (`space_weather.py:102-140`).
 
@@ -362,7 +388,8 @@ def _fold_space_weather(drafts: Sequence[ObservationDraft],
 # ── §7-2 #28/#29: RIPE Atlas probes + three measurements ────────────────
 
 def _fold_ripe_atlas(drafts: Sequence[ObservationDraft],
-                     baselines: Mapping[str, Any]) -> list[ObservationDraft]:
+                     baselines: Mapping[str, Any],
+                     now: float) -> list[ObservationDraft]:
     """Pool the RTTs, THEN take p95 (`ripe_atlas.py:133,137-147`).
 
     A pooled p95 cannot be recovered from three per-measurement p95s,
@@ -431,7 +458,8 @@ def _fold_ripe_atlas(drafts: Sequence[ObservationDraft],
 # ── §7-2 #11: check_host's up-to-three URLs ─────────────────────────────
 
 def _fold_check_host(drafts: Sequence[ObservationDraft],
-                     baselines: Mapping[str, Any]) -> list[ObservationDraft]:
+                     baselines: Mapping[str, Any],
+                     now: float) -> list[ObservationDraft]:
     """`checkhost.py:225-239`: a URL is up at >= 80%, the country is the
     fraction of its URLs that are up.
 
@@ -439,11 +467,18 @@ def _fold_check_host(drafts: Sequence[ObservationDraft],
     DIFFERENT `value` strings, so writing them unreduced raises at L1
     rather than halving anything — the right failure, and still a gap.
 
-    The BLACKOUT / PARTIAL verdict needs `checkhost_hod`'s same-hour
-    history, which L1 cannot yet answer (the migrated buckets hold raw
-    epoch hours, not hour-of-day). Until it can, the row stays OBSERVED
-    and names the baseline it wants.
+    The BLACKOUT / PARTIAL verdict is `checkhost_hod`'s same-hour history
+    normalising the country's rate (`checkhost.py:247-269`), and the
+    asphyxiation flag is each URL's own latency history
+    (`checkhost.py:138-155`). Both are supplied by WP-4.1b: the first from
+    `baseline_phase_values`, the second from the per-entity series.
+
+    Asphyxiation is decided PER URL and OR-ed, because that is where
+    production decides it — a country-wide average latency would hide the
+    one URL being throttled behind two that are not.
     """
+    hod = baselines.get("checkhost_hod")
+    latency_history = baselines.get("checkhost_latency_history")
     reduced = []
     for country, group in _by_country(drafts).items():
         rated = [d for d in group
@@ -460,31 +495,69 @@ def _fold_check_host(drafts: Sequence[ObservationDraft],
         rate = ok_count / len(rated)
         latencies = [float(d.flags["avg_latency_ms"]) for d in rated
                      if d.flags.get("avg_latency_ms") is not None]
+        flags: dict = {
+            "success_rate": rate,
+            "urls_ok": ok_count, "urls_folded": len(rated),
+            "urls_requested": len(group),
+            "ok_nodes": sum(int(d.flags.get("ok_nodes", 0) or 0)
+                            for d in rated),
+            "total_nodes": sum(int(d.flags.get("total_nodes", 0) or 0)
+                               for d in rated),
+            "avg_latency_ms": (round(sum(latencies) / len(latencies), 2)
+                               if latencies else None),
+            # Per URL, because that is the key production's history is
+            # kept under and the recording stage reads this row rather
+            # than the drafts it folded (a baseline built from something
+            # the ledger does not hold cannot be replayed).
+            "url_latency": {str(d.flags.get("url", "")):
+                            d.flags.get("avg_latency_ms")
+                            for d in rated if d.flags.get("url")}}
+        status, score = STATUS_OBSERVED, 0.0
+        if hod is None:
+            flags["url_verdict"] = PENDING_PREFIX + "checkhost_hod"
+        else:
+            stat = verdicts.phase_zscore(
+                hod.get(country, ()), rate,
+                min_samples=verdicts.CHECKHOST_HOD_MIN_SAMPLES,
+                std_floor=verdicts.CHECKHOST_HOD_STD_FLOOR)
+            label = verdicts.checkhost_status(rate, stat)
+            score = verdicts.CHECKHOST_SCORES[label]
+            fired = label in (verdicts.CHECKHOST_BLACKOUT,
+                              verdicts.CHECKHOST_PARTIAL)
+            status = STATUS_FIRED if fired else STATUS_OK
+            flags.update({"status": label, "hod_z": None if stat.z is None
+                          else round(stat.z, 2), "hod_n": stat.n})
+        if latency_history is None:
+            flags["asphyxiation_verdict"] = (PENDING_PREFIX
+                                             + "latency_history")
+        else:
+            flags["asphyxiation"] = any(
+                verdicts.is_asphyxiation(
+                    d.flags.get("success_rate"),
+                    d.flags.get("avg_latency_ms"),
+                    [row["value"] for row
+                     in latency_history.get(str(d.flags.get("url", "")), ())
+                     if row.get("value") is not None])
+                for d in rated)
+        label = flags.get("status")
         reduced.append(ObservationDraft(
             signal_source="check_host", domain=PHYSICAL, country=country,
-            status=STATUS_OBSERVED, raw_score=0.0,
+            status=status, raw_score=score,
             confidence=_min_confidence(rated),
-            value=f"success={rate:.0%}",
-            flags={"success_rate": rate,
-                   "urls_ok": ok_count, "urls_folded": len(rated),
-                   "urls_requested": len(group),
-                   "ok_nodes": sum(int(d.flags.get("ok_nodes", 0) or 0)
-                                   for d in rated),
-                   "total_nodes": sum(int(d.flags.get("total_nodes", 0) or 0)
-                                      for d in rated),
-                   "avg_latency_ms": (round(sum(latencies) / len(latencies), 2)
-                                      if latencies else None),
-                   "url_verdict": PENDING_PREFIX + "checkhost_hod",
-                   "asphyxiation_verdict": PENDING_PREFIX
-                   + "latency_history"},
-            evidence_url=_first_url(rated)))
+            value=(f"{label} success={rate:.0%}" if label
+                   else f"success={rate:.0%}"),
+            reason=(f"Infrastructure availability: {label} "
+                    f"(success_rate={rate:.0%})")
+            if status == STATUS_FIRED else "",
+            flags=flags, evidence_url=_first_url(rated)))
     return reduced
 
 
 # ── §7-2 #23: AIS chokepoints ───────────────────────────────────────────
 
 def _fold_ais(drafts: Sequence[ObservationDraft],
-              baselines: Mapping[str, Any]) -> list[ObservationDraft]:
+              baselines: Mapping[str, Any],
+              now: float) -> list[ObservationDraft]:
     """One row per country; the printed counts span the whole cycle.
 
     Production's `value` counts `len(ais_dark_gaps)` and
@@ -492,9 +565,20 @@ def _fold_ais(drafts: Sequence[ObservationDraft],
     (`core.py:1256`), not only the country's own — while the FIRED
     decision is the country's. Both facts are kept: the country's
     stationary anomalies decide, and the cycle-wide totals print.
+
+    Dark gaps join here because the comparison is with the PREVIOUS
+    cycle's snapshot of the same hull (`ais_maritime.py:112-125`), and a
+    per-payload `normalize` has no previous cycle. `ais_vessel_history` is
+    the entity series ruling 2 added; a vessel with no prior snapshot
+    contributes nothing, exactly as production's `.get(mmsi)` miss does.
     """
+    vessel_history = _mmsi_last_seen(baselines.get("ais_vessel_history"))
     cycle_stationary = sum(
         len(list(d.flags.get("stationary_anomalies", ()))) for d in drafts)
+    cycle_gaps = 0 if vessel_history is None else len(verdicts.ais_dark_gaps(
+        [report for d in drafts
+         for report in list(d.flags.get("vessel_reports", ()))],
+        vessel_history, now))
     reduced = []
     for country, group in _by_country(drafts).items():
         measured = [d for d in group if d.status != STATUS_NO_DATA]
@@ -506,13 +590,23 @@ def _fold_ais(drafts: Sequence[ObservationDraft],
             continue
         stationary = [item for d in measured
                       for item in list(d.flags.get("stationary_anomalies", ()))]
-        fired = bool(stationary)
+        reports = [report for d in measured
+                   for report in list(d.flags.get("vessel_reports", ()))]
+        if vessel_history is None:
+            gaps: tuple = ()
+            gap_flags = {"dark_gap_detection": PENDING_PREFIX
+                         + "vessel_history"}
+        else:
+            gaps = verdicts.ais_dark_gaps(reports, vessel_history, now)
+            gap_flags = {"dark_gaps": list(gaps[:10]),
+                         "dark_gap_count": len(gaps)}
+        fired = bool(stationary or gaps)
         reduced.append(ObservationDraft(
             signal_source="ais_maritime", domain=PHYSICAL, country=country,
             status=STATUS_FIRED if fired else STATUS_OK,
             raw_score=1.0 if fired else 0.0,
             confidence=_min_confidence(measured),
-            value=f"dark_gaps=0 stationary={cycle_stationary}",
+            value=f"dark_gaps={cycle_gaps} stationary={cycle_stationary}",
             reason=("AIS Dark Gap / Stationary Anomaly at chokepoint"
                     if fired else ""),
             flags={"stationary_anomalies": stationary[:10],
@@ -521,14 +615,12 @@ def _fold_ais(drafts: Sequence[ObservationDraft],
                    "vessels_examined": sum(
                        int(d.flags.get("vessels_examined", 0) or 0)
                        for d in measured),
-                   "vessel_reports": [report for d in measured
-                                      for report in
-                                      list(d.flags.get("vessel_reports", ()))],
+                   "vessel_reports": reports,
                    "chokepoints": [str(d.flags.get("chokepoint", ""))
                                    for d in measured],
                    "chokepoints_folded": len(measured),
                    "chokepoints_requested": len(group),
-                   "dark_gap_detection": PENDING_PREFIX + "vessel_history"},
+                   **gap_flags},
             evidence_url=_first_url(measured)))
     return reduced
 
@@ -536,7 +628,8 @@ def _fold_ais(drafts: Sequence[ObservationDraft],
 # ── §7-2 #31: IHR's three-rung ladder ───────────────────────────────────
 
 def _fold_ihr(drafts: Sequence[ObservationDraft],
-              baselines: Mapping[str, Any]) -> list[ObservationDraft]:
+              baselines: Mapping[str, Any],
+              now: float) -> list[ObservationDraft]:
     """`min(ladder_rank)` decides the country's state (`ihr.py:167-177`).
 
     The three rows keep their own `signal_source` — `bgp`, `ihr_delay` and
@@ -564,7 +657,8 @@ def _fold_ihr(drafts: Sequence[ObservationDraft],
 # ── §7-2 #41/#51: the info domain's per-source rows ─────────────────────
 
 def _fold_tor(drafts: Sequence[ObservationDraft],
-              baselines: Mapping[str, Any]) -> list[ObservationDraft]:
+              baselines: Mapping[str, Any],
+              now: float) -> list[ObservationDraft]:
     """`/summary` + `/clients` -> one `tor_metrics` entry (`core.py:1553-1579`).
 
     Production reconciles the two responses before writing anything; the
@@ -631,14 +725,21 @@ def _fold_tor(drafts: Sequence[ObservationDraft],
 
 
 def _fold_gdelt(drafts: Sequence[ObservationDraft],
-                baselines: Mapping[str, Any]) -> list[ObservationDraft]:
+                baselines: Mapping[str, Any],
+              now: float) -> list[ObservationDraft]:
     """The 1d window and the history window -> one entry (`gdelt.py:57`).
 
     The baseline window's tone is carried into the surviving row's flags
     rather than discarded: it is the second half of the delta production
-    computes, and the day the day-of-week baseline is wired the fold needs
-    it in the same place.
+    computes.
+
+    The day-of-week arm of `is_alert`'s OR (`gdelt.py:73`) is decided
+    here. Production ORs it with the fixed-threshold arm, which the
+    adapter already fires on its own, so this can only ever ADD a firing —
+    which is why a row that arrives already FIRED is left alone rather
+    than re-derived.
     """
+    dow = baselines.get("gdelt_dow_tone")
     reduced = []
     for country, group in _by_country(drafts).items():
         current = next((d for d in group
@@ -660,8 +761,133 @@ def _fold_gdelt(drafts: Sequence[ObservationDraft],
             if tone is not None and extra["baseline_tone"] is not None:
                 extra["tone_delta"] = round(
                     float(tone) - float(extra["baseline_tone"]), 4)
+        merged = {**dict(current.flags), **extra}
+        row = replace(current, flags=merged)
+        tone = current.flags.get("tone")
+        if dow is not None and tone is not None:
+            merged.pop("dow_verdict", None)
+            stat = verdicts.phase_zscore(
+                dow.get(country, ()), float(tone),
+                min_samples=verdicts.GDELT_DOW_MIN_SAMPLES,
+                std_floor=verdicts.GDELT_DOW_STD_FLOOR)
+            merged["dow_z"] = None if stat.z is None else round(stat.z, 2)
+            merged["dow_n"] = stat.n
+            merged["dow_mean"] = (None if stat.mean is None
+                                  else round(stat.mean, 3))
+            if current.status != STATUS_FIRED:
+                alert = verdicts.gdelt_dow_alert(stat)
+                merged["is_alert"] = alert
+                merged["status"] = "ALERT" if alert else "NORMAL"
+                row = replace(
+                    row, flags=merged,
+                    status=STATUS_FIRED if alert else STATUS_OK,
+                    raw_score=1.0 if alert else 0.0,
+                    value="ALERT" if alert else row.value,
+                    reason=GDELT_FIRED_REASON if alert else row.reason)
+        reduced.append(row)
+    return reduced
+
+
+# ── §7-2 #9: the two folds that exist only to reach a withheld verdict ──
+
+def _fold_ripe_bgp(drafts: Sequence[ObservationDraft],
+                   baselines: Mapping[str, Any],
+                   now: float) -> list[ObservationDraft]:
+    """The hour-of-day anomaly (`bgp_routing.py:67-77`, `core.py:1148`).
+
+    `ripe_bgp` needs no cross-payload join — one country, one payload — so
+    this fold exists purely because the verdict needs L1 and `normalize`
+    may not read it. That is the same reason `_fold_ripe_atlas` resolves
+    the probe ladder here, and doing it in one place keeps the baseline
+    supply to a single channel rather than widening `NormalizeContext`
+    into a second one (A-02).
+
+    **The warm-up branch is NOT ported and the row keeps withholding.**
+    Production falls back to `drop_ratio > 0.15` below seven same-hour
+    samples, where `drop_ratio` compares against an in-process baseline
+    refreshed hourly (`self._baseline[code]`, `:37-45`) — an A-03 memory
+    baseline that v3 does not have and that `baseline_refs` does not
+    declare. Inventing a substitute would be a difference nobody
+    registered; withholding is visible.
+    """
+    hod = baselines.get("bgp_hod")
+    if hod is None:
+        return list(drafts)
+    reduced = []
+    for draft in drafts:
+        prefixes = draft.flags.get("announced_prefixes")
+        if draft.signal_source != "bgp" or prefixes is None:
+            reduced.append(draft)
+            continue
+        stat = verdicts.bgp_hod_verdict(hod.get(draft.country, ()),
+                                        float(prefixes))
+        flags = {k: v for k, v in draft.flags.items() if k != "hod_verdict"}
+        flags["hod_z"] = None if stat.z is None else round(stat.z, 2)
+        flags["hod_n"] = stat.n
+        if not stat.valid:
+            flags["hod_verdict"] = PENDING_PREFIX + "bgp_hod_warmup"
+            reduced.append(replace(draft, flags=flags))
+            continue
+        anomaly = verdicts.bgp_is_anomaly(stat)
+        flags.update({"is_anomaly": anomaly,
+                      "status": "ANOMALY" if anomaly else "NORMAL"})
         reduced.append(replace(
-            current, flags={**dict(current.flags), **extra}))
+            draft, status=STATUS_FIRED if anomaly else STATUS_OK,
+            raw_score=verdicts.BGP_ANOMALY_SCORE if anomaly else 0.0,
+            value="ANOMALY" if anomaly else "NORMAL",
+            reason="BGP prefix withdrawal" if anomaly else "",
+            flags=flags))
+    return reduced
+
+
+def _fold_ct_log(drafts: Sequence[ObservationDraft],
+                 baselines: Mapping[str, Any],
+                 now: float) -> list[ObservationDraft]:
+    """Score 3 for an untrusted CA out of warm-up (`core.py:1836-1848`).
+
+    §7-2 #8, the blocking-grade half of #9: production emits 3 and v3
+    emitted at most 2. Two L1 facts decide it and neither is in the
+    payload — the CAs this DOMAIN has used before, and when the domain was
+    first seen. Both are `entity_marker` rows now.
+
+    The wildcard verdict is untouched: it needs no history, the adapter
+    already fires it at 2, and production's ladder puts untrusted ABOVE
+    wildcard rather than adding them.
+    """
+    known = baselines.get("ct_log_known_ca_per_domain")
+    first_seen = baselines.get("ct_log_domain_first_observed")
+    if known is None or first_seen is None:
+        return list(drafts)
+    reduced = []
+    for draft in drafts:
+        candidates = list(draft.flags.get("untrusted_ca_candidates", ()))
+        domains = [str(d) for d in draft.flags.get("watched_domains", ())]
+        domain = domains[0] if domains else ""
+        in_warmup = verdicts.ct_log_in_warmup(first_seen.get(domain), now)
+        untrusted = verdicts.ct_log_untrusted(
+            candidates, known.get(domain, ()), in_warmup=in_warmup)
+        flags = {k: v for k, v in draft.flags.items()
+                 if k not in ("untrusted_ca_verdict", "warmup_verdict")}
+        flags.update({"warmup_active": in_warmup,
+                      "untrusted_ca_events": list(untrusted[:10]),
+                      "untrusted_ca_count": len(untrusted)})
+        wildcard = int(draft.flags.get("wildcard_count", 0) or 0) > 0
+        if untrusted:
+            score, reason = (verdicts.CT_LOG_UNTRUSTED_SCORE,
+                             f"Untrusted CA issued for {domain or 'a watched '
+                                                        'domain'}")
+        elif wildcard:
+            score, reason = (verdicts.CT_LOG_WILDCARD_SCORE,
+                             draft.reason or "Gov-TLD wildcard certificate")
+        else:
+            score, reason = 0.0, ""
+        fired = score > 0
+        reduced.append(replace(
+            draft, status=STATUS_FIRED if fired else STATUS_OK,
+            raw_score=score, reason=reason,
+            value=(f"untrusted={len(untrusted)} wildcard={int(wildcard)}"
+                   + (" (warmup)" if in_warmup else "")),
+            flags=flags))
     return reduced
 
 
@@ -682,7 +908,8 @@ def _fold_named_sources(signal_source: str, prefix_of,
     burst it did not measure.
     """
     def fold(drafts: Sequence[ObservationDraft],
-             baselines: Mapping[str, Any]) -> list[ObservationDraft]:
+             baselines: Mapping[str, Any],
+             now: float) -> list[ObservationDraft]:   # noqa: ARG001
         reduced = []
         for country, group in _by_country(drafts).items():
             members = [d for d in group
@@ -730,7 +957,14 @@ REDUCTIONS: tuple[Reduction, ...] = (
     Reduction("ripe_atlas", _fold_ripe_atlas, "§7-2 #28, #29",
               "radar/sensors/ripe_atlas.py:133,137-147 / core.py:1533-1547",
               "pool RTTs across measurements, then p95"),
-    Reduction("check_host", _fold_check_host, "§7-2 #11",
+    Reduction("ripe_bgp", _fold_ripe_bgp, "§7-2 #9",
+              "radar/sensors/bgp_routing.py:67-77 / core.py:1140-1148",
+              "hour-of-day Z-score decides ANOMALY; warm-up still withheld"),
+    Reduction("ct_log", _fold_ct_log, "§7-2 #8, #9",
+              "radar/sensors/ct_log.py:273-341 / core.py:1836-1848",
+              "known-CA ledger + warm-up marker turn a candidate into "
+              "score 3"),
+    Reduction("check_host", _fold_check_host, "§7-2 #11, #9",
               "radar/sensors/checkhost.py:225-239 / core.py:1370-1383",
               "fraction of the country's URLs that are up"),
     Reduction("ais_maritime", _fold_ais, "§7-2 #11, #23",
@@ -806,13 +1040,21 @@ def _require_writable(adapter_id: str,
 
 
 def reduce_drafts(adapter_id: str, drafts: Sequence[ObservationDraft], *,
-                  baselines: Optional[Mapping[str, Any]] = None
+                  baselines: Optional[Mapping[str, Any]] = None,
+                  now: Optional[float] = None
                   ) -> tuple[ObservationDraft, ...]:
     """Fold one adapter's cycle output, and refuse to return an unwritable set.
 
-    PURE. `baselines` is what the caller already read from L1; nothing
-    here opens a database, so a fold can be replayed from recorded
-    payloads exactly as it ran.
+    PURE. `baselines` is what the caller already read from L1 and `now` is
+    the cycle instant the caller is using; nothing here opens a database
+    or reads a clock, so a fold can be replayed from recorded payloads
+    exactly as it ran.
+
+    `now` is an argument rather than a `time.time()` call for the reason
+    `NormalizeContext.now` is: two of these folds compare a stored
+    timestamp with the present (a CT warm-up, an AIS dark gap), and a fold
+    that fetched its own clock would give a different answer on replay
+    than it gave live.
 
     Adapters with no declared fold pass through — and are still checked,
     which is the point: the check is what turns "nobody wrote a reducer
@@ -820,9 +1062,13 @@ def reduce_drafts(adapter_id: str, drafts: Sequence[ObservationDraft], *,
     sentence naming the adapter.
     """
     supplied = dict(baselines or {})
+    if now is None:
+        raise DomainError(
+            f"reduce_drafts needs the cycle instant for {adapter_id!r}: a "
+            f"fold that reads its own clock cannot be replayed")
     reduction = BY_ADAPTER.get(adapter_id)
-    result = tuple(reduction.fold(tuple(drafts), supplied)) if reduction \
-        else tuple(drafts)
+    result = tuple(reduction.fold(tuple(drafts), supplied, float(now))) \
+        if reduction else tuple(drafts)
     _require_writable(adapter_id, result)
     return result
 

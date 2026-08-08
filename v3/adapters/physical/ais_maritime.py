@@ -179,7 +179,12 @@ def normalize(payload, context: NormalizeContext
         # a hull outside the radius now may be inside it next cycle.
         reports.append({"mmsi": str(vessel.get("MMSI", "")),
                         "last_ts": last_ts,
-                        "lat": latitude, "lng": longitude})
+                        "lat": latitude, "lng": longitude,
+                        # The dark-gap rule is `gap > 1h AND dist < 50km`
+                        # (`:118-119`), so the distance has to travel with
+                        # the report; recomputing it in the fold would be
+                        # the same haversine written twice (DP4).
+                        "dist_km": round(distance_km, 1)})
         if _is_stationary_anomaly(ship_type, speed, distance_km):
             stationary.append({
                 "mmsi": str(vessel.get("MMSI", "")),

@@ -41,6 +41,7 @@ from v3.kernel.errors import DomainError
 from v3.runtime import baselines as baselines_module
 from v3.runtime import expansion as expansion_module
 from v3.runtime import health as health_module
+from v3.runtime import record as record_module
 from v3.runtime import reduce as reduce_module
 from v3.runtime import suppression as suppression_module
 from v3.runtime.geo import Geography, adversaries_of, participants_of
@@ -89,7 +90,7 @@ class _CycleState:
     produced: dict = field(default_factory=dict)
 
 
-def build_hooks(state: _CycleState, *, baselines: Mapping,
+def build_hooks(state: _CycleState, *, baselines: Mapping, now: float,
                 credentials: Optional[CredentialPlan] = None) -> CycleHooks:
     """The four functions the kernel is lent for this cycle."""
     from v3.adapters.info.bg_observer_rss import classify_feed
@@ -97,7 +98,7 @@ def build_hooks(state: _CycleState, *, baselines: Mapping,
 
     def fold(adapter_id: str, drafts):
         reduced = reduce_module.reduce_drafts(adapter_id, drafts,
-                                              baselines=baselines)
+                                              baselines=baselines, now=now)
         if adapter_id in PRODUCER_ORDER:
             state.produced[adapter_id] = reduced
             state.suppressors = suppression_module.read_suppressors(
@@ -158,8 +159,8 @@ def fetch_cycle(*, now: float, registry, store, client,
                 tick_id: Optional[str] = None):
     """Steps 1-4: schedule, expand, plan, execute. Returns a CycleResult."""
     states = recorder.load_states(store)
-    baselines = baselines_module.previous_cycle(store, now=now,
-                                                countries=countries)
+    baselines = baselines_module.for_cycle(store, now=now,
+                                           countries=countries)
     expansions = expansion_module.for_cycle(
         geography, countries, now=now,
         carried=baselines_module.carried_values(store, now=now))
@@ -171,8 +172,12 @@ def fetch_cycle(*, now: float, registry, store, client,
         tick_id=tick_id or tick_id_for(now), countries=countries,
         context_for=lambda adapter: expansion_module.context_for(
             adapter, geography, countries, now=now),
-        hooks=build_hooks(state, baselines=baselines,
+        hooks=build_hooks(state, baselines=baselines, now=now,
                           credentials=credentials))
+    # Step 4b: advance the baselines, from what was just written. A stage
+    # of its own (F-05) and strictly AFTER the read at the top, so no
+    # reading is ever compared against itself.
+    record_module.record_cycle(store, now=now, countries=countries)
     return cycle, state
 
 

@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # ADR-V3-005 / P1 §5: the signal horizon is derived from the parity
 # requirement (30-day replay window x 2), not chosen for convenience.
@@ -25,6 +25,15 @@ CONCLUSION_RETENTION_DAYS = 365
 # every body for 34 adapters is a capacity decision outside S3's estimate
 # and nobody has approved it; `body_sha256` proves identity without it.
 RAW_BODY_RETENTION_DAYS = 7
+# WP-4.1b ruling 2: the per-entity series horizon. Decided by the longest
+# lookback any consumer actually has — `NARRATIVE_BASELINE_DAYS` (30,
+# `radar/config.py:360`), the narrative/telegram frequency baselines.
+# Everything else reading this table looks back less (check_host keeps 12
+# samples and evicts a URL after 24h of no poll, `checkhost.py:143,180-185`;
+# `ais_maritime` keeps one snapshot per MMSI with a 24h TTL,
+# `ais_maritime.py:143-152`), and those tighter bounds are enforced on the
+# write as counts, the way production enforces them.
+ENTITY_SERIES_RETENTION_DAYS = 30
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,9 +92,14 @@ RETENTION_POLICIES: tuple[RetentionPolicy, ...] = (
                   "and after-the-fact verification."),
     RetentionPolicy(
         table="baseline_stat", time_column=None, retention_days=None,
-        rationale="P1 §5: baselines are permanent (generation-managed). "
-                  "Three of them cannot be backfilled at all, so age is "
-                  "not a reason to discard one."),
+        rationale="P1 §5: baselines are permanent AS FAR AS THE PRUNE JOB "
+                  "is concerned — three of them cannot be backfilled at "
+                  "all, so age is not a reason to discard one. The "
+                  "hour-of-day series carry their own window on the WRITE "
+                  "side instead (`record_bucket_sample`, transcribing "
+                  "`hod_record`'s newest-N-buckets cap), because that is "
+                  "where production's window is; a second, time-based "
+                  "window here would silently be the narrower of the two."),
     RetentionPolicy(
         table="schema_meta", time_column=None, retention_days=None,
         rationale="Store metadata."),
@@ -114,11 +128,32 @@ RETENTION_POLICIES: tuple[RetentionPolicy, ...] = (
         table="fetch_schedule", time_column=None, retention_days=None,
         rationale="Current per-adapter state (last run, breaker). Not a "
                   "history — one row per adapter, updated in place."),
+    # ── schema v4 (WP-4.1b ruling 2, L1) ────────────────────────────────
+    RetentionPolicy(
+        table="entity_observation", time_column="observed_at",
+        retention_days=ENTITY_SERIES_RETENTION_DAYS,
+        rationale="WP-4.1b ruling 2: per-entity series (URL latency, MMSI "
+                  "position, keyword frequency). Bound taken from the "
+                  "longest consumer lookback that exists — the 30-day "
+                  "narrative frequency window — rather than chosen; the "
+                  "tighter per-series counts are enforced on the write, "
+                  "as production enforces them."),
+    RetentionPolicy(
+        table="entity_marker", time_column=None, retention_days=None,
+        rationale="WP-4.1b ruling 2: first-seen and set membership. "
+                  "PERMANENT because `first_seen` is what ends a warm-up "
+                  "(`ct_log.py:273-275`): expiring it restarts the warm-up "
+                  "and re-silences a detection that had already graduated, "
+                  "which is an insensitive difference (C-02/C-03). A "
+                  "first-seen also cannot be backfilled — the same reason "
+                  "baseline_stat is permanent. Production has never pruned "
+                  "either of its two equivalents."),
 )
 
 PERSISTED_TABLES: tuple[str, ...] = (
     "signal_observation", "tl_observation", "conclusion", "baseline_stat",
     "schema_meta", "fetch_schedule", "fetch_log", "llm_call", "fetch_body",
+    "entity_observation", "entity_marker",
 )
 
 # ── DDL ─────────────────────────────────────────────────────────────────
@@ -417,7 +452,74 @@ _MIGRATION_3 = Migration(
         """,
     ))
 
-MIGRATIONS: tuple[Migration, ...] = (_MIGRATION_2, _MIGRATION_3)
+_MIGRATION_4 = Migration(
+    version=4,
+    rationale="WP-4.1b ruling 2: state keyed by an entity that is not a "
+              "country — a domain, a URL, an MMSI, a keyword. Overloading "
+              "baseline_stat's `country` column with those would make the "
+              "schema say one thing and hold another.",
+    statements=(
+        # A per-entity SERIES. Observational, so it gets the same
+        # append-only treatment as its siblings.
+        """
+        CREATE TABLE IF NOT EXISTS entity_observation (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            series      TEXT NOT NULL,
+            sensor      TEXT NOT NULL,
+            entity      TEXT NOT NULL,
+            observed_at REAL NOT NULL,
+            recorded_at REAL NOT NULL,
+            value       REAL,
+            payload     TEXT NOT NULL DEFAULT '{}'
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_entity_obs_series "
+        "ON entity_observation (series, sensor, entity, observed_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_entity_obs_time "
+        "ON entity_observation (observed_at DESC)",
+        """
+        CREATE TRIGGER IF NOT EXISTS entity_observation_no_update
+        BEFORE UPDATE ON entity_observation
+        BEGIN
+            SELECT RAISE(ABORT, 'entity_observation is append-only');
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS entity_observation_no_delete
+        BEFORE DELETE ON entity_observation
+        WHEN (SELECT value FROM schema_meta WHERE key = 'pruning') IS NULL
+        BEGIN
+            SELECT RAISE(ABORT,
+                'entity_observation rows are removed only by the retention job');
+        END
+        """,
+        # First-seen and set membership. Updated in place like
+        # baseline_stat, so no append-only trigger — but the ONE field
+        # whose movement would silently restart a warm-up is nailed down.
+        """
+        CREATE TABLE IF NOT EXISTS entity_marker (
+            series            TEXT NOT NULL,
+            sensor            TEXT NOT NULL,
+            entity            TEXT NOT NULL,
+            member            TEXT NOT NULL DEFAULT '',
+            first_seen        REAL NOT NULL,
+            last_seen         REAL NOT NULL,
+            observation_count INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (series, sensor, entity, member)
+        )
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS entity_marker_first_seen_immutable
+        BEFORE UPDATE ON entity_marker
+        WHEN NEW.first_seen <> OLD.first_seen
+        BEGIN
+            SELECT RAISE(ABORT,
+                'entity_marker.first_seen never moves: it is what ends a warm-up');
+        END
+        """,
+    ))
+
+MIGRATIONS: tuple[Migration, ...] = (_MIGRATION_2, _MIGRATION_3, _MIGRATION_4)
 
 if MIGRATIONS and MIGRATIONS[-1].version != SCHEMA_VERSION:
     raise RuntimeError(
@@ -428,4 +530,4 @@ if MIGRATIONS and MIGRATIONS[-1].version != SCHEMA_VERSION:
 __all__ = ["SCHEMA_SQL", "SCHEMA_VERSION", "RETENTION_POLICIES",
            "RetentionPolicy", "PERSISTED_TABLES", "SIGNAL_RETENTION_DAYS",
            "CONCLUSION_RETENTION_DAYS", "RAW_BODY_RETENTION_DAYS",
-           "Migration", "MIGRATIONS"]
+           "ENTITY_SERIES_RETENTION_DAYS", "Migration", "MIGRATIONS"]

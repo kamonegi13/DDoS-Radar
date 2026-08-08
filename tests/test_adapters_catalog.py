@@ -267,10 +267,17 @@ class TestTheExpectedDifferenceRegister:
         costs the cutover."""
         text = SPEC.read_text(encoding="utf-8")
         section = text.split("### 7-2.")[1].split("\n## ")[0]
+        # WP-4.1b closed it: `entity_marker` holds the known-CA ledger
+        # and the first-seen marker, and `_fold_ct_log` emits 3. The row
+        # is struck through rather than deleted (the register keeps its
+        # history), so what this now checks is that it was retired WITH
+        # evidence rather than quietly dropped.
         row = [line for line in section.splitlines()
-               if line.startswith("| 8 ") and "`ct_log`" in line]
+               if line.startswith("| ~~8~~ ") and "`ct_log`" in line]
         assert len(row) == 1, "§7-2 #8 (ct_log score-3 ceiling) is missing"
         assert "insensitive" in row[0]
+        assert "retire" in row[0] and "tests/" in row[0], \
+            "a retired entry must name the test that proves it"
 
     def test_every_registered_name_is_a_real_adapter_or_a_known_rename(self):
         known = set(expected_adapter_ids()) | set(DESIGN_SHEET_RENAMES)
@@ -512,7 +519,11 @@ class TestKnowledgeItems:
         declared, = check_host.CHECK_HOST_ADAPTER.requests
         assert isinstance(declared, RequestContinuation)
         labels = [spec.label for spec in declared.alternatives]
-        assert labels == ["request", "result"]
+        # The result label carries the target URL (WP-4.1b): the result
+        # payload's own address is `check-result/{request_id}`, so without
+        # it there is no key for the per-URL latency history production
+        # keeps (`_url_latency_history[url]`).
+        assert labels == ["request", "result:{target_url}"]
         assert "{request_id}" in declared.then.url
         assert [value.placeholder for value in declared.carries] \
             == ["request_id"]

@@ -115,4 +115,66 @@ def _fold_all(connection, observations, *, baseline_id, window, ts,
     return touched
 
 
-__all__ = ["fold_observations"]
+def record_bucket_sample(store: "LedgerStore", *, baseline_id: str,
+                         sensor: str, country: str, bucket: int, value: float,
+                         max_entries: int,
+                         now: Optional[float] = None) -> bool:
+    """One sample at one bucket, with production's window. Returns written.
+
+    The second half of ruling 1. `baseline_phase_values` transcribes
+    production's READ; this transcribes its WRITE, and the write is where
+    production's window actually is (`hod_record`,
+    `radar/database.py:3173-3191`):
+
+        INSERT OR REPLACE ...
+        DELETE ... WHERE theater=? AND hour_bucket NOT IN
+            (SELECT hour_bucket ... ORDER BY hour_bucket DESC LIMIT ?)
+
+    Two consequences worth stating rather than discovering later:
+
+      * the cap is a count of BUCKETS per country, not a span of days.
+        28 days is what 672 hourly buckets means at one sample an hour;
+        a gap in acquisition stretches the span, it does not shorten it.
+      * a bucket that already exists at or above the newest one is NOT
+        rewritten (`if _last_bucket != _hour_bucket`,
+        `bgp_routing.py:64-66`). The hour's sample is its FIRST reading,
+        not its last, and a second cycle inside the hour is a no-op.
+
+    Unlike `fold_observations` this stores the value as given: v1 kept a
+    raw per-bucket value and computed mean and variance at read time, and
+    the migrated rows are that shape. Folding them into Welford instead
+    would change the statistic from production's rolling window to an
+    unwindowed cumulative one — F-06 at the storage layer.
+
+    Never called from a read path (F-05 / S5-VERIF-019): the caller owns
+    the value, and nothing here consults the ledger to invent one.
+    """
+    if not isinstance(baseline_id, str) or not baseline_id.strip():
+        raise DomainError("baseline_id must be a non-empty string")
+    if not isinstance(max_entries, int) or max_entries <= 0:
+        raise DomainError(
+            f"max_entries must be a positive bucket count, got "
+            f"{max_entries!r}: a non-positive cap deletes the history it "
+            f"is meant to bound")
+    bucket = int(bucket)
+    newest = store.latest_baseline_bucket(baseline_id, sensor=sensor,
+                                          country=country)
+    if newest == bucket:
+        return False
+    ts = time.time() if now is None else now
+    with store.transaction() as connection:
+        store.upsert_baseline_value(baseline_id=baseline_id, sensor=sensor,
+                                    country=country, bucket=bucket,
+                                    value=float(value), now=ts,
+                                    connection=connection)
+        connection.execute(
+            "DELETE FROM baseline_stat WHERE baseline_id = ? AND sensor = ? "
+            "AND country = ? AND bucket NOT IN ("
+            "  SELECT bucket FROM baseline_stat WHERE baseline_id = ? "
+            "  AND sensor = ? AND country = ? ORDER BY bucket DESC LIMIT ?)",
+            (baseline_id, sensor, country, baseline_id, sensor, country,
+             max_entries))
+    return True
+
+
+__all__ = ["fold_observations", "record_bucket_sample"]

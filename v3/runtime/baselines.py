@@ -1,39 +1,62 @@
 """L1 history, read once per cycle and handed to the pure layers.
 
-Nine adapters withhold a verdict behind a `pending_l1_*` marker because
-the value they need is history, and `normalize` sees one payload
-(§7-2 #8/#9/#40). The history lives in L1. Reading it is impure, so it
-happens here and the result travels as a plain mapping — the same shape
-and the same reason as `NormalizeContext`'s geography.
+Adapters withhold verdicts behind `pending_l1_*` markers because the value
+they need is history, and `normalize` sees one payload (§7-2 #8/#9/#40).
+The history lives in L1. Reading it is impure, so it happens here and the
+result travels as a plain mapping — the same shape and the same reason as
+`NormalizeContext`'s geography.
 
-**Not every pending marker is the same kind of missing.** Three kinds, and
-only the first is answerable today:
+**Three kinds of missing, and the ledger now answers two of them.**
 
   (a) *previous-cycle scalars* — "how many relays were running last
-      tick". `latest_signal_at` already returns the prior row with its
-      flags, so no new storage is needed and no new job has to run.
-  (b) *hour-of-day / day-of-week statistics* — `bgp_hod`, `checkhost_hod`,
-      `gdelt_dow`, the Cloudflare spike baseline. The rows exist in
-      `baseline_stat` but were migrated with the v1 RAW EPOCH hour as
-      `bucket`, and production's query is `(hour_bucket/3600) % 24`. L1
-      exposes exact-match reads only, so the same-hour history cannot be
-      asked for. Closing this is a ledger decision (re-bucket forward and
-      lose the migrated 28 days, or add a modulo read and keep it) and it
-      is NOT taken here.
+      tick". `latest_signal_at` returns the prior row with its flags.
+  (b) *hour-of-day / day-of-week statistics* — the rows were migrated with
+      the v1 RAW EPOCH hour as `bucket`, and production's query is a
+      modulo over it. Ruling 1 added the modulo read to L1
+      (`baseline_phase_values`) rather than re-bucketing, because
+      re-bucketing discards 28 migrated days AND swaps production's
+      rolling window for an unwindowed cumulative statistic — F-06 at the
+      storage layer. `PHASE_BASELINES` below is the naming reconciliation
+      that read needed: the adapters' `baseline_refs` names and the
+      migrated `baseline_id`s are NOT the same strings.
   (c) *set membership and per-entity state* — `ct_log`'s known-CA ledger
-      and first-seen timestamps, `check_host`'s per-URL latency deque,
-      `ais_maritime`'s per-MMSI history. `baseline_stat` is keyed
-      `(baseline_id, sensor, country, bucket)` and none of these are
-      keyed by country, so they need storage that does not exist.
+      and first-seen timestamps, `check_host`'s per-URL latency,
+      `ais_maritime`'s per-MMSI snapshot. Ruling 2 gave L1 a table with an
+      explicit entity dimension (`entity_observation` / `entity_marker`)
+      rather than putting a domain in `baseline_stat`'s `country` column.
 
-Reporting (a) as done and (b)/(c) as done would retire §7-2 #9 while five
-adapters still withhold scores — which #9 forbids in as many words. What
-this module does instead is answer (a) and NAME the rest, so the gap is a
-list rather than a silence.
+What is left is enumerated, with a MEASURED reason, in `UNANSWERABLE`.
+Reporting the whole family as done while any consumer still withholds a
+score is what §7-2 #9 forbids in as many words, so `coverage()` separates
+"supply wired" from "the consumer can now decide" and the tripwire test
+reads the second one.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Iterable, Mapping, Optional, Sequence
+
+HOUR_SEC = 3600
+DAY_SEC = 86400
+
+#: 1970-01-01 was a Thursday, and `datetime.weekday()` counts Monday as 0.
+#: Production stores `weekday` in its own column; the migration copied only
+#: `day_bucket`, so the phase read has to derive it — and a wrong constant
+#: here silently reads SOME other weekday's history, which looks exactly
+#: like a working baseline. `tests/test_ledger_phase_baselines.py` checks
+#: the derivation against `datetime` over 400 days rather than trusting it.
+EPOCH_DAY_WEEKDAY = 3
+
+
+def weekday_of(day_bucket: float) -> int:
+    """Production's `datetime.fromtimestamp(ts, utc).weekday()`, derived."""
+    return int((int(day_bucket) // DAY_SEC + EPOCH_DAY_WEEKDAY) % 7)
+
+
+def weekday_phase(weekday: int) -> int:
+    """The `(day_bucket / 86400) % 7` value that means `weekday`."""
+    return int((int(weekday) - EPOCH_DAY_WEEKDAY) % 7)
+
 
 #: baseline name -> (sensor, flag key on the prior row).
 #: The names are the adapters' own `baseline_refs` values, so the registry
@@ -47,32 +70,144 @@ PREVIOUS_CYCLE_SCALARS: Mapping[str, tuple] = {
     "travel_advisory_previous_level": ("travel_advisory", "level"),
 }
 
-#: Declared baselines this module cannot answer yet, with the reason.
-#: Enumerated rather than omitted: an unanswerable baseline that is simply
-#: absent from the mapping is indistinguishable from one nobody wired.
+
+@dataclass(frozen=True, slots=True)
+class PhaseBaseline:
+    """One hour-of-day / day-of-week series, and where its rows are.
+
+    `ref` is what the adapter declares; `baseline_id` and `sensor` are what
+    the ETL actually wrote (`v3/etl/mapping.py`). They differ for two of
+    the four, which is how `cf_attack_share_baseline` could sit next to a
+    populated `hod` series for a whole phase without anyone noticing. The
+    mapping is pinned against `TABLE_MAPPINGS` by test, so a rename on
+    either side breaks a build instead of orphaning a baseline.
+    """
+
+    ref: str
+    baseline_id: str
+    sensor: str
+    divisor: int
+    modulus: int
+    max_entries: int
+    migrated_from: Optional[str]
+    production_ref: str
+
+    def phase_of(self, now: float) -> int:
+        return int((int(now) // self.divisor) % self.modulus)
+
+    def bucket_of(self, now: float) -> int:
+        return int(now // self.divisor) * self.divisor
+
+
+#: 672 = `HOD_MAX_ENTRIES` = `HOD_BASELINE_DAYS * 24` (`radar/config.py:336-338`).
+#: 140 = `DOW_MAX_PER_DAY * 7` (`radar/sensors/gdelt.py:22,64`).
+PHASE_BASELINES: Mapping[str, PhaseBaseline] = {
+    baseline.ref: baseline for baseline in (
+        PhaseBaseline(
+            ref="bgp_hod", baseline_id="bgp_hod", sensor="bgp_hod",
+            divisor=HOUR_SEC, modulus=24, max_entries=672,
+            migrated_from="bgp_hod",
+            production_ref="radar/sensors/bgp_routing.py:63-77"),
+        PhaseBaseline(
+            ref="checkhost_hod", baseline_id="checkhost_hod",
+            sensor="checkhost_hod", divisor=HOUR_SEC, modulus=24,
+            max_entries=672, migrated_from="checkhost_hod",
+            production_ref="radar/sensors/checkhost.py:247-268"),
+        PhaseBaseline(
+            ref="gdelt_dow_tone", baseline_id="gdelt_dow",
+            sensor="gdelt_dow", divisor=DAY_SEC, modulus=7,
+            max_entries=140, migrated_from="gdelt_dow",
+            production_ref="radar/sensors/gdelt.py:60-77"),
+        PhaseBaseline(
+            ref="cf_attack_share_baseline", baseline_id="hod",
+            sensor="hod_baseline", divisor=HOUR_SEC, modulus=24,
+            max_entries=672, migrated_from="hod_baseline",
+            production_ref="radar/scoring.py:463-497"),
+    )}
+
+
+@dataclass(frozen=True, slots=True)
+class EntityBaseline:
+    """One per-entity series or marker set, and what it is keyed by.
+
+    `kind` decides which of L1's two entity tables holds it, and that
+    follows from the lifetime: a first-seen must never expire (it is what
+    ends a warm-up), a latency sample must (30 days of them is 700x what
+    production ever holds).
+    """
+
+    ref: str
+    kind: str          # "series" | "marker" | "member_set"
+    sensor: str
+    entity_kind: str
+    per_entity: int
+    production_ref: str
+
+
+ENTITY_BASELINES: Mapping[str, EntityBaseline] = {
+    baseline.ref: baseline for baseline in (
+        EntityBaseline(
+            ref="ct_log_known_ca_per_domain", kind="member_set",
+            sensor="ct_log", entity_kind="domain", per_entity=0,
+            production_ref="radar/database.py:5410-5447"),
+        EntityBaseline(
+            ref="ct_log_domain_first_observed", kind="marker",
+            sensor="ct_log", entity_kind="domain", per_entity=0,
+            production_ref="radar/database.py:5449-5475"),
+        EntityBaseline(
+            # `deque(maxlen=12)` — ~1h at the 5-minute poll interval.
+            ref="checkhost_latency_history", kind="series",
+            sensor="check_host", entity_kind="url", per_entity=12,
+            production_ref="radar/sensors/checkhost.py:138-155"),
+        EntityBaseline(
+            # One snapshot per MMSI, not a series: production overwrites
+            # `{last_ts, lat, lng}` every cycle (`ais_maritime.py:141`).
+            ref="ais_vessel_history", kind="series", sensor="ais_maritime",
+            entity_kind="mmsi", per_entity=1,
+            production_ref="radar/sensors/ais_maritime.py:112-152"),
+    )}
+
+#: Declared baselines nothing can answer yet, with a MEASURED reason —
+#: measured, because each was read out of production rather than guessed.
+#: An unanswerable baseline that is simply absent from every mapping is
+#: indistinguishable from one nobody wired.
 UNANSWERABLE: Mapping[str, str] = {
-    "bgp_hod": "hour-of-day statistic; L1 has no bucket-modulo read",
-    "checkhost_hod": "hour-of-day statistic; L1 has no bucket-modulo read",
-    "airspace_hod": "hour-of-day statistic; not migrated (REGENERATE_ONLY)",
-    "gdelt_dow_tone": "day-of-week statistic; L1 has no bucket-modulo read",
-    "cf_attack_share_baseline":
-        "hour-of-day statistic; L1 has no bucket-modulo read",
-    "ct_log_known_ca_per_domain":
-        "set membership keyed by domain; baseline_stat is keyed by country",
-    "ct_log_domain_first_observed":
-        "first-seen timestamp keyed by domain; no country dimension",
-    "checkhost_latency_history":
-        "rolling deque keyed by URL; no country dimension",
-    "ais_vessel_history":
-        "per-MMSI position history; not a mean/variance statistic",
+    "airspace_hod":
+        "hour-of-day statistic keyed by AIRPORT in production "
+        "(`airspace_baseline.airport_code`, radar/database.py:783-786) "
+        "while v3's opensky row is per country; supplying it means "
+        "CHOOSING a new key, which is a difference to register rather "
+        "than a transcription. Not migrated either (REGENERATE_ONLY), so "
+        "there is no history to preserve by keeping production's shape",
     "narrative_keyword_frequency":
-        "30-day rolling frequency; needs a windowed fold job",
+        "30-day rolling frequency; storage now exists (entity series) but "
+        "the consumer's Z-score ladder is not ported",
     "telegram_keyword_frequency":
-        "30-day rolling frequency; needs a windowed fold job",
-    "apt_intel_dedup": "de-duplication set, not a statistic",
-    "diplomatic_dedup": "de-duplication set, not a statistic",
-    "military_exercise_dedup": "de-duplication set, not a statistic",
-    "hacktivist_news_dedup": "de-duplication set, not a statistic",
+        "30-day rolling frequency; storage now exists (entity series) but "
+        "the consumer's Z-score ladder is not ported",
+    "apt_intel_dedup":
+        "a de-duplication GATE, not a withheld verdict: production drops "
+        "an already-seen article before the LLM is called "
+        "(`apt_intel.py:362-370`), so wiring it changes what is sent to a "
+        "model rather than what a verdict says. Different WP",
+    "diplomatic_dedup":
+        "as apt_intel_dedup (`diplomatic.py:150-158`)",
+    "military_exercise_dedup":
+        "as apt_intel_dedup (`military_exercise.py:93-112`)",
+    "hacktivist_news_dedup":
+        "as apt_intel_dedup (`hacktivist_news_sensor.py:92-99`)",
+}
+
+#: Supply is wired and the read works, but the CONSUMER still cannot
+#: decide — so the score is still withheld and §7-2 #9 still stands.
+VERDICT_WITHHELD: Mapping[str, str] = {
+    "cf_attack_share_baseline":
+        "the read is wired (baseline_id `hod`, sensor `hod_baseline`) but "
+        "the Z-score's INPUT does not exist in v3: production compares "
+        "`avg_spike` (`core.py:817`), a derived observation built from the "
+        "attack-origin distribution, and S1-SCORE-025/029/030 are excluded "
+        "from L2 as derived-observation producers. A baseline cannot make "
+        "a verdict out of a measurement nobody takes",
 }
 
 
@@ -97,6 +232,65 @@ def previous_cycle(store, *, now: float, countries: Sequence[str]
         if per_country:
             resolved[name] = per_country
     return resolved
+
+
+def phase_history(store, *, now: float, countries: Sequence[str]) -> dict:
+    """`{ref: {country: (value, ...)}}` — same-phase history, oldest first.
+
+    Every requested country gets a key, INCLUDING one whose history is
+    empty. That is not a formality: production does not withhold a verdict
+    during hour-of-day warm-up, it falls back to fixed thresholds
+    (`core.py:1015-1019`, `checkhost.py:266-269`), and a consumer can only
+    take that branch if it can tell "read, and there were three samples"
+    from "never read at all".
+    """
+    resolved: dict = {}
+    for ref, baseline in PHASE_BASELINES.items():
+        phase = baseline.phase_of(now)
+        before = baseline.bucket_of(now)
+        resolved[ref] = {
+            country: tuple(store.baseline_phase_values(
+                baseline.baseline_id, sensor=baseline.sensor,
+                country=country, phase=phase, divisor=baseline.divisor,
+                modulus=baseline.modulus, before_bucket=before))
+            for country in countries}
+    return resolved
+
+
+def entity_history(store) -> dict:
+    """`{ref: {entity: state}}` — one read per series, as production holds
+    one dict in memory.
+
+    Not scoped by country on purpose: the entities are domains, URLs and
+    MMSIs, and production's own structures are global dicts. Scoping would
+    mean inventing a country for a vessel, which is the confusion the
+    entity table exists to prevent.
+    """
+    resolved: dict = {}
+    for ref, baseline in ENTITY_BASELINES.items():
+        if baseline.kind == "member_set":
+            resolved[ref] = store.entity_member_sets(ref,
+                                                     sensor=baseline.sensor)
+        elif baseline.kind == "marker":
+            resolved[ref] = store.entity_first_seen(ref,
+                                                    sensor=baseline.sensor)
+        else:
+            resolved[ref] = store.entity_series_tail(
+                ref, sensor=baseline.sensor, per_entity=baseline.per_entity)
+    return resolved
+
+
+def for_cycle(store, *, now: float, countries: Sequence[str]) -> dict:
+    """Every baseline this cycle can be given, in one mapping.
+
+    One call so that the ordering obligation — read before write — is
+    stated once, in the composition root, rather than remembered at each
+    of three call sites.
+    """
+    supplied = previous_cycle(store, now=now, countries=countries)
+    supplied.update(phase_history(store, now=now, countries=countries))
+    supplied.update(entity_history(store))
+    return supplied
 
 
 def carried_values(store, *, now: float) -> dict:
@@ -143,24 +337,43 @@ def declared_names(adapters: Iterable) -> tuple[str, ...]:
     return tuple(sorted(names))
 
 
+def supplied_names() -> frozenset:
+    """Everything some read in this module can now produce."""
+    return frozenset(PREVIOUS_CYCLE_SCALARS) | frozenset(
+        PHASE_BASELINES) | frozenset(ENTITY_BASELINES)
+
+
 def coverage(adapters: Iterable) -> dict:
     """Which declared baselines are answered, which are not, and why.
 
-    This is the honest form of §7-2 #9's status: it cannot be retired
-    while `unanswered` is non-empty, and the reasons are in the record
-    rather than in a commit message.
+    `answered` means the consumer can now reach its verdict. A baseline
+    whose rows are readable but whose consumer still withholds a score is
+    reported under `withheld` and counted as UNANSWERED, because §7-2 #9's
+    condition is about the score, not about the storage — retiring it on
+    "the data is there" is exactly the half-wired cutover that entry
+    forbids.
     """
     declared = set(declared_names(adapters))
-    answered = declared & set(PREVIOUS_CYCLE_SCALARS)
+    withheld = {name: reason for name, reason in VERDICT_WITHHELD.items()
+                if name in declared}
+    answered = (declared & supplied_names()) - set(withheld)
     unanswered = declared - answered
+    reasons = {}
+    for name in sorted(unanswered):
+        reasons[name] = (withheld.get(name) or UNANSWERABLE.get(name)
+                         or "no supply wired")
     return {
         "declared": sorted(declared),
         "answered": sorted(answered),
         "unanswered": sorted(unanswered),
-        "reasons": {name: UNANSWERABLE.get(name, "no supply wired")
-                    for name in sorted(unanswered)},
+        "withheld": dict(sorted(withheld.items())),
+        "reasons": reasons,
     }
 
 
-__all__ = ["PREVIOUS_CYCLE_SCALARS", "UNANSWERABLE", "previous_cycle",
-           "carried_values", "declared_names", "coverage"]
+__all__ = ["PREVIOUS_CYCLE_SCALARS", "PHASE_BASELINES", "ENTITY_BASELINES",
+           "UNANSWERABLE", "VERDICT_WITHHELD", "PhaseBaseline",
+           "EntityBaseline", "previous_cycle", "phase_history",
+           "entity_history", "for_cycle", "carried_values", "declared_names",
+           "supplied_names", "coverage", "weekday_of", "weekday_phase",
+           "EPOCH_DAY_WEEKDAY", "HOUR_SEC", "DAY_SEC"]

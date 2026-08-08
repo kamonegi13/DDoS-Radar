@@ -193,7 +193,8 @@ def normalize(payload, context: NormalizeContext
             # nowhere else to put it — one adapter inventing a convention
             # is how the next five invent five more.
             reason="fewer than two responding checks",
-            flags={**summary, "url_status": url_status(rate)},
+            flags={**summary, "url_status": url_status(rate),
+                   "url": target_url_of(payload)},
             evidence_url=payload.url),)
 
     return (ObservationDraft(
@@ -211,6 +212,7 @@ def normalize(payload, context: NormalizeContext
         # verdict this layer cannot reach is ABSENT from the field that
         # carries verdicts and NAMED in a sibling.
         flags={**summary, "url_status": url_status(rate),
+               "url": target_url_of(payload),
                "asphyxiation_verdict": "pending_l1_latency_history"},
         evidence_url=payload.url),)
 
@@ -239,8 +241,23 @@ _REQUEST_SPEC = RequestSpec(
 #: exists. Declared as two independent requests, this one had no address
 #: at plan time and the adapter was skipped as `unresolved_placeholder`
 #: every cycle.
+#: The label carries the target URL because the RESULT payload's own
+#: address is `check-result/{request_id}` — the URL that was measured
+#: appears only in stage one, which `normalize` discards. Production keys
+#: its latency history by that URL (`_url_latency_history[url]`,
+#: `radar/sensors/checkhost.py:143`); without the label there is nothing to
+#: key by, and a country-wide average would hide the single URL being
+#: throttled behind the two that are not. Same device `ais_maritime` and
+#: `gdelt` already use for scope that the address does not carry.
 _RESULT_SPEC = RequestSpec(url=_RESULT_URL, expect_content="json",
-                           headers=_HEADERS, label="result")
+                           headers=_HEADERS, label="result:{target_url}")
+
+
+def target_url_of(payload) -> str:
+    """The URL this measurement is about, from the label."""
+    label = str(getattr(payload, "label", "") or "")
+    _, separator, target = label.partition(":")
+    return target.strip() if separator else ""
 
 CHECK_HOST_ADAPTER = SourceAdapter(
     adapter_id=CHECK_HOST, category=PHYSICAL,
@@ -259,7 +276,7 @@ CHECK_HOST_ADAPTER = SourceAdapter(
     knowledge_refs=("K03",),
     baseline_refs=("checkhost_hod", "checkhost_latency_history"))
 
-__all__ = ["CHECK_HOST", "CHECK_HOST_ADAPTER", "normalize",
+__all__ = ["CHECK_HOST", "CHECK_HOST_ADAPTER", "normalize", "target_url_of",
            "summarise_nodes", "url_status", "is_asphyxiation",
            "RESULT_DELAY_SEC", "MAX_NODES", "NODES", "MIN_RESPONDING_CHECKS",
            "URL_OK_RATE", "URL_PARTIAL_RATE", "LATENCY_HISTORY_LEN",

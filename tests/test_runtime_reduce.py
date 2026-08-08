@@ -21,6 +21,17 @@ from v3.adapters.types import (CYBER, INFO, PHYSICAL, STATUS_FIRED,
 from v3.kernel.errors import DomainError
 from v3.runtime import reduce as R
 
+#: WP-4.1b made the cycle instant a required argument (two folds compare a
+#: stored timestamp with the present). These cases predate it and none of
+#: them depends on the clock, so they share one instant rather than
+#: repeating it 61 times.
+NOW = 1_786_000_000.0
+
+
+def _reduce(adapter_id, drafts, **kwargs):
+    kwargs.setdefault("now", NOW)
+    return R.reduce_drafts(adapter_id, drafts, **kwargs)
+
 
 def _zone(country: str, name: str, count: int, *, tracks=()) -> ObservationDraft:
     return ObservationDraft(
@@ -44,27 +55,27 @@ class TestTheOrderIsSumThenThreshold:
                   _zone("TW", "Senkaku / East China Sea ADIZ Overlap", 2))
         assert all(d.status == STATUS_OK for d in drafts), \
             "each zone alone is below the threshold"
-        reduced = R.reduce_drafts("isr_hotspot", drafts)
+        reduced = _reduce("isr_hotspot", drafts)
         assert len(reduced) == 1
         assert reduced[0].status == STATUS_FIRED
         assert reduced[0].flags["count"] == 4
         assert reduced[0].raw_score == 2.0
 
     def test_the_value_and_reason_are_productions_strings(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "isr_hotspot", (_zone("TW", "a", 2), _zone("TW", "b", 2)))
         assert reduced[0].value == "4 ISR ac in hotspot"
         assert reduced[0].reason == "ISR surge: 4 aircraft"
 
     def test_a_quiet_country_reports_the_sum_and_no_reason(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "isr_hotspot", (_zone("TW", "a", 1), _zone("TW", "b", 1)))
         assert reduced[0].status == STATUS_OK
         assert reduced[0].value == "2 ISR ac in hotspot"
         assert reduced[0].reason == ""
 
     def test_countries_do_not_bleed_into_one_another(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "isr_hotspot", (_zone("TW", "a", 2), _zone("TW", "b", 2),
                             _zone("JP", "c", 1)))
         by_country = {d.country: d for d in reduced}
@@ -79,19 +90,19 @@ class TestZonesSurviveTheFold:
     blank, which reads as calm."""
 
     def test_every_zone_record_is_carried(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "isr_hotspot", (_zone("TW", "median", 2), _zone("TW", "adiz", 1)))
         names = [h["name"] for h in reduced[0].flags["hotspots"]]
         assert names == ["median", "adiz"]
 
     def test_each_zone_keeps_its_own_count_not_the_total(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "isr_hotspot", (_zone("TW", "median", 2), _zone("TW", "adiz", 1)))
         assert [h["isr_count"] for h in reduced[0].flags["hotspots"]] == [2, 1]
         assert reduced[0].flags["count"] == 3
 
     def test_tracks_reach_the_overlay_join(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "isr_hotspot",
             (_zone("TW", "median", 1, tracks=[{"icao24": "abc"}]),))
         assert reduced[0].flags["hotspots"][0]["tracks"] == [{"icao24": "abc"}]
@@ -104,7 +115,7 @@ class TestAnUnmeasuredZoneContributesNothingNotZero:
             status=STATUS_NO_DATA, value="unmeasured",
             flags={"count": -1, "is_surge": False, "tracks": [],
                    "hotspots": []})
-        reduced = R.reduce_drafts("isr_hotspot",
+        reduced = _reduce("isr_hotspot",
                                   (_zone("TW", "a", 3), unmeasured))
         assert reduced[0].flags["count"] == 3
         assert reduced[0].status == STATUS_FIRED
@@ -114,7 +125,7 @@ class TestAnUnmeasuredZoneContributesNothingNotZero:
             signal_source="isr_hotspot", domain=PHYSICAL, country="TW",
             status=STATUS_NO_DATA, value="unmeasured",
             flags={"count": -1, "hotspots": []})
-        reduced = R.reduce_drafts("isr_hotspot",
+        reduced = _reduce("isr_hotspot",
                                   (_zone("TW", "a", 3), unmeasured))
         assert reduced[0].flags["zones_folded"] == 1
         assert reduced[0].flags["zones_requested"] == 2
@@ -125,7 +136,7 @@ class TestAnUnmeasuredZoneContributesNothingNotZero:
             signal_source="isr_hotspot", domain=PHYSICAL, country="TW",
             status=STATUS_NO_DATA, value="unmeasured",
             flags={"count": -1, "hotspots": []})
-        reduced = R.reduce_drafts("isr_hotspot", (unmeasured,))
+        reduced = _reduce("isr_hotspot", (unmeasured,))
         assert reduced[0].status == STATUS_NO_DATA
 
 
@@ -142,7 +153,7 @@ def _mil(country: str, name: str, tanker=0, transport=0, awacs=0):
 
 class TestMilSupportAirUsesTheSameOrder:
     def test_one_tanker_per_zone_is_a_surge_across_two(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "mil_support_air", (_mil("CN", "a", tanker=1),
                                 _mil("CN", "b", tanker=1)))
         assert reduced[0].flags["is_tanker_surge"] is True
@@ -151,18 +162,18 @@ class TestMilSupportAirUsesTheSameOrder:
         assert reduced[0].reason == "Military support aircraft: tanker surge (2)"
 
     def test_awacs_and_a_tanker_surge_together_score_two(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "mil_support_air", (_mil("CN", "a", tanker=2),
                                 _mil("CN", "b", awacs=1)))
         assert reduced[0].raw_score == 2.0
 
     def test_a_tanker_surge_alone_scores_one(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "mil_support_air", (_mil("CN", "a", tanker=2),))
         assert reduced[0].raw_score == 1.0
 
     def test_the_clause_order_of_the_reason_is_productions(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "mil_support_air", (_mil("CN", "a", tanker=2, transport=3,
                                      awacs=1),))
         assert reduced[0].reason == (
@@ -192,12 +203,12 @@ class TestTheCloudflareDisjunction:
                                     "events": []}))
 
     def test_the_two_halves_become_one_entry(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "cloudflare_radar", self._rows(hijacks=2, ongoing=1, leaks=1))
         assert [d.signal_source for d in reduced] == ["cf_bgp_hijack"]
 
     def test_the_value_is_productions_string(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "cloudflare_radar", self._rows(hijacks=2, ongoing=1, leaks=1))
         assert reduced[0].value == "hijack=2(ongoing=1) leak=1"
         assert reduced[0].reason == (
@@ -205,21 +216,21 @@ class TestTheCloudflareDisjunction:
             "1 route leak(s)")
 
     def test_an_ongoing_hijack_alone_fires(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "cloudflare_radar", self._rows(hijacks=1, ongoing=1, leaks=0))
         assert reduced[0].status == STATUS_FIRED and reduced[0].raw_score == 1.0
 
     def test_leaks_need_three(self):
-        two = R.reduce_drafts("cloudflare_radar",
+        two = _reduce("cloudflare_radar",
                               self._rows(hijacks=0, ongoing=0, leaks=2))
-        three = R.reduce_drafts("cloudflare_radar",
+        three = _reduce("cloudflare_radar",
                                 self._rows(hijacks=0, ongoing=0, leaks=3))
         assert two[0].status == STATUS_OK
         assert three[0].status == STATUS_FIRED
 
     def test_a_closed_hijack_does_not_fire(self):
         """`is_ongoing` is the test, not the count (`core.py:1155`)."""
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "cloudflare_radar", self._rows(hijacks=5, ongoing=0, leaks=0))
         assert reduced[0].status == STATUS_OK
 
@@ -228,7 +239,7 @@ class TestTheCloudflareDisjunction:
                                  country="TW", status=STATUS_OBSERVED,
                                  value="l7_share=12.0%",
                                  flags={"share_pct": 12.0, "layer": "l7"})
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "cloudflare_radar",
             self._rows(hijacks=0, ongoing=0, leaks=0) + (share,))
         assert share in reduced
@@ -256,31 +267,31 @@ class TestSpaceWeatherFoldsItsTwoEndpoints:
 
     def test_without_the_fold_the_two_rows_are_unwritable(self):
         with pytest.raises(DomainError, match="after reduction"):
-            R.reduce_drafts("not_reduced", self._rows(
+            _reduce("not_reduced", self._rows(
                 kp=3.0, kp_suppress=False, xray="C", xray_suppress=False))
 
     def test_the_fold_produces_one_row(self):
-        reduced = R.reduce_drafts("space_weather", self._rows(
+        reduced = _reduce("space_weather", self._rows(
             kp=3.0, kp_suppress=False, xray="C", xray_suppress=False))
         assert len(reduced) == 1
         assert reduced[0].value == "Kp=3.0 xray=C [NONE]"
 
     def test_either_endpoint_suppresses(self):
-        kp_only = R.reduce_drafts("space_weather", self._rows(
+        kp_only = _reduce("space_weather", self._rows(
             kp=6.3, kp_suppress=True, xray="C", xray_suppress=False))
-        xray_only = R.reduce_drafts("space_weather", self._rows(
+        xray_only = _reduce("space_weather", self._rows(
             kp=3.0, kp_suppress=False, xray="M", xray_suppress=True))
         assert kp_only[0].suppressed and xray_only[0].suppressed
 
     def test_the_joined_sentence_is_rebuilt_not_concatenated(self):
-        reduced = R.reduce_drafts("space_weather", self._rows(
+        reduced = _reduce("space_weather", self._rows(
             kp=6.3, kp_suppress=True, xray="M", xray_suppress=True))
         assert reduced[0].suppress_reason == (
             "Geomagnetic storm: Kp=6.3 (≥6.0), X-ray M-class (≥M) — "
             "physical sensor noise expected")
 
     def test_it_never_contributes_a_score(self):
-        reduced = R.reduce_drafts("space_weather", self._rows(
+        reduced = _reduce("space_weather", self._rows(
             kp=9.0, kp_suppress=True, xray="X", xray_suppress=True))
         assert reduced[0].raw_score == 0.0
 
@@ -306,30 +317,30 @@ class TestRipeAtlasPoolsBeforeItPercentiles:
         return (probes,) + latency
 
     def test_four_rows_become_one(self):
-        reduced = R.reduce_drafts("ripe_atlas", self._rows())
+        reduced = _reduce("ripe_atlas", self._rows())
         assert [d.signal_source for d in reduced] == ["ripe_atlas"]
 
     def test_the_average_is_over_the_pooled_samples(self):
-        reduced = R.reduce_drafts("ripe_atlas", self._rows())
+        reduced = _reduce("ripe_atlas", self._rows())
         assert reduced[0].flags["avg_ms"] == 35.0
         assert reduced[0].flags["probes_responding"] == 6
         assert reduced[0].flags["pool_scope"] == "country"
 
     def test_the_p95_is_the_exported_function_over_the_pool(self):
         from v3.adapters.physical.ripe_atlas import percentile_95
-        reduced = R.reduce_drafts("ripe_atlas", self._rows())
+        reduced = _reduce("ripe_atlas", self._rows())
         assert reduced[0].flags["p95_ms"] == percentile_95(
             [10.0, 20.0, 30.0, 40.0, 50.0, 60.0])
 
     def test_without_the_baseline_the_verdict_is_named_not_guessed(self):
-        reduced = R.reduce_drafts("ripe_atlas", self._rows())
+        reduced = _reduce("ripe_atlas", self._rows())
         assert reduced[0].status == STATUS_OBSERVED
         assert reduced[0].flags["probe_drop_verdict"] == \
             "pending_l1_prev_probe_count"
         assert reduced[0].value == "100 probes, 35ms"
 
     def test_with_the_baseline_the_production_ladder_runs(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "ripe_atlas", self._rows(active=20),
             baselines={"atlas_prev_probe_count": {"TW": 100}})
         assert reduced[0].flags["probe_status"] == "PROBE_BLACKOUT"
@@ -342,14 +353,14 @@ class TestRipeAtlasPoolsBeforeItPercentiles:
             "avg latency 35ms")
 
     def test_a_thirty_percent_drop_is_the_lower_rung(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "ripe_atlas", self._rows(active=70),
             baselines={"atlas_prev_probe_count": {"TW": 100}})
         assert reduced[0].flags["probe_status"] == "PROBE_DROP"
         assert reduced[0].raw_score == 1.0
 
     def test_no_drop_does_not_fire(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "ripe_atlas", self._rows(active=100),
             baselines={"atlas_prev_probe_count": {"TW": 100}})
         assert reduced[0].status == STATUS_OK
@@ -369,13 +380,13 @@ class TestCheckHostPoolsItsUrls:
                    "asphyxiation_verdict": "pending_l1_latency_history"})
 
     def test_three_urls_become_one_row(self):
-        reduced = R.reduce_drafts("check_host",
+        reduced = _reduce("check_host",
                                   (self._url(1.0), self._url(0.9),
                                    self._url(0.1)))
         assert len(reduced) == 1
 
     def test_the_country_rate_is_the_fraction_of_urls_that_are_up(self):
-        reduced = R.reduce_drafts("check_host",
+        reduced = _reduce("check_host",
                                   (self._url(1.0), self._url(0.9),
                                    self._url(0.1)))
         assert reduced[0].flags["success_rate"] == pytest.approx(2 / 3)
@@ -383,12 +394,12 @@ class TestCheckHostPoolsItsUrls:
         assert reduced[0].flags["urls_folded"] == 3
 
     def test_the_eighty_percent_line_is_productions(self):
-        reduced = R.reduce_drafts("check_host",
+        reduced = _reduce("check_host",
                                   (self._url(0.8), self._url(0.79)))
         assert reduced[0].flags["urls_ok"] == 1
 
     def test_the_country_verdict_is_still_named_as_pending(self):
-        reduced = R.reduce_drafts("check_host", (self._url(1.0),))
+        reduced = _reduce("check_host", (self._url(1.0),))
         assert reduced[0].status == STATUS_OBSERVED
         assert reduced[0].flags["url_verdict"].startswith("pending_l1_")
 
@@ -405,7 +416,7 @@ class TestAisFoldsChokepoints:
                    "dark_gap_detection": "pending_l1_vessel_history"})
 
     def test_three_chokepoints_of_one_country_become_one_row(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "ais_maritime", (self._cp("TW", "Taiwan Strait", []),
                              self._cp("TW", "Bashi Channel", [{"mmsi": 1}]),
                              self._cp("TW", "Miyako Strait", [])))
@@ -415,7 +426,7 @@ class TestAisFoldsChokepoints:
     def test_the_printed_count_spans_the_cycle_the_verdict_does_not(self):
         """`core.py:1256` counts every chokepoint in the cycle; the FIRED
         decision is the country's own."""
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "ais_maritime", (self._cp("TW", "Taiwan Strait", []),
                              self._cp("JP", "Soya Strait", [{"mmsi": 9}])))
         by_country = {d.country: d for d in reduced}
@@ -424,7 +435,7 @@ class TestAisFoldsChokepoints:
         assert by_country["TW"].value == "dark_gaps=0 stationary=1"
 
     def test_the_chokepoints_folded_are_named(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "ais_maritime", (self._cp("TW", "Taiwan Strait", []),
                              self._cp("TW", "Bashi Channel", [])))
         assert reduced[0].flags["chokepoints"] == ["Taiwan Strait",
@@ -442,7 +453,7 @@ class TestIhrKeepsItsRowsAndDerivesTheLabel:
             flags={"status": rung, "ladder_rank": rank})
 
     def test_the_three_rows_survive(self):
-        reduced = R.reduce_drafts("ihr_health", (
+        reduced = _reduce("ihr_health", (
             self._row("bgp", "NORMAL", 4),
             self._row("ihr_delay", "DELAY_ANOMALY", 3),
             self._row("ihr_hegemony", "HEGEMONY_ALARM", 2)))
@@ -450,21 +461,21 @@ class TestIhrKeepsItsRowsAndDerivesTheLabel:
             "bgp", "ihr_delay", "ihr_hegemony"]
 
     def test_disconnection_outranks_everything(self):
-        reduced = R.reduce_drafts("ihr_health", (
+        reduced = _reduce("ihr_health", (
             self._row("bgp", "DISCO_EVENT", 1),
             self._row("ihr_delay", "DELAY_ANOMALY", 3),
             self._row("ihr_hegemony", "HEGEMONY_ALARM", 2)))
         assert {d.flags["country_status"] for d in reduced} == {"DISCO_EVENT"}
 
     def test_hegemony_outranks_delay(self):
-        reduced = R.reduce_drafts("ihr_health", (
+        reduced = _reduce("ihr_health", (
             self._row("ihr_delay", "DELAY_ANOMALY", 3),
             self._row("ihr_hegemony", "HEGEMONY_ALARM", 2)))
         assert {d.flags["country_status"] for d in reduced} == {
             "HEGEMONY_ALARM"}
 
     def test_all_quiet_is_normal(self):
-        reduced = R.reduce_drafts("ihr_health", (
+        reduced = _reduce("ihr_health", (
             self._row("bgp", "NORMAL", 4),
             self._row("ihr_delay", "NORMAL", 4)))
         assert {d.flags["country_status"] for d in reduced} == {"NORMAL"}
@@ -488,17 +499,17 @@ class TestTorReconcilesItsTwoResponses:
                                         "pending_l1_prev_user_count"}))
 
     def test_two_rows_become_one(self):
-        reduced = R.reduce_drafts("tor_metrics", self._rows())
+        reduced = _reduce("tor_metrics", self._rows())
         assert [d.signal_source for d in reduced] == ["tor_metrics"]
         assert reduced[0].value == "relays=6000, users=1000"
 
     def test_without_both_baselines_no_verdict_is_asserted(self):
-        reduced = R.reduce_drafts("tor_metrics", self._rows())
+        reduced = _reduce("tor_metrics", self._rows())
         assert reduced[0].status == STATUS_OBSERVED
         assert reduced[0].flags["drop_verdict"].startswith("pending_l1_")
 
     def test_a_relay_drop_with_a_user_surge_is_the_censorship_indicator(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "tor_metrics", self._rows(running=3000, users=3000.0),
             baselines={"tor_prev_relay_count": {"TW": 6000},
                        "tor_prev_user_count": {"TW": 1000.0}})
@@ -510,7 +521,7 @@ class TestTorReconcilesItsTwoResponses:
             "bridge_users=3000")
 
     def test_a_steady_network_does_not_fire(self):
-        reduced = R.reduce_drafts(
+        reduced = _reduce(
             "tor_metrics", self._rows(),
             baselines={"tor_prev_relay_count": {"TW": 6000},
                        "tor_prev_user_count": {"TW": 1000.0}})
@@ -533,16 +544,16 @@ class TestGdeltFoldsItsTwoWindows:
                              flags={"tone": -1.0, "window": "tone_30d"}))
 
     def test_the_baseline_row_is_absorbed(self):
-        reduced = R.reduce_drafts("gdelt", self._rows())
+        reduced = _reduce("gdelt", self._rows())
         assert [d.signal_source for d in reduced] == ["gdelt"]
 
     def test_the_delta_production_computes_is_carried(self):
-        reduced = R.reduce_drafts("gdelt", self._rows())
+        reduced = _reduce("gdelt", self._rows())
         assert reduced[0].flags["baseline_tone"] == -1.0
         assert reduced[0].flags["tone_delta"] == -2.5
 
     def test_the_pending_day_of_week_verdict_is_preserved(self):
-        reduced = R.reduce_drafts("gdelt", self._rows())
+        reduced = _reduce("gdelt", self._rows())
         assert reduced[0].flags["dow_verdict"] == "pending_l1_dow_baseline"
 
 
@@ -561,18 +572,18 @@ class TestTheNamedSourceFamily:
             for name in ("alpha", "beta"))
 
     def test_the_channels_fold_into_the_production_name(self):
-        reduced = R.reduce_drafts("telegram_mirror", self._channels())
+        reduced = _reduce("telegram_mirror", self._channels())
         assert [d.signal_source for d in reduced] == ["telegram_mirror"]
 
     def test_each_contributor_is_still_nameable(self):
-        reduced = R.reduce_drafts("telegram_mirror", self._channels())
+        reduced = _reduce("telegram_mirror", self._channels())
         assert [s["signal_source"] for s in reduced[0].flags["sources"]] == [
             "telegram_alpha", "telegram_beta"]
         assert [s["channel"] for s in reduced[0].flags["sources"]] == [
             "alpha", "beta"]
 
     def test_the_pending_verdict_survives_the_fold(self):
-        reduced = R.reduce_drafts("telegram_mirror", self._channels())
+        reduced = _reduce("telegram_mirror", self._channels())
         assert reduced[0].flags["burst_verdict"] == \
             "pending_l1_telegram_baseline"
         assert reduced[0].raw_score == 0.0
@@ -586,7 +597,7 @@ class TestTheNamedSourceFamily:
                        "article_count": 10, "normalized_freq": 0.3,
                        "burst_verdict": "pending_l1_narrative_baseline"})
             for name in ("xinhua", "globaltimes"))
-        reduced = R.reduce_drafts("rss_narrative", feeds)
+        reduced = _reduce("rss_narrative", feeds)
         assert [d.signal_source for d in reduced] == ["rss_narrative"]
         assert reduced[0].flags["sources_folded"] == 2
 
@@ -599,7 +610,7 @@ class TestTheNamedSourceFamily:
                        "level_label": "Reconsider Travel", "title": "t",
                        "upgrade_verdict": "pending_l1_previous_level"})
             for src in ("us", "uk", "ca"))
-        reduced = R.reduce_drafts("travel_advisory", rows)
+        reduced = _reduce("travel_advisory", rows)
         assert [d.signal_source for d in reduced] == ["travel_advisory"]
         assert [s["level"] for s in reduced[0].flags["sources"]] == [3, 3, 3]
 
@@ -611,7 +622,7 @@ class TestAMissingReductionIsLoud:
                 ObservationDraft(signal_source="whatever", domain=CYBER,
                                  country="TW", status=STATUS_OK, value="b"))
         with pytest.raises(DomainError) as caught:
-            R.reduce_drafts("some_adapter", rows)
+            _reduce("some_adapter", rows)
         message = str(caught.value)
         assert "some_adapter" in message and "whatever" in message
         assert "§7-2 #11" in message
@@ -622,7 +633,7 @@ class TestAMissingReductionIsLoud:
         row = ObservationDraft(signal_source="x", domain=CYBER, country="TW",
                                status=STATUS_OK, value="same")
         with pytest.raises(DomainError):
-            R.reduce_drafts("some_adapter", (row, row))
+            _reduce("some_adapter", (row, row))
 
     def test_the_empty_country_is_a_key_like_any_other(self):
         rows = (ObservationDraft(signal_source="x", domain=CYBER, country="",
@@ -630,14 +641,14 @@ class TestAMissingReductionIsLoud:
                 ObservationDraft(signal_source="x", domain=CYBER, country="",
                                  status=STATUS_OK, value="b"))
         with pytest.raises(DomainError, match="GLOBAL"):
-            R.reduce_drafts("some_adapter", rows)
+            _reduce("some_adapter", rows)
 
     def test_an_adapter_with_no_fold_passes_through_unchanged(self):
         rows = (ObservationDraft(signal_source="a", domain=CYBER,
                                  country="TW", status=STATUS_OK, value="1"),
                 ObservationDraft(signal_source="b", domain=CYBER,
                                  country="TW", status=STATUS_OK, value="2"))
-        assert R.reduce_drafts("unfolded", rows) == rows
+        assert _reduce("unfolded", rows) == rows
 
     def test_every_declared_fold_leaves_a_writable_set(self):
         """The guard runs after every fold, so a fold that forgets a

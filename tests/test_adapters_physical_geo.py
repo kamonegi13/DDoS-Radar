@@ -288,9 +288,12 @@ class TestAisVesselTimeIsCarried:
         draft = ais_maritime.normalize(
             payload("ais_maritime", "vessels_flat_malformed.json",
                     label=BASHI_LABEL), ais_context())[0]
+        # `dist_km` joined it in WP-4.1b: the dark-gap rule is
+        # `gap > 1h AND dist < 50km` and the fold that applies it has no
+        # chokepoint centre to recompute the distance from.
         assert draft.flags["vessel_reports"] == [
             {"mmsi": "477000111", "last_ts": 1699996400.0,
-             "lat": 22.1, "lng": 121.2}]
+             "lat": 22.1, "lng": 121.2, "dist_km": 30.3}]
 
     def test_a_missing_time_falls_back_to_the_fetch_instant(self):
         """`float(vessel.get("TIME", now) or now)` — `context.now` IS the

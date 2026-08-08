@@ -356,7 +356,7 @@ class TestRecorder:
 class TestSchemaMigration:
     def test_a_fresh_store_reports_the_current_version(self, store):
         from v3.ledger import schema as schema_module
-        assert store.schema_version() == schema_module.SCHEMA_VERSION == 3
+        assert store.schema_version() == schema_module.SCHEMA_VERSION
 
     def test_the_three_new_tables_exist(self, store):
         names = {row[0] for row in store._connection().execute(
@@ -379,7 +379,8 @@ class TestSchemaMigration:
         monkeypatch.undo()
         upgraded = LedgerStore(path)
         try:
-            assert upgraded.schema_version() == 3
+            assert upgraded.schema_version() == \
+                schema_module.SCHEMA_VERSION
             names = {row[0] for row in upgraded._connection().execute(
                 "SELECT name FROM sqlite_master WHERE type='table'")}
             assert {"fetch_schedule", "fetch_log", "llm_call"} <= names
@@ -390,7 +391,8 @@ class TestSchemaMigration:
         path = str(tmp_path / "again.db")
         for _ in range(3):
             instance = LedgerStore(path)
-            assert instance.schema_version() == 3
+            from v3.ledger import schema as inner_schema
+            assert instance.schema_version() == inner_schema.SCHEMA_VERSION
             instance.close()
 
     def test_a_newer_store_is_refused_rather_than_downgraded(self, tmp_path):
@@ -466,8 +468,9 @@ class TestAppendOnlyIsEnforcedNotAssumed:
         assert store._read_connection().execute(
             "SELECT COUNT(*) FROM fetch_log").fetchone()[0] == 0
 
-    def test_the_store_reports_schema_v3(self, store):
-        assert store.schema_version() == 3
+    def test_the_store_reports_the_migrated_schema_version(self, store):
+        from v3.ledger import schema as schema_module
+        assert store.schema_version() == schema_module.SCHEMA_VERSION
 
 
 class TestOneAdapterCycleIsOneTransaction:
