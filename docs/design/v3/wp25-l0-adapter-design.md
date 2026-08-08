@@ -922,6 +922,18 @@ L2 の条項レジストリと同じ機構であり、**転写のドリフトが
 > 本 WP では**繰延（`v3/api/registry.py` の DEFERRED に owner 付きで登録済）**。#56 は L2 `Contribution`
 > か合成ルートの供給側の問題で API 面の射影では埋まらない。
 
+> **WP-4.1c（L6 指令面・書込シーム）の更新（2026-08-08）**: 本 WP は **#77 / #78 / #79 を新規登録**、
+> **retire 0 件・範囲縮小 0 件**（L0 アダプタの転写に触れないため既存エントリの解消条件に触れない）。
+> 着地は指令 3 族（P7 C1 focus / C2 結論フィードバック / C9 人手 ground truth）と、その土台となる
+> **指令台帳**（L1 schema v5 `command_record`、追記専用・保持恒久）。
+> **#52 の retire 条件について、本 WP は「まだ着地していない」ではなく「今着地させてはならない」を実測で確定した**:
+> v3 の 3 層解決は `v3/kernel/threshold.py::Threshold.registry_backed` が legacy `radar.config_layered` に
+> 委譲して終端する。v3 側に override 行を書いても解決経路がそれを読まないため、
+> 本 WP が導入した**効果検証**（commit が射影経路で読み戻し、一致しなければ拒否）が必ず失敗する。
+> つまり現状で C7 を出すことは **G-15 の再生産そのもの**であり、
+> 先に必要なのは「解決経路を v3 に移すか、L1 override 層を `Threshold` に接続するか」の設計判断である。
+> #52 / #56 は引き続き retire 不能（#56 は WP-4.1 の記述のとおり）。
+
 > **WP-4.1（合成ルート）の更新（2026-08-08）**: 本 WP は **#12 / #13 / #28 / #29 / #31 / #35 / #41 / #42 /
 > #45 / #50 / #51 の 11 件を retire**（行番号を `~~n~~` で打ち消し、旧記述と証跡テストは残す）、
 > **#9 / #11 / #16 / #23 / #40 の 5 件を範囲縮小**（retire ではない — #9 の規律に従い、
@@ -931,8 +943,9 @@ L2 の条項レジストリと同じ機構であり、**転写のドリフトが
 > サイクル跨ぎの供給は形（`v3/runtime/baselines.py::carried_values`）が定まっただけで、
 > `hacktivist_intel` / `ground_osint` の 2 基は未着地。
 
-> **承認状態（2026-08-08 追記）**: §9 のオーナー包括承認は **#1〜#53** を対象とする。
-> **#54〜#73 は WP-3.1（L3 結論層）/ WP-3.2（L4 較正層）/ WP-4.1（合成ルート）で新規に登録したもので、同種の包括承認を待つ**
+> **承認状態（2026-08-08 追記、WP-4.1c で範囲更新）**: §9 のオーナー包括承認は **#1〜#53** を対象とする。
+> **#54〜#79 は WP-3.1（L3 結論層）/ WP-3.2（L4 較正層）/ WP-4.1（合成ルート）/ WP-4.1b（ベースライン供給）/
+> WP-4.1（L6 読み取り面）/ WP-4.1c（L6 指令面）で新規に登録したもので、同種の包括承認を待つ**
 > （#59〜#62 は WP-3.1 の敵対的レビューで発見された 3 CRITICAL / 4 HIGH の是正に伴うもの。
 > **#63〜#70 は WP-3.2**。うち #63・#64 は本番関数との差分スイープ 122,284 入力で**実測検出**したもの、
 > #65〜#70 は S1-calibration §5 の DEFECT-PRESERVE に対する v3 規範の実装）。
@@ -1018,6 +1031,9 @@ L2 の条項レジストリと同じ機構であり、**転写のドリフトが
 | 74 | `ct_log` | **既知 CA 台帳の内容が本番より小さい**。本番は検査した全証明書の CA を`ct_log_known_ca_per_domain` に記録する（`ct_log.py:315-341` — trusted も warmup 記録も含む）。v3 は `untrusted_ca_candidates` のみを記録する | **中立（判定は同値）** | **登録**（WP-4.1b、2026-08-08）。グローバル信頼済 CA は `is_trusted or is_known_per_domain` の第 1 項で短絡するため集合到達性が無く、判定は完全一致する（台帳の**内容**のみが異なる）。**解消条件**: アダプタが全 issuer の正規化名を flags に載せること。根拠コメントは `v3/runtime/record.py::_record_ct_log` に併記 |
 | 75 | `check_host` / `ais_maritime` | **プロセスメモリだった状態を L1 に永続化した**。本番の`_url_latency_history`（`deque(maxlen=12)`）と `self._vessel_history` は再起動で消える（A-03）。v3 は `entity_observation` に持つため**再起動を跨いで生き残る** | **sensitive**（v3 の方が発火しやすい — 再起動直後に本番が出せない asphyxiation / dark gap を出す） | **登録**（WP-4.1b、2026-08-08）。A-03 は本プログラムが明示的に修理対象としたもので、NP1 上も望ましい方向だが**差分は差分**なので登録する。標本上限（12）と初観測の扱い（前スナップショット無しは gap ではない）は本番どおり転写済。**解消条件**: なし（意図的差分）|
 | 76 | L6 公開 API（**WP-4.1**） | **読み取りが台帳の射影であり、要求時点で採点し直さない**。本番 `GET /api/threat_data` は GET のたびに採点ティックを回して「今」の TL を返す（A-01）。v3 の R2 は L1 に**書かれた最新行**を返すため、返る結論は最大 1 cadence 分（既定 900s）古い。§7-2 #58（heartbeat 書込を持たない＝変化時のみ書く）と重なると、静穏なシナリオでは `observed_at` が数時間〜数日前になりうる | 観測面 **insensitive**（表示が古くなりうる）／**採点中立**（採点そのものは runtime が cadence どおり回す）。ただし A-01 の解消と引き換えであり、本番側の「新しさ」は GET が副作用を持つことで買われていた | **登録**（WP-4.1、2026-08-08）。**緩和は実装済**: P7 §3 が全射影に必須とする `observed_at` / `data_freshness_sec` を**ディスパッチャが 1 箇所で全 route に押す**（ハンドラが個別に付ける形にしない — 付け忘れが起こりうる形は本層が構造で潰した対象そのもの）。アナリストは「いつ採点された値か」を引き算せずに読める。**解消条件**: なし（意図的差分。A-01 の構造的解消と同一物）。証跡: `tests/test_api_projections.py::TestTheFreshnessStamp` / `::TestReadsHaveNoSideEffects` |
+| 77 | L6 指令面 focus（**WP-4.1c**） | **focus をサーバ単一状態にした**。本番は per-user 行（`GET/PUT /api/auth/settings` の `focused_scenario`、JWT で自分の行のみ）と API param `?focus=` の 2 系統。v3 は指令台帳の fold 1 系統（最後の指令が勝つ）で、誰が動かしたかは `actor_id` に残る | **理屈上 insensitive**（複数アナリストが別シナリオを focus した場合、C-lite の全センサー稼働先が 1 つに定まる）／**実測差は生じない見込み** — 本番の per-user focus は **UI からの参照が存在しない**（D2 B-09、S2-PROP-014 が drop を裁定済）ため実効性が無い | **登録**（WP-4.1c、2026-08-08）。単一状態を採る理由は C-lite の意味論 — focus は「どのシナリオに全センサー予算を使うか」というサーバ側の資源配分であり、per-user にすると「focused」がスコアリングモードの言う focused と別物になる。**解消条件**: なし（意図的差分）。cutover 時にオーナー確認のみ。証跡: `tests/test_api_commands.py::TestFocusIsACommandAndItsEffectIsReal` |
+| 78 | L6 指令面 feedback（**WP-4.1c**） | **ラベル投稿に理由（`reason`）を必須化した**。本番 `POST /api/v2/conclusions/<id>/feedback` の body は `{label, observed_outcome_url?, notes?}` で、`notes` は任意（`radar/routes/conclusions_v2.py:286`） | **insensitive 寄り**（本番が受け入れるラベルを v3 は 400 で拒否する = 人手ラベルの収集数が減りうる。較正の人手比率 `labels_human` が下がる方向） | **登録**（WP-4.1c、2026-08-08）。理由を要求する根拠は較正災害 3 件がすべてラベル汚染だったこと — 事後に監査できないラベルは誤ったラベルと区別がつかない。`observed_outcome_url` は**本番と同名で保持**しており（`conclusions_v2.py:344-347` が人手ラベルを ground truth に昇格させる条件）、こちらを落とせば別種の insensitive 差分になるため落としていない。**解消条件**: 運用で摩擦が報告された場合に `CommandSpec.requires_reason=False` へ戻す（1 行）。証跡: `TestG01IsStructurallyDead::test_a_label_without_a_reason_is_refused` / `::test_the_outcome_url_survives_into_the_projection` |
+| 79 | L6 指令面 feedback の集計（**WP-4.1c**） | **ラベルは (結論, アナリスト) ごとに最新 1 件が有効**。本番 `radar/conclusions/feedback.py:110-111` は `SELECT label, COUNT(*) ... GROUP BY label` で**全行を数える**ため、同一アナリストが TRUE_POSITIVE を後から FALSE_POSITIVE に訂正しても**旧ラベルが票として残り続ける** | **中立〜sensitive**（本番は訂正前の TP が残るため recall が実態より高く出る＝楽観側。v3 は訂正のみを数えるため recall が下がりうる → 較正系は緩和方向の提案を出しやすくなる＝発火しやすい側） | **登録**（WP-4.1c、2026-08-08）。**旧ラベルは失われない** — 指令台帳は追記専用で全改訂を保持し、AP4 の判断履歴として再生できる。差分は「射影が何を有効票と見なすか」だけ。**解消条件**: なし（意図的差分）。ラベル台帳を較正系へ配線する WP-3.3 が本規範を前提とすること。証跡: `tests/test_api_write_seam.py::TestOneProjectionOnly::test_the_fold_equals_a_replay_of_every_row` |
 
 ---
 

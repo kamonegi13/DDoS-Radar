@@ -96,6 +96,31 @@ def tool_response(*, observed_at: float, at: Optional[float] = None,
     return ApiResponse(status=status, envelope=envelope)
 
 
+def command_response(scenario_id: str, committed, *, observed_at: float,
+                     status: int = OK, **extra: Any) -> ApiResponse:
+    """A command's answer: the audit row, and what the state now IS.
+
+    Same envelope as every projection — P7's derivation principle 2 makes
+    no exception for writes, and the NP7 sentence belongs on a command's
+    answer as much as on a conclusion's.
+
+    `committed.as_dict()` supplies both halves, and the `effect` half is
+    read back through the read projection rather than echoed from the
+    request. That is deliberate and it is the whole G-15 remedy: a
+    response that repeated the submitted value would be exactly the UI
+    behaviour that made ninety-five dead config keys invisible for months.
+    """
+    payload = committed.as_dict()
+    overlap = sorted(set(payload) & set(extra))
+    if overlap:
+        raise DomainError(
+            f"a command response may not restate {overlap}: the audit row "
+            f"and the read-back effect are the answer, and a second copy "
+            f"is a second thing to disagree with")
+    return scenario_response(scenario_id, (), observed_at=observed_at,
+                             status=status, **payload, **extra)
+
+
 def failure_response(failure: ApiFailure, *, observed_at: float,
                      scenario_id: str = TOOL_SCOPE) -> ApiResponse:
     """A 4xx/5xx body: the SAME envelope, with `error` set.
@@ -149,4 +174,4 @@ def with_freshness(response: ApiResponse, now: float) -> ApiResponse:
 
 
 __all__ = ["ApiResponse", "scenario_response", "tool_response",
-           "failure_response", "OK"]
+           "command_response", "failure_response", "OK"]

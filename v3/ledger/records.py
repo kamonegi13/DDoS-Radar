@@ -217,4 +217,112 @@ class ConclusionRecord:
                           allow_nan=False, ensure_ascii=False)
 
 
-__all__ = ["SignalObservation", "TLObservation", "ConclusionRecord"]
+def _json(value, *, name: str) -> str:
+    """Serialise a before/after value, refusing what cannot round-trip.
+
+    `default=str` is deliberately NOT used here, unlike the observation
+    records. An observation's payload is evidence from outside and a
+    best-effort stringification of an odd object still carries the
+    evidence; a before/after value is compared for equality on the next
+    command (the stale-write check), and a value that serialises as
+    `"<object at 0x…>"` would compare unequal to itself on every
+    subsequent read — a command that could never succeed twice.
+    """
+    try:
+        return json.dumps(value, sort_keys=True, allow_nan=False,
+                          ensure_ascii=False)
+    except (TypeError, ValueError) as exc:
+        raise DomainError(
+            f"{name} must be JSON-serialisable without coercion, got "
+            f"{type(value).__name__}: the value is compared against the "
+            f"stored one on the next command, so a lossy encoding is a "
+            f"command that silently stops being repeatable") from exc
+
+
+@dataclass(frozen=True, slots=True)
+class CommandRecord:
+    """One analyst command: the audit row AND the change itself.
+
+    S2-PROP-019 is "one change, one audit row". The usual reading of that
+    is a discipline — write the change, then remember to write the audit
+    row. G-15 is what the usual reading produces: an override row and an
+    audit row were both written honestly, the UI showed the new value, and
+    nothing read it.
+
+    So this record is not a note about a change kept beside it. The
+    effective state of everything the command surface governs (focus,
+    labels, ground truth) is the FOLD of these rows, which means there is
+    no way to make the change without the row, and no way for the row to
+    describe a change that did not happen.
+
+    `actor_id` / `actor_role` are fields of the stored record rather than
+    of the thing a handler builds (`v3.api.write.Change`), so a handler
+    cannot record an actor other than the principal the route resolved.
+    """
+
+    command_id: str
+    action: str
+    target_kind: str
+    target_id: str
+    actor_id: str
+    actor_role: str
+    issued_at: float
+    before: Any = None
+    after: Any = None
+    reason: Optional[str] = None
+    payload: Mapping[str, Any] = field(default_factory=dict)
+
+    def __init_subclass__(cls, **kwargs):
+        raise TypeError("CommandRecord is final.")
+
+    def __post_init__(self) -> None:
+        for name in ("command_id", "action", "target_kind", "target_id",
+                     "actor_id", "actor_role"):
+            object.__setattr__(self, name,
+                               _require_text(getattr(self, name), name=name))
+        issued_at = _optional_number(self.issued_at, name="issued_at")
+        if issued_at is None or issued_at <= 0:
+            raise DomainError(
+                f"issued_at must be a positive timestamp, got "
+                f"{self.issued_at!r}")
+        object.__setattr__(self, "issued_at", issued_at)
+        if self.reason is not None:
+            object.__setattr__(self, "reason",
+                               _require_text(self.reason, name="reason"))
+        if not isinstance(self.payload, Mapping):
+            raise DomainError(
+                f"payload must be a mapping, got "
+                f"{type(self.payload).__name__}")
+        object.__setattr__(self, "payload",
+                           MappingProxyType(dict(self.payload)))
+        # Serialise now, at construction, so an unstorable value is a
+        # refused record rather than a transaction that fails halfway.
+        _json(self.before, name="before")
+        _json(self.after, name="after")
+        _json(dict(self.payload), name="payload")
+
+    @property
+    def changed(self) -> bool:
+        """Whether this row actually moved the state it describes."""
+        return self.before != self.after
+
+    def before_json(self) -> str:
+        return _json(self.before, name="before")
+
+    def after_json(self) -> str:
+        return _json(self.after, name="after")
+
+    def payload_json(self) -> str:
+        return _json(dict(self.payload), name="payload")
+
+    def as_dict(self) -> dict:
+        return {"command_id": self.command_id, "action": self.action,
+                "target_kind": self.target_kind, "target_id": self.target_id,
+                "actor_id": self.actor_id, "actor_role": self.actor_role,
+                "issued_at": self.issued_at, "before": self.before,
+                "after": self.after, "reason": self.reason,
+                "payload": dict(self.payload)}
+
+
+__all__ = ["SignalObservation", "TLObservation", "ConclusionRecord",
+           "CommandRecord"]

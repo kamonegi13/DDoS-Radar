@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # ADR-V3-005 / P1 §5: the signal horizon is derived from the parity
 # requirement (30-day replay window x 2), not chosen for convenience.
@@ -148,12 +148,24 @@ RETENTION_POLICIES: tuple[RetentionPolicy, ...] = (
                   "first-seen also cannot be backfilled — the same reason "
                   "baseline_stat is permanent. Production has never pruned "
                   "either of its two equivalents."),
+    # ── schema v5 (WP-4.1c, L6 command surface) ─────────────────────────
+    RetentionPolicy(
+        table="command_record", time_column=None, retention_days=None,
+        rationale="WP-4.1c: the command log IS the state it records — the "
+                  "effective focus, label, override or ground-truth entry is "
+                  "the fold of these rows, not a copy kept elsewhere. So "
+                  "pruning a row would silently REVERT the change it "
+                  "describes, which is the failure this table exists to make "
+                  "impossible (G-15: an audit row that records a change "
+                  "nothing reads). Permanent is also what AP4 means by a "
+                  "decision trail: a trail with a horizon cannot answer "
+                  "'what did the tool believe when this was decided'."),
 )
 
 PERSISTED_TABLES: tuple[str, ...] = (
     "signal_observation", "tl_observation", "conclusion", "baseline_stat",
     "schema_meta", "fetch_schedule", "fetch_log", "llm_call", "fetch_body",
-    "entity_observation", "entity_marker",
+    "entity_observation", "entity_marker", "command_record",
 )
 
 # ── DDL ─────────────────────────────────────────────────────────────────
@@ -519,7 +531,65 @@ _MIGRATION_4 = Migration(
         """,
     ))
 
-MIGRATIONS: tuple[Migration, ...] = (_MIGRATION_2, _MIGRATION_3, _MIGRATION_4)
+_MIGRATION_5 = Migration(
+    version=5,
+    rationale="WP-4.1c: the command log. S2-PROP-019 is 'one change, one "
+              "audit row'; this table is how that becomes structural rather "
+              "than procedural, because the row is not a NOTE ABOUT the "
+              "change — the effective state is the fold of these rows, so "
+              "there is no change without one.",
+    statements=(
+        # Append-only, like the observation tables, and for a stronger
+        # reason: an UPDATE here would rewrite history that the current
+        # state is derived from, so the row and the state would disagree
+        # with no way to tell which was edited.
+        """
+        CREATE TABLE IF NOT EXISTS command_record (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            command_id   TEXT NOT NULL UNIQUE,
+            action       TEXT NOT NULL,
+            target_kind  TEXT NOT NULL,
+            target_id    TEXT NOT NULL,
+            actor_id     TEXT NOT NULL,
+            actor_role   TEXT NOT NULL,
+            issued_at    REAL NOT NULL,
+            recorded_at  REAL NOT NULL,
+            before_json  TEXT NOT NULL,
+            after_json   TEXT NOT NULL,
+            reason       TEXT,
+            payload      TEXT NOT NULL DEFAULT '{}'
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_command_target "
+        "ON command_record (action, target_kind, target_id, issued_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_command_time "
+        "ON command_record (issued_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_command_actor "
+        "ON command_record (actor_id, issued_at DESC)",
+        """
+        CREATE TRIGGER IF NOT EXISTS command_record_no_update
+        BEFORE UPDATE ON command_record
+        BEGIN
+            SELECT RAISE(ABORT,
+                'command_record is append-only: the current state is the fold of these rows');
+        END
+        """,
+        # No prune-flag escape hatch, unlike entity_observation. The
+        # retention registry declares this table permanent, so a DELETE
+        # can only be someone reaching around the registry — and the row
+        # they would delete is the change itself.
+        """
+        CREATE TRIGGER IF NOT EXISTS command_record_no_delete
+        BEFORE DELETE ON command_record
+        BEGIN
+            SELECT RAISE(ABORT,
+                'a command record is never deleted: deleting it would revert the change it records');
+        END
+        """,
+    ))
+
+MIGRATIONS: tuple[Migration, ...] = (_MIGRATION_2, _MIGRATION_3, _MIGRATION_4,
+                                     _MIGRATION_5)
 
 if MIGRATIONS and MIGRATIONS[-1].version != SCHEMA_VERSION:
     raise RuntimeError(

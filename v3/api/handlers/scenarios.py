@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from v3.api.envelope import ApiResponse, tool_response
 from v3.api.rehydrate import tl_point
+from v3.commands.state import focus_state
 
 DAY_SEC = 86400.0
 
@@ -49,14 +50,28 @@ def _tl_summary(ledger, scenario_id: str, now: float) -> dict:
 
 
 def read_scenarios(context) -> ApiResponse:
-    """R1. One row per configured scenario, focus state included."""
+    """R1. One row per configured scenario, focus state included.
+
+    Focus is read from the command log, not from the deployment's
+    bootstrap value, whenever a command has ever set it. That is what
+    makes C1 a real change rather than a recorded one: if this projection
+    kept its own copy, the two would be free to disagree, and G-15 is the
+    name for what happens when they do. The deployment default survives
+    only as the state before the first command.
+    """
+    focused = focus_state(context.ledger, until=context.now)
     rows = []
     for ref in context.scenarios:
-        rows.append({**ref.as_dict(),
-                     **_tl_summary(context.ledger, ref.scenario_id,
-                                   context.now)})
+        row = {**ref.as_dict(),
+               **_tl_summary(context.ledger, ref.scenario_id, context.now)}
+        if focused is not None:
+            row["focused"] = ref.scenario_id == focused
+        rows.append(row)
     return tool_response(observed_at=context.now, scenarios=rows,
-                         scenario_count=len(rows))
+                         scenario_count=len(rows),
+                         focused_scenario=focused,
+                         focus_source=("command_log" if focused is not None
+                                       else "deployment_default"))
 
 
 __all__ = ["read_scenarios"]

@@ -22,19 +22,26 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from v3.api.authorization import Access
+from v3.api.handlers import commands as H_commands
 from v3.api.handlers import conclusions as H_conclusions
 from v3.api.handlers import disclosure as H_disclosure
 from v3.api.handlers import evidence as H_evidence
 from v3.api.handlers import reliability as H_reliability
 from v3.api.handlers import scenarios as H_scenarios
-from v3.api.vocabulary import (API_PREFIX, GET, METHODS, ROLE_VIEWER,
-                               SAFE_METHODS)
+from v3.api.vocabulary import (API_PREFIX, GET, METHODS, POST, ROLE_ANALYST,
+                               ROLE_VIEWER, SAFE_METHODS)
 from v3.kernel.errors import DomainError
 
 _READ_ONLY = ("読み取り射影。AP3 の透明性情報を含め viewer に開放する"
               "（S2-PROP-021: 「今このツールをどこまで信じるか」は全利用者が"
               "見るべき情報）")
 _PROBE = "起動・死活 probe。トークンを要求すると再起動役が使えない"
+#: G-01, permanently. The defect was that `POST .../feedback` reached the
+#: calibration chain's input without the gate its three sibling endpoints
+#: had. Here the gate is this field: the route cannot exist without it.
+_ANALYST_WRITE = ("指令。較正系の入力または採点予算の配分を動かすため "
+                  "analyst 以上（G-01 の恒久化: 認可はルート宣言であり "
+                  "ハンドラ本体の呼び出しではない）")
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +92,24 @@ def _read(route_id: str, path: str, handler: Callable, serves: tuple,
                  handler=handler, serves=serves, side_effect=False, note=note)
 
 
+def _command(route_id: str, path: str, handler: Callable, serves: tuple,
+             *, method: str = POST, access: Optional[Access] = None,
+             note: str = "") -> Route:
+    """A command route. `side_effect=True` is not optional here.
+
+    Declared rather than inferred, and the two directions are enforced in
+    opposite places: `Route.__post_init__` refuses a GET that declares an
+    effect (A-01), and `tests/test_api_surface.py` refuses a command that
+    does not — because an undeclared effect is a route the dispatcher
+    would hand a read context and a handler that would then have nothing
+    to write through.
+    """
+    return Route(route_id=route_id, method=method, path=path,
+                 access=access or Access.at_least(ROLE_ANALYST,
+                                                  reason=_ANALYST_WRITE),
+                 handler=handler, serves=serves, side_effect=True, note=note)
+
+
 ROUTES: tuple[Route, ...] = (
     _read("R1", f"{API_PREFIX}/scenarios", H_scenarios.read_scenarios,
           ("I-2",), note="シナリオ台帳 + focus 状態 + TL サマリ"),
@@ -120,6 +145,17 @@ ROUTES: tuple[Route, ...] = (
           access=Access.public_route(reason=_PROBE),
           handler=H_disclosure.read_health, serves=("I-2",),
           side_effect=False, note="唯一の public route"),
+    # ── P7 §1.2 — the command surface ───────────────────────────────────
+    _read("C9g", f"{API_PREFIX}/ground_truth", H_commands.read_ground_truth,
+          ("I-2",), note="C9 の読み取り半分。C9p の効果が実在する先"),
+    _command("C1", f"{API_PREFIX}/focus", H_commands.set_focus, ("I-2",),
+             note="focus 登録。GET の副作用から分離（PROP-001）"),
+    _command("C2", f"{API_PREFIX}/conclusions/<conclusion_id>/feedback",
+             H_commands.submit_feedback, ("I-2",),
+             note="G-01 の当事者。認可はこの表の宣言であり本体呼び出しではない"),
+    _command("C9p", f"{API_PREFIX}/scenarios/<scenario_id>/ground_truth",
+             H_commands.assert_ground_truth, ("I-2",),
+             note="S9 の教師信号。観測時刻と検証可能な出典を必須とする"),
 )
 
 

@@ -28,6 +28,7 @@ from v3.api import errors as E
 from v3.api.envelope import ApiResponse, scenario_response
 from v3.api.rehydrate import (UnreadableConclusionRow, from_row,
                               tl_point)
+from v3.commands.state import labels_for
 from v3.conclusions import (ANOMALY, CALIBRATION_PENDING, CONCLUSION_TYPES,
                             UNAVAILABLE_REASONS)
 from v3.conclusions.persistence import BATCH_WINDOW_SEC
@@ -216,10 +217,19 @@ def _span(window) -> float:
 
 
 def read_conclusion(context, *, conclusion_id: str) -> ApiResponse:
-    """R4 (the conclusion itself)."""
+    """R4 (the conclusion itself), with the labels posted against it.
+
+    The labels are here because C2 has to have a reader. A feedback
+    endpoint whose result no projection shows is G-15 in miniature: the
+    analyst sees their label accepted and has no way to find out whether
+    the tool kept it.
+    """
     conclusion = _by_id(context, conclusion_id)
-    return scenario_response(conclusion.scenario_id, (conclusion,),
-                             observed_at=conclusion.observed_at)
+    return scenario_response(
+        conclusion.scenario_id, (conclusion,),
+        observed_at=conclusion.observed_at,
+        analyst_labels=labels_for(context.ledger, conclusion_id,
+                                  until=context.now))
 
 
 def read_derivation(context, *, conclusion_id: str) -> ApiResponse:

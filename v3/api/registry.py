@@ -23,15 +23,27 @@ from v3.api import routes as R
 
 
 class Owner:
-    """Which work package owes a deferred part of the surface."""
+    """Which work package owes a deferred part of the surface.
 
-    API_COMMANDS = "WP-4.1c (L6: 指令面 C1-C13)"
-    ATTENTION = "WP-3.3 (S8 注目台帳) + WP-4.1c"
-    DECISIONS = "WP-3.3 (統一判断台帳) + WP-4.1c"
-    INTEL = "WP-4.1c (インテルキュー読み取り)"
-    PROPOSALS = "WP-4.1c (提案キュー統合)"
-    CONFIG = "WP-4.1c (O-18 可変キーレジストリ)"
-    NARRATIVE = "WP-4.1c (P7 §4 決定論ナラティブ)"
+    WP-4.1c revised these. The old reason for most of the C family was
+    「書込面」 — true but uninformative, and the write seam has landed, so
+    it no longer explains anything. Each remaining entry now names the
+    blocker that actually stops it, and for most of them the blocker is
+    the same one: **the command would have no reader**. A command whose
+    effect no projection shows is defect G-15 whatever its audit row says,
+    so shipping one to raise a coverage number would be shipping the
+    defect this work package exists to end.
+    """
+
+    API_COMMANDS = "WP-4.1d (L6: 指令面の残り)"
+    ATTENTION = "WP-3.3 (S8 注目台帳) + WP-4.1d"
+    DECISIONS = "WP-3.3 (統一判断台帳) + WP-4.1d"
+    INTEL = "WP-4.1d (インテルキュー読み取り)"
+    PROPOSALS = "WP-4.1d (提案キュー統合)"
+    CONFIG = "WP-4.1d (O-18 可変キーレジストリ)"
+    NARRATIVE = "WP-4.1d (P7 §4 決定論ナラティブ)"
+    SCORING_TICK = "WP-4.1d + 採点ティック配線 (v3/runtime)"
+    AUTH = "WP-4.1d (認証・利用者ストア)"
     FRONTEND = "WP-4.2 (L7 フロントエンド)"
 
 
@@ -75,6 +87,10 @@ SERVED: tuple[Served, ...] = (
     Served("R10", "閾値レジストリの現在値と出典", ("R10",)),
     Served("R12", "唯一の報告出力（結論 Markdown）", ("R12",)),
     Served("R15", "起動設定 / 死活 probe", ("R15c", "R15h")),
+    # ── WP-4.1c: the command surface's first three ──────────────────────
+    Served("C1", "focus 登録（読み取りの副作用から分離）", ("C1",)),
+    Served("C2", "結論フィードバック投稿（G-01 の恒久化）", ("C2",)),
+    Served("C9", "人手 ground truth（GET/POST）", ("C9g", "C9p")),
 )
 
 DEFERRED: tuple[Deferred, ...] = (
@@ -92,29 +108,63 @@ DEFERRED: tuple[Deferred, ...] = (
     Deferred("R14", "O-18 可変キーの現在値", Owner.CONFIG,
              "可変キー 20〜30 の registry が v3 に未着地（§7-2 #52 の "
              "retire 条件と同一の依存）"),
-    Deferred("C1", "focus 登録", Owner.API_COMMANDS,
-             "書込面。読み取り面（条件 1）を先に構造で閉じる方針"),
-    Deferred("C2", "結論フィードバック投稿", Owner.API_COMMANDS,
-             "ラベル台帳（WP-3.3）に依存"),
-    Deferred("C3", "インテル裁定 4 動詞", Owner.API_COMMANDS, "R11 と対"),
-    Deferred("C4", "注目 ack/snooze/dismiss + 閾値", Owner.API_COMMANDS,
-             "R6 と対"),
-    Deferred("C5", "提案 apply/dismiss/defer", Owner.API_COMMANDS,
-             "R13 と対"),
+    Deferred("C3", "インテル裁定 4 動詞", Owner.INTEL,
+             "R11 と対。キューの裁定状態を持つ表が無く、確定した裁定を"
+             "読み返す先が存在しない"),
+    Deferred("C4", "注目 ack/snooze/dismiss + 閾値", Owner.ATTENTION,
+             "R6 が未着地のため ack する対象そのものが射影されない。"
+             "指令台帳は着地済（ack 状態は fold で表現できる）が、"
+             "順位を書く S8 台帳が無い以上 ack は読み手のいない書込みになる"
+             "（= G-15）。R6 と同時に着地させる"),
+    Deferred("C5", "提案 apply/dismiss/defer", Owner.PROPOSALS,
+             "阻害 2 件のうち 1 件は解消: 裁定履歴は指令台帳が持てる。"
+             "残る 1 件は提案の同一性 — v3/calibration/proposals.py の "
+             "Proposal は id を持たず、生成の入力 CalibrationEvidence を"
+             "組み立てる側が未着地（WP-3.3）"),
     Deferred("C6", "反実仮想 1 系統", Owner.API_COMMANDS,
-             "L2 カーネルの dry-run 呼び出し。書込面ではないが指令であり "
-             "C 族としてまとめて着地させる"),
-    Deferred("C7", "可変キーの変更・解除", Owner.API_COMMANDS, "R14 と対"),
-    Deferred("C8", "ノイズ除外規則", Owner.API_COMMANDS, "書込面"),
-    Deferred("C9", "人手 ground truth", Owner.API_COMMANDS,
-             "S9 の教師信号。ラベル台帳（WP-3.3）に依存"),
-    Deferred("C10", "AP3 人間アンカー", Owner.API_COMMANDS, "書込面"),
+             "副作用の無い指令（side_effect=False の POST）として着地"
+             "できるが、L2 カーネルを dry-run で呼ぶ入力組み立てが "
+             "v3/runtime/reduce.py 側にあり、そこは 1,078 行で分割待ち。"
+             "同一スライスで触ると分割と機能追加が混ざる"),
+    Deferred("C7", "可変キーの変更・解除", Owner.CONFIG,
+             "**着地させてはならない状態**: v3 の 3 層解決は "
+             "v3/kernel/threshold.py の Threshold.registry_backed が "
+             "legacy radar.config_layered に委譲して終端する。v3 側に "
+             "override を書いても解決経路がそれを読まないため、"
+             "commit の効果検証が必ず失敗する — つまり今 C7 を出すことは "
+             "G-15 の再生産そのもの。解決経路を v3 に移す設計判断が先"),
+    Deferred("C8", "ノイズ除外規則", Owner.SCORING_TICK,
+             "消費者は採点ティック。規則を fold から読ませる配線が "
+             "v3/runtime 側の変更（reduce.py の分割を含む）になる。"
+             "配線前に出すと『除外したのに除外されない』"),
+    Deferred("C10", "AP3 人間アンカー", Owner.API_COMMANDS,
+             "設問の生成側（S1-UI-028 の独立性を壊さない出題）が未着地。"
+             "回答だけ受け取っても採点されない"),
     Deferred("C11", "シナリオ CRUD", Owner.API_COMMANDS,
-             "シナリオストア（WP-3.3）に依存"),
-    Deferred("C12", "LLM 運用族", Owner.API_COMMANDS, "書込面"),
-    Deferred("C13", "auth 族", Owner.API_COMMANDS,
-             "principal の供給元。現状は binding が供給する形のみ定義"),
+             "シナリオは合成ルート（v3/runtime/geo.py）が供給する。"
+             "指令台帳を第 2 の供給源にすると 2 系統が乖離する"),
+    Deferred("C12", "LLM 運用族", Owner.API_COMMANDS,
+             "kill switch は NP3 上重要だが、消費者は v3/fetch/llm.py。"
+             "fold を読ませる配線が無い状態で出すと"
+             "『止めたのに止まらない』"),
+    Deferred("C13", "auth 族", Owner.AUTH,
+             "principal の供給元。利用者ストアとパスワード機構は"
+             "この面より大きく、単独スライスが適切"),
 )
+
+
+#: P7 §1.3's transport, registered as deferred rather than left as an
+#: absence. WP-4.1c examined it and declined; the reason is here so the
+#: decline is reviewable (「黙って残す選択肢は存在しない」).
+WS_TRANSPORT: Deferred = Deferred(
+    "WS", "1 チャネル 4 イベントの socket 層", Owner.FRONTEND,
+    "語彙（v3/api/ws.py）は着地済で、`theater` 系イベントは既に消えている。"
+    "transport を出さなかった理由は依存ではなく**発行者が存在しない**こと: "
+    "4 イベントのうち attention_update は R6（繰延）、notification_result は "
+    "v3 に通知系が無く、sensor_status/conclusion_update の発行者は採点ティック"
+    "（v3/runtime、reduce.py の 800 行分割を含む配線）。発行者ゼロのチャネルは"
+    "「読み手のいない書込み」の鏡像であり、本 WP が C4/C7/C8 を繰延した理由と"
+    "同じ規律で繰延する。flask-socketio は依存に存在するため技術的障害は無い")
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,7 +243,8 @@ def coverage() -> dict:
             "unaccounted": sorted(unaccounted())}
 
 
-__all__ = ["SERVED", "DEFERRED", "DUPLICATE_PAIRS", "P7_SURFACE",
+__all__ = ["SERVED", "DEFERRED", "WS_TRANSPORT", "DUPLICATE_PAIRS",
+           "P7_SURFACE",
            "READ_SURFACE", "COMMAND_SURFACE", "WS_EVENTS", "Owner",
            "Served", "Deferred", "DuplicatePair", "served_ids",
            "deferred_ids", "unaccounted", "double_counted", "coverage"]

@@ -46,8 +46,8 @@ from typing import Iterable, Optional
 from v3.kernel import ThreatLevel, Window
 from v3.kernel.errors import DomainError
 from v3.ledger import schema as schema_module
-from v3.ledger.records import (ConclusionRecord, SignalObservation,
-                               TLObservation)
+from v3.ledger.records import (CommandRecord, ConclusionRecord,
+                               SignalObservation, TLObservation)
 
 log = logging.getLogger("v3.ledger")
 
@@ -81,6 +81,21 @@ def _require_same_tick(stored, incoming: dict, *, tick_id: str,
                 f"{field}={value!r}. A replayed tick must be identical; a "
                 f"divergent one means the producer is not deterministic "
                 f"(S5-VERIF-019).")
+
+
+def _command_row(row) -> dict:
+    """One `command_record` row with its JSON columns already decoded.
+
+    Decoded HERE rather than by each caller, because the fold compares a
+    stored `after` against a freshly computed one: a caller that forgot to
+    decode would compare a string to a value, find them unequal, and
+    conclude the write had not taken effect.
+    """
+    decoded = dict(row)
+    for column, key in (("before_json", "before"), ("after_json", "after"),
+                        ("payload", "payload")):
+        decoded[key] = json.loads(decoded.pop(column))
+    return decoded
 
 
 class LedgerStore:
@@ -514,6 +529,79 @@ class LedgerStore:
     def count_conclusions(self) -> int:
         return int(self._read_connection().execute(
             "SELECT COUNT(*) FROM conclusion").fetchone()[0])
+
+    # ── commands (append-only; the row IS the change) ───────────────────
+    def append_command(self, record: CommandRecord, *,
+                       connection=None) -> int:
+        """Record one command. Returns its sequence number.
+
+        The only writer of `command_record`, and the only method the L6
+        write seam (`v3.api.writeonly.CommandLedger`) forwards. Both
+        halves of that sentence are verified by AST in
+        `tests/test_api_write_seam.py`, because "the command surface
+        writes through one door" is otherwise a claim about intent.
+
+        No `INSERT OR IGNORE`, unlike its siblings: a duplicate command_id
+        means two different commands were assigned the same identity, and
+        swallowing that would silently drop an analyst's decision. The
+        UNIQUE constraint raises instead.
+        """
+        if not isinstance(record, CommandRecord):
+            raise TypeError(
+                f"append_command expects a CommandRecord, got "
+                f"{type(record).__name__}: a kwargs bag would let a caller "
+                f"omit the actor, and an audit row with no actor is the "
+                f"shape G-01 produced")
+        with self._maybe_transaction(connection) as conn:
+            cursor = conn.execute(
+                "INSERT INTO command_record "
+                "(command_id, action, target_kind, target_id, actor_id, "
+                " actor_role, issued_at, recorded_at, before_json, "
+                " after_json, reason, payload) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (record.command_id, record.action, record.target_kind,
+                 record.target_id, record.actor_id, record.actor_role,
+                 record.issued_at, time.time(), record.before_json(),
+                 record.after_json(), record.reason, record.payload_json()))
+            return int(cursor.lastrowid)
+
+    def command_records(self, *, action: Optional[str] = None,
+                        target_kind: Optional[str] = None,
+                        target_id: Optional[str] = None,
+                        actor_id: Optional[str] = None,
+                        until: Optional[float] = None,
+                        limit: Optional[int] = None) -> list:
+        """Command rows, OLDEST FIRST — the order a fold has to see them.
+
+        `until` is what makes a command state replayable: the effective
+        focus (or label, or ground-truth set) at an instant is this list
+        bounded at that instant and folded, which is the same projection
+        the live read performs with `until=now`. P7's derivation principle
+        4 applied to the write side — there is no replay-only path.
+        """
+        query = ["SELECT * FROM command_record WHERE 1 = 1"]
+        params: list = []
+        for column, value in (("action", action),
+                              ("target_kind", target_kind),
+                              ("target_id", target_id),
+                              ("actor_id", actor_id)):
+            if value is not None:
+                query.append(f" AND {column} = ?")
+                params.append(value)
+        if until is not None:
+            query.append(" AND issued_at <= ?")
+            params.append(float(until))
+        query.append(" ORDER BY issued_at ASC, id ASC")
+        if limit is not None:
+            query.append(" LIMIT ?")
+            params.append(int(limit))
+        rows = self._read_connection().execute("".join(query),
+                                               params).fetchall()
+        return [_command_row(row) for row in rows]
+
+    def count_commands(self) -> int:
+        return int(self._read_connection().execute(
+            "SELECT COUNT(*) FROM command_record").fetchone()[0])
 
     # ── baselines (explicit job only) ───────────────────────────────────
     def update_baselines(self, observations: Iterable[SignalObservation], *,

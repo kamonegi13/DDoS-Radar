@@ -55,8 +55,10 @@ READ_METHODS: frozenset = frozenset({
     "baseline_phase_values",
     "baseline_value_rows",
     "checkpoint",
+    "command_records",
     "conclusion_by_id",
     "conclusions_between",
+    "count_commands",
     "count_conclusions",
     "count_conclusions_with_prompt_ref",
     "count_signal_source_observations",
@@ -86,6 +88,7 @@ READ_METHODS: frozenset = frozenset({
 #: `test_the_two_sets_are_disjoint_and_total` — a default is how G-01
 #: happened, so there is no default.
 WRITE_METHODS: frozenset = frozenset({
+    "append_command",
     "append_conclusion",
     "append_entity_observation",
     "append_signal",

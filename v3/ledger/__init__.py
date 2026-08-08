@@ -14,8 +14,8 @@ built for.
 Nothing here has import-time side effects, and nothing imports the legacy
 `radar` package.
 """
-from v3.ledger.records import (ConclusionRecord, SignalObservation,
-                               TLObservation)
+from v3.ledger.records import (CommandRecord, ConclusionRecord,
+                               SignalObservation, TLObservation)
 from v3.ledger.schema import (CONCLUSION_RETENTION_DAYS, RETENTION_POLICIES,
                               SIGNAL_RETENTION_DAYS, RetentionPolicy)
 from v3.ledger.store import LedgerStore

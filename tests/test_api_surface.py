@@ -163,11 +163,29 @@ class TestTheSurfaceAccounting:
 
 
 class TestEveryRouteIsAProjection:
-    """Condition 1 restated over the table: nothing declared writes."""
+    """Condition 1 restated over the table, in both directions.
 
-    def test_no_declared_route_has_a_side_effect(self):
+    Until WP-4.1c the table held only reads, so "no route has a side
+    effect" was the whole rule. With commands on it the rule splits, and
+    the second half is the new one: a command that FAILS to declare its
+    effect is as wrong as a read that declares one. An undeclared effect
+    would be handed a read context by the dispatcher and would then have
+    nothing to write through — a POST that silently did nothing.
+    """
+
+    def test_no_safe_method_route_has_a_side_effect(self):
+        from v3.api.vocabulary import SAFE_METHODS
         for route in R.ROUTES:
-            assert route.side_effect is False, route.route_id
+            if route.method in SAFE_METHODS:
+                assert route.side_effect is False, route.route_id
+
+    def test_every_unsafe_method_route_declares_its_side_effect(self):
+        from v3.api.vocabulary import SAFE_METHODS
+        unsafe = [route for route in R.ROUTES
+                  if route.method not in SAFE_METHODS]
+        assert unsafe, "the command surface is empty"
+        for route in unsafe:
+            assert route.side_effect is True, route.route_id
 
     def test_a_get_declaring_a_side_effect_is_refused(self):
         from v3.api.authorization import Access

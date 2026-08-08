@@ -46,6 +46,7 @@ def _flask_rule(path: str) -> str:
 
 def create_blueprint(context_factory: Callable[[], ReadContext], *,
                      principal_factory: Optional[Callable] = None,
+                     write_context_factory: Optional[Callable] = None,
                      name: str = "v3_api"):
     """Build a Flask blueprint over the route table.
 
@@ -53,6 +54,18 @@ def create_blueprint(context_factory: Callable[[], ReadContext], *,
     way a request reaches the ledger — so the seam that makes reads
     side-effect-free (a `ReadOnlyLedger` inside a `ReadContext`) is also
     the seam the web layer has to go through.
+
+    `write_context_factory` is separate and optional, and both facts are
+    deliberate. Separate, because a read route must never be able to
+    receive a writer even by a factory's mistake. Optional, because a
+    deployment that has not been given one answers 503 to every command
+    rather than silently accepting writes it cannot audit — the state of
+    the surface is then a fact about the composition root, which is where
+    that decision belongs (WP-4.1a).
+
+    It is called with the resolved principal, never with a request: a
+    command's actor is decided by the same resolution the route's access
+    decision used, so the two cannot disagree.
     """
     from flask import Blueprint, jsonify, request as flask_request
 
@@ -70,15 +83,26 @@ def create_blueprint(context_factory: Callable[[], ReadContext], *,
                 "here is how a client-supplied string becomes a privilege")
         return resolved
 
+    def _context(route, principal):
+        # An anonymous caller on a command route gets a ReadContext on
+        # purpose: `handle` evaluates access BEFORE it chooses a context,
+        # so the answer is 401 from the declared order rather than a
+        # construction error about a missing actor.
+        if (route.side_effect and write_context_factory is not None
+                and not getattr(principal, "is_anonymous", True)):
+            return write_context_factory(principal)
+        return context_factory()
+
     def _make_view(route):
         def view(**path_params):
-            context = context_factory()
+            principal = _principal()
+            context = _context(route, principal)
             api_request = ApiRequest(
                 method=getattr(flask_request, _METHOD_ATTR),
                 path=flask_request.path,
                 params=dict(flask_request.args),
                 body=(flask_request.get_json(silent=True) or {}),
-                principal=_principal())
+                principal=principal)
             response = handle(api_request, context)
             return jsonify(response.as_dict()), response.status
 
