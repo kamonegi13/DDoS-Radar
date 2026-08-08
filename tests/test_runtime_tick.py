@@ -14,6 +14,7 @@ clock, in a temporary ledger:
     monitoring when something breaks is the failure mode, not the
     symptom).
 """
+import dataclasses
 import threading
 
 import pytest
@@ -247,6 +248,28 @@ class TestTheTickRunsEndToEnd:
         assert report.observations_written == 2
         assert report.tick_id == f"t{int(NOW)}"
         assert store.count_conclusions() > 0
+
+    def test_the_context_an_adapter_receives_names_the_adversaries(
+            self, store, geography):
+        """The seam that was broken. `usgs_seismic`'s own unit tests always
+        passed an adversary set, so the adapter's nuclear-candidate logic
+        was covered — what nothing covered was the SUPPLIER, which handed
+        every adapter an empty tuple. The detection was dead in the running
+        system while its tests were green, so the test has to live where
+        the real context is built."""
+        seen: list = []
+
+        def _record(payload, context):
+            seen.append(context)
+            return ()
+
+        recorder = _adapter("usgs_seismic", "physical", ())
+        recorder = dataclasses.replace(recorder, normalize=_record)
+        tick.run_tick(now=NOW, registry=AdapterRegistry([recorder]),
+                      store=store, client=_Client(), geography=geography,
+                      scenario_ids=("taiwan_contingency",))
+        assert seen, "the adapter was never normalized"
+        assert seen[0].adversaries == ("CN",)
 
     def test_the_storm_reaches_the_ledger_as_a_suppression(self, store,
                                                            geography):

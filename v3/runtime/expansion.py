@@ -42,9 +42,14 @@ from v3.kernel.errors import DomainError
 from v3.runtime.geo import Geography, Zone
 
 #: Adapters whose one declaration becomes one request per participant.
+#: `cloudflare_radar` is here for its FOUR origin requests only — its
+#: other four declarations carry no placeholder, and `expand_requests`
+#: recognises a spec whose text does not vary across the scopes as a
+#: single global request, so the BGP and target-ranking calls stay one
+#: each rather than becoming N identical rate-limited queries.
 COUNTRY_SCOPED: frozenset = frozenset({
-    "gdelt", "greynoise", "ooni_censorship", "opensky", "openweather",
-    "peeringdb_ixp", "ripe_atlas", "ripe_bgp", "tor_metrics",
+    "cloudflare_radar", "gdelt", "greynoise", "ooni_censorship", "opensky",
+    "openweather", "peeringdb_ixp", "ripe_atlas", "ripe_bgp", "tor_metrics",
 })
 #: Adapters whose one declaration becomes one request per ISR ZONE.
 #: Separated from the above because the count differs — 30 requests, not
@@ -251,12 +256,31 @@ def for_cycle(geography: Geography, countries: Sequence[str], *,
 
 
 def context_for(adapter, geography: Geography, countries: Sequence[str], *,
-                now: float) -> NormalizeContext:
+                now: float, adversaries: Sequence[str]) -> NormalizeContext:
     """The pure-function context `normalize` is called with.
 
     Everything is supplied rather than read, which is what keeps
     `normalize` replayable from a recorded payload: the same bytes and the
     same context give the same drafts a year later.
+
+    `adversaries` has NO default, and that is the fix rather than an
+    inconvenience. It was hard-coded to `()` here, which read as "this
+    deployment has no adversaries" to every adapter that asks — and
+    `usgs_seismic` asks in order to decide whether a shallow quake sits in
+    adversary territory. With an empty set its nuclear-test candidate list
+    is unconditionally empty, so `has_nuclear` is permanently False: the
+    adapter could not reach STATUS_FIRED or its 3.0, and worse, its
+    `suppressed = has_cable_threat and not has_nuclear` had no reachable
+    un-suppressing branch, so every quake near a cable was suppressed
+    forever. A silence that reads as calm, which is this programme's
+    signature defect. A parameter with a default can be forgotten a second
+    time; a required one cannot.
+
+    Production supplies the SENSOR-side set as the union across focused
+    scenarios (`radar/scheduler.py:56-68`), which is a different set from
+    the scoring-side one that `core.py:590` reads from the single focused
+    scenario. v3 matches the sensor side here and registers the scoring
+    side separately (§7-2 #119).
     """
     scope = tuple(dict.fromkeys(str(c).upper() for c in countries))
     return NormalizeContext(
@@ -264,7 +288,8 @@ def context_for(adapter, geography: Geography, countries: Sequence[str], *,
         country_coordinates=geography.country_coordinates,
         country_names=geography.country_names,
         chokepoints=geography.chokepoints_for(scope),
-        adversaries=(),
+        adversaries=tuple(dict.fromkeys(
+            str(code).upper() for code in adversaries)),
         tactical_keywords=geography.tactical_keywords,
         geo_terms=geography.geo_terms)
 

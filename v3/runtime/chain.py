@@ -29,28 +29,35 @@ Two steps, transcribed from two places, AST-verified in
      a tie resolves alphabetically. Reproduced exactly, because a tie is
      the ordinary state of a quiet tick.
 
-**The registered difference is the ordering quantity, and it is forced.**
-Production ranks by `avg_spike` (`core.py:817`), computed from the
-per-target ATTACK ORIGIN distribution (`core.py:747-748`) against a
-90-day origin baseline (`core.py:741-742`). v3 does not compute it — §7-2
-#9 records that, and S1-SCORE-025/029/030 are excluded from L2 as
-derived-observation producers — but the harder fact is that v3 never
-FETCHES it: `CLOUDFLARE_RADAR_ADAPTER` declares four requests and none is
-`attacks/layer{3,7}/top/locations/origin`. So this is not a wiring gap L1
-could close; the input is not in the ledger at all.
+**The ordering quantity is production's now, and where it is not, the row
+says so.** Production ranks by `avg_spike` (`core.py:817`), computed from
+the per-target ATTACK ORIGIN distribution (`core.py:748-749`) against a
+baseline-window distribution (`core.py:740-741`; the window is
+`BASELINE_DATE_RANGE` = 28 days, not the 90 the register recorded). §7-2
+#116 registered that v3 ranked by something else, and the obstacle it
+named was not derivation but ACQUISITION: `CLOUDFLARE_RADAR_ADAPTER`
+declared four requests and none was the origin endpoint. It declares
+them now, `v3/runtime/spike.py` computes the ratio, and the composition
+root reads the resulting `cf_spike_core` rows and hands them here.
 
-The stand-in is the smallest honest thing that is still a live
-measurement: **the sum of this tick's ADMITTED evidence naming the
-country**, using the kernel's own `admits()` predicate rather than a new
+**The stand-in survives, narrowed, for the tick where the measurement does
+not exist** — a fresh deployment, or a cycle where every core's fetch
+failed. It is the sum of this tick's ADMITTED evidence naming the
+country, using the kernel's own `admits()` predicate rather than a new
 one, and unweighted by coupling weight because `avg_spike` is unweighted
-too. Direction of the difference: v3 reads all three domains where
-production reads a cyber DDoS spike, so v3 can select a belligerent
-production would not when the escalation is visible outside cyber. That
-direction favours recall (NP1) and it is registered in §7-2 as #116.
+too. Production's own answer in that situation is degenerate (every core
+defaults to 0 and `max` returns the alphabetically first), so the
+fallback is chosen for NP1: more evidence beats alphabetical order.
+
+**Which quantity ranked which scenario is published** (`rankings`). NP6
+is about the derivation, and "IR owns the chain" derived from a measured
+spike and derived from a warm-up fallback are two different claims that
+must not print the same.
 """
 from __future__ import annotations
 
-from typing import Sequence
+from dataclasses import dataclass
+from typing import Mapping, Optional, Sequence
 
 from v3.kernel import Ratio
 from v3.scoring import Observation, Scenario
@@ -61,6 +68,38 @@ from v3.scoring import Observation, Scenario
 PRINCIPAL_BELLIGERENT = "principal_belligerent"
 #: `radar/scenarios.py:590` — `p.weight >= 0.9`.
 CORE_WEIGHT_FLOOR = 0.9
+
+#: The two quantities a ranking can be made of, and where each comes from.
+BASIS_AVG_SPIKE = "avg_spike"
+BASIS_ADMITTED_EVIDENCE = "admitted_evidence"
+BASIS_PRODUCTION_REF: Mapping[str, str] = {
+    BASIS_AVG_SPIKE: ("radar/routes/core.py:817 (avg_spike) / :878-881 "
+                      "(max over effective_cores)"),
+    BASIS_ADMITTED_EVIDENCE: ("§7-2 #116 — v3 stand-in: the sum of this "
+                              "tick's admitted evidence naming the country, "
+                              "used only when no core has a measured "
+                              "avg_spike"),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ChainRanking:
+    """Who owns the chain, by what quantity, with every candidate's value.
+
+    The values are carried, not just the winner: a ranking that publishes
+    only its answer cannot be argued with, and the focused bonus reads a
+    different escalation chain depending on this one string.
+    """
+
+    scenario_id: str
+    owner: str
+    basis: str
+    values: Mapping[str, float]
+
+    def as_dict(self) -> dict:
+        return {"owner": self.owner, "basis": self.basis,
+                "values": dict(self.values),
+                "production_ref": BASIS_PRODUCTION_REF[self.basis]}
 
 
 def effective_cores(scenario: Scenario) -> tuple[str, ...]:
@@ -78,17 +117,13 @@ def effective_cores(scenario: Scenario) -> tuple[str, ...]:
         and participant.weight >= floor))
 
 
-def escalation_intensity(observations: Sequence[Observation],
-                         country: str) -> float:
-    """How hard this country is being hit, from THIS tick's readings.
+def admitted_evidence(observations: Sequence[Observation],
+                      country: str) -> float:
+    """The fallback quantity: this tick's admitted score naming a country.
 
-    The stand-in for `avg_spike` (see the module docstring for why one is
-    needed and what the difference costs). `admits()` is the kernel's own
-    "does this reading contribute score" predicate — reusing it means the
-    ranking cannot admit evidence the score itself would refuse.
-
-    A country with no reading scores 0.0, which is production's default
-    for the same lookup (`target_details.get(ec, {}).get('avg_spike', 0)`).
+    `admits()` is the kernel's own "does this reading contribute score"
+    predicate — reusing it means the ranking cannot admit evidence the
+    score itself would refuse.
     """
     wanted = country.upper()
     return sum(observation.score for observation in observations
@@ -97,8 +132,55 @@ def escalation_intensity(observations: Sequence[Observation],
                        for entry in observation.countries))
 
 
-def chain_owner(scenario: Scenario,
-                observations: Sequence[Observation]) -> str:
+def escalation_intensity(observations: Sequence[Observation], country: str, *,
+                         spikes: Optional[Mapping[str, float]] = None
+                         ) -> float:
+    """How hard this country is being hit, by whichever quantity applies.
+
+    A supplied, non-empty `spikes` mapping IS the quantity — production's
+    `avg_spike`, measured this tick. A country missing from it scores 0.0,
+    which is production's own default for the same lookup
+    (`target_details.get(ec, {}).get('avg_spike', 0)`), NOT a silent
+    switch to the other quantity: mixing a spike ratio with a score sum
+    inside one comparison would rank two countries on different scales.
+    """
+    if spikes:
+        return float(spikes.get(country.upper(), 0.0))
+    return admitted_evidence(observations, country)
+
+
+def ranking_for(scenario: Scenario, observations: Sequence[Observation],
+                spikes: Optional[Mapping[str, float]] = None
+                ) -> Optional[ChainRanking]:
+    """This scenario's ranking, or None when it has no candidate at all.
+
+    The basis is decided per SCENARIO, over its own cores: a spike
+    mapping that happens to hold some other scenario's country says
+    nothing about this one, and using it would rank every core here at
+    production's 0.0 default — which resolves alphabetically and is
+    exactly the static answer the WP-4.4 ruling forbade.
+    """
+    cores = effective_cores(scenario)
+    if not cores:
+        return None
+    measured = {core: float(spikes[core]) for core in cores
+                if spikes and core in spikes}
+    basis = BASIS_AVG_SPIKE if measured else BASIS_ADMITTED_EVIDENCE
+    if measured:
+        values = {core: measured.get(core, 0.0) for core in cores}
+    else:
+        values = {core: admitted_evidence(observations, core)
+                  for core in cores}
+    # `max` returns the FIRST maximal element and `cores` is sorted, so a
+    # tie resolves alphabetically — production's rule, and a tie is the
+    # ordinary state of a quiet tick.
+    return ChainRanking(scenario_id=scenario.scenario_id,
+                        owner=max(cores, key=lambda core: values[core]),
+                        basis=basis, values=values)
+
+
+def chain_owner(scenario: Scenario, observations: Sequence[Observation],
+                spikes: Optional[Mapping[str, float]] = None) -> str:
     """`primary_ec`, for this scenario, at this tick. `""` when undecidable.
 
     Empty means the scenario declares no core country AND has no
@@ -106,15 +188,14 @@ def chain_owner(scenario: Scenario,
     geography, not a missing measurement, so it is announced at
     composition rather than papered over here.
     """
-    cores = effective_cores(scenario)
-    if not cores:
-        return ""
-    return max(cores, key=lambda core: escalation_intensity(observations,
-                                                            core))
+    ranking = ranking_for(scenario, observations, spikes)
+    return ranking.owner if ranking else ""
 
 
 def chain_owners(scenarios: Sequence[Scenario],
-                 observations: Sequence[Observation]) -> dict[str, str]:
+                 observations: Sequence[Observation],
+                 spikes: Optional[Mapping[str, float]] = None
+                 ) -> dict[str, str]:
     """One owner per scenario that has one. THE mapping the kernel wants.
 
     Scenarios with no decidable owner are ABSENT rather than empty:
@@ -122,12 +203,20 @@ def chain_owners(scenarios: Sequence[Scenario],
     an empty string smuggled in as an owner would make the bonus fold
     read a chain nobody owns.
     """
-    owners: dict[str, str] = {}
+    return {scenario_id: row["owner"] for scenario_id, row
+            in rankings(scenarios, observations, spikes).items()}
+
+
+def rankings(scenarios: Sequence[Scenario],
+             observations: Sequence[Observation],
+             spikes: Optional[Mapping[str, float]] = None) -> dict[str, dict]:
+    """Every decidable scenario's ranking, WITH the quantity used (NP6)."""
+    disclosed: dict[str, dict] = {}
     for scenario in scenarios:
-        owner = chain_owner(scenario, observations)
-        if owner:
-            owners[scenario.scenario_id] = owner
-    return owners
+        ranking = ranking_for(scenario, observations, spikes)
+        if ranking is not None and ranking.owner:
+            disclosed[scenario.scenario_id] = ranking.as_dict()
+    return disclosed
 
 
 def scenarios_without_cores(scenarios: Sequence[Scenario]) -> tuple[str, ...]:
@@ -136,6 +225,8 @@ def scenarios_without_cores(scenarios: Sequence[Scenario]) -> tuple[str, ...]:
                  if not effective_cores(scenario))
 
 
-__all__ = ["effective_cores", "escalation_intensity", "chain_owner",
-           "chain_owners", "scenarios_without_cores",
-           "PRINCIPAL_BELLIGERENT", "CORE_WEIGHT_FLOOR"]
+__all__ = ["effective_cores", "escalation_intensity", "admitted_evidence",
+           "ranking_for", "rankings", "chain_owner", "chain_owners",
+           "scenarios_without_cores", "ChainRanking",
+           "PRINCIPAL_BELLIGERENT", "CORE_WEIGHT_FLOOR", "BASIS_AVG_SPIKE",
+           "BASIS_ADMITTED_EVIDENCE", "BASIS_PRODUCTION_REF"]

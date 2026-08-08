@@ -47,12 +47,12 @@ from v3.kernel.errors import DomainError
 from v3.runtime.reduce_common import (CHECKHOST_URL_OK_RATE,  # noqa: F401
                                       NARRATIVE_SOURCE_PREFIX, PENDING_PREFIX,
                                       Reduction)
+from v3.runtime.reduce_cyber import _fold_cloudflare
 from v3.runtime.reduce_info import (_fold_ct_log, _fold_gdelt,
                                     _fold_named_sources, _fold_ripe_bgp,
                                     _fold_tor)
-from v3.runtime.reduce_physical import (_fold_ais, _fold_cf_bgp,
-                                        _fold_check_host, _fold_ihr,
-                                        _fold_isr, _fold_mil_air,
+from v3.runtime.reduce_physical import (_fold_ais, _fold_check_host,
+                                        _fold_ihr, _fold_isr, _fold_mil_air,
                                         _fold_ripe_atlas,
                                         _fold_space_weather)
 
@@ -65,9 +65,11 @@ REDUCTIONS: tuple[Reduction, ...] = (
     Reduction("mil_support_air", _fold_mil_air, "§3-5 H-1(b)",
               "radar/sensors/mil_support_air.py:128-158 / core.py:1753-1800",
               "sum per category, then the three-threshold OR ladder"),
-    Reduction("cloudflare_radar", _fold_cf_bgp, "§7-2 #12, #13",
-              "radar/routes/core.py:1150-1170",
-              "hijack OR leak into one cf_bgp_hijack entry"),
+    Reduction("cloudflare_radar", _fold_cloudflare, "§7-2 #12, #13, #9, #11",
+              "radar/routes/core.py:1150-1170 / :762-817 / :1006-1025",
+              "hijack OR leak into one cf_bgp_hijack entry; the four "
+              "attack-origin payloads into avg_spike and production's "
+              "one cf_spike_core entry"),
     Reduction("space_weather", _fold_space_weather, "§7-2 #11",
               "radar/sensors/space_weather.py:102-140 / core.py:1404-1410",
               "Kp OR X-ray; the joined sentence is rebuilt, not "

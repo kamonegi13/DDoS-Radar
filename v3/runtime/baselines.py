@@ -36,6 +36,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Optional, Sequence
 
+from v3.ledger import records
+
 HOUR_SEC = 3600
 DAY_SEC = 86400
 
@@ -165,7 +167,27 @@ ENTITY_BASELINES: Mapping[str, EntityBaseline] = {
             ref="ais_vessel_history", kind="series", sensor="ais_maritime",
             entity_kind="mmsi", per_entity=1,
             production_ref="radar/sensors/ais_maritime.py:112-152"),
+        EntityBaseline(
+            # One snapshot per TARGET, and one is the whole of it: the
+            # 28-day window this is a baseline OVER lives in the query
+            # string (`dateRange=BASELINE_DATE_RANGE`), not in the
+            # ledger, so production stores exactly one row per target and
+            # replaces it when it is over a day old
+            # (`core.py:738-742`). A deeper series here would be a window
+            # production does not have and could not be replayed from.
+            ref="cf_origin_baseline", kind="series", sensor="cloudflare_radar",
+            entity_kind="country", per_entity=1,
+            production_ref="radar/routes/core.py:738-742"),
     )}
+
+#: NOT a baseline, and it travels in the same mapping anyway. The spike
+#: floor is 0.5% for an adversary origin and 3.0%/2.0% for anyone else
+#: (`core.py:775-777`), which is a six-fold difference in what counts as
+#: an attack; the set comes from the scenario declarations, not from L1.
+#: It rides here because a pure fold's only channel IS what the
+#: composition root hands it, and a second argument on all fifteen folds
+#: to carry one adapter's value would be the wider change.
+ADVERSARY_ORIGINS = "adversary_origins"
 
 #: Declared baselines nothing can answer yet, with a MEASURED reason —
 #: measured, because each was read out of production rather than guessed.
@@ -200,15 +222,18 @@ UNANSWERABLE: Mapping[str, str] = {
 
 #: Supply is wired and the read works, but the CONSUMER still cannot
 #: decide — so the score is still withheld and §7-2 #9 still stands.
-VERDICT_WITHHELD: Mapping[str, str] = {
-    "cf_attack_share_baseline":
-        "the read is wired (baseline_id `hod`, sensor `hod_baseline`) but "
-        "the Z-score's INPUT does not exist in v3: production compares "
-        "`avg_spike` (`core.py:817`), a derived observation built from the "
-        "attack-origin distribution, and S1-SCORE-025/029/030 are excluded "
-        "from L2 as derived-observation producers. A baseline cannot make "
-        "a verdict out of a measurement nobody takes",
-}
+#:
+#: EMPTY as of WP-4.1d. `cf_attack_share_baseline` was the last entry: its
+#: rows were readable for a whole phase while the quantity they judge —
+#: `avg_spike` — was neither computed NOR fetched, and a baseline cannot
+#: make a verdict out of a measurement nobody takes. The adapter now
+#: declares `attacks/layer{3,7}/top/locations/origin`,
+#: `v3/runtime/spike.py` computes the ratio and
+#: `reduce_cyber._fold_cf_spike` reaches production's ladder. The mapping
+#: stays because the distinction it encodes is the one §7-2 #9 turns on:
+#: storage being present is not the same fact as a consumer being able to
+#: decide, and collapsing the two is how a family gets retired half-wired.
+VERDICT_WITHHELD: Mapping[str, str] = {}
 
 
 def previous_cycle(store, *, now: float, countries: Sequence[str]
@@ -280,16 +305,24 @@ def entity_history(store) -> dict:
     return resolved
 
 
-def for_cycle(store, *, now: float, countries: Sequence[str]) -> dict:
+def for_cycle(store, *, now: float, countries: Sequence[str],
+              adversaries: Sequence[str] = ()) -> dict:
     """Every baseline this cycle can be given, in one mapping.
 
     One call so that the ordering obligation — read before write — is
     stated once, in the composition root, rather than remembered at each
     of three call sites.
+
+    `adversaries` is the one entry that is not history (see
+    `ADVERSARY_ORIGINS`). It is always set, including to an empty tuple:
+    absent, a fold could not tell "no adversary is declared" from "nobody
+    supplied the list", and the two produce spikes six times apart.
     """
     supplied = previous_cycle(store, now=now, countries=countries)
     supplied.update(phase_history(store, now=now, countries=countries))
     supplied.update(entity_history(store))
+    supplied[ADVERSARY_ORIGINS] = tuple(
+        sorted({str(code).upper() for code in adversaries}))
     return supplied
 
 
@@ -314,16 +347,14 @@ def carried_values(store, *, now: float) -> dict:
 
 
 def _flag(row: Mapping, key: str):
-    flags = row.get("flags")
-    if isinstance(flags, str):
-        import json
-        try:
-            flags = json.loads(flags)
-        except ValueError:
-            return None
-    if not isinstance(flags, Mapping):
-        return None
-    value = flags.get(key)
+    """ONE flag, typed for this module's use: a number as float, a
+    non-empty string as itself, anything else as None.
+
+    The decode is `records.flags_of`; only the per-key coercion is local,
+    because what an absent key means differs by caller — a missing
+    `gps_jamming` date skips an adapter, a missing spike skips a row.
+    """
+    value = records.flags_of(row).get(key)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return value if isinstance(value, str) and value else None
     return float(value)
@@ -372,6 +403,7 @@ def coverage(adapters: Iterable) -> dict:
 
 
 __all__ = ["PREVIOUS_CYCLE_SCALARS", "PHASE_BASELINES", "ENTITY_BASELINES",
+           "ADVERSARY_ORIGINS",
            "UNANSWERABLE", "VERDICT_WITHHELD", "PhaseBaseline",
            "EntityBaseline", "previous_cycle", "phase_history",
            "entity_history", "for_cycle", "carried_values", "declared_names",

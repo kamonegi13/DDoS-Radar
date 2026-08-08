@@ -33,9 +33,12 @@ would be a rename with no behaviour attached to it.
 """
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
+from v3.adapters.cyber.cloudflare_radar import (CLOUDFLARE_RADAR,
+                                                SPIKE_SIGNAL)
 from v3.kernel.errors import DomainError
+from v3.ledger import records
 from v3.ledger.records import TLObservation
 from v3.parity.adapter import LedgerInputAdapter, to_v3_observations
 from v3.runtime import chain
@@ -138,6 +141,52 @@ def observations_at(store, *, now: float,
     return ()
 
 
+def spike_intensity(store, *, now: float,
+                    tick_interval_sec: float = DEFAULT_TICK_INTERVAL_SEC
+                    ) -> dict:
+    """`{country: avg_spike}` from this tick's `cf_spike_core` rows.
+
+    Production's ranking quantity (`core.py:817`), read from where the
+    fold put it. Scoped to the tick's own window for the reason
+    `observations_at` is: a spike from three days ago is not a statement
+    about who is escalating now, and ranking on one would pin the chain
+    owner to whoever was last attacked before an outage.
+
+    A country with no row is ABSENT rather than 0.0 — the difference
+    between "measured, quiet" and "not measured" is what decides whether
+    the ranking falls back at all (`v3/runtime/chain.py`).
+    """
+    resolved: dict = {}
+    for row in store.signals_between(now - float(tick_interval_sec), now,
+                                     sensor=CLOUDFLARE_RADAR.value):
+        if row.get("signal_source") != SPIKE_SIGNAL:
+            continue
+        value = records.flags_of(row).get("avg_spike")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        country = str(row.get("country") or "").upper()
+        if country:
+            resolved[country] = float(value)
+    return resolved
+
+
+def chain_rankings(store, *, now: float, scenarios: Sequence[Scenario],
+                   observations: Sequence,
+                   tick_interval_sec: float = DEFAULT_TICK_INTERVAL_SEC
+                   ) -> dict:
+    """The chain ranking WITH the quantity it used, for disclosure (NP6).
+
+    Calls the same read `assemble` ranked with rather than a second
+    implementation of it (A-02): one function, two calls in a tick, one
+    answer — a second reader of the same rows written differently is how
+    a published basis stops matching the owner it explains.
+    """
+    return chain.rankings(scenarios, observations,
+                          spikes=spike_intensity(
+                              store, now=now,
+                              tick_interval_sec=tick_interval_sec))
+
+
 def prior_state(store, *, now: float, scenario_ids: Sequence[str],
                 sequence_events: tuple = ()) -> PriorState:
     """The previous tick's levels, read from L1 rather than from memory.
@@ -219,6 +268,13 @@ def assemble(*, now: float, store, geography: Optional[Geography] = None,
             f": a focus nothing scores is a focus that silently means lite")
     observations = observations_at(store, now=now,
                                    tick_interval_sec=tick_interval_sec)
+    # Production's own ranking quantity, read from the rows the cycle's
+    # cloudflare fold wrote. Read here rather than accepted as an
+    # argument: a caller-supplied ranking quantity is a constant standing
+    # in for a measurement, which is the WP-4.4 defect the ruling struck
+    # down, and §7-2 #116's whole subject.
+    spikes = spike_intensity(store, now=now,
+                             tick_interval_sec=tick_interval_sec)
     return ScoringInputs(
         now=now,
         observations=observations,
@@ -227,7 +283,8 @@ def assemble(*, now: float, store, geography: Optional[Geography] = None,
         focused_scenario_id=focused_scenario_id,
         prior=prior if prior is not None else prior_state(
             store, now=now, scenario_ids=[s.scenario_id for s in scenarios]),
-        chain_countries=chain.chain_owners(scenarios, observations))
+        chain_countries=chain.chain_owners(scenarios, observations,
+                                           spikes=spikes))
 
 
 def score(inputs: ScoringInputs) -> TickResult:
@@ -262,4 +319,5 @@ def persist_tl(store, result: TickResult, *, tick_id: str) -> int:
 
 
 __all__ = ["settings_for", "scenarios_for", "observations_at", "prior_state",
-           "assemble", "score", "persist_tl", "DEFAULT_TICK_INTERVAL_SEC"]
+           "spike_intensity", "chain_rankings", "assemble", "score",
+           "persist_tl", "DEFAULT_TICK_INTERVAL_SEC"]

@@ -159,6 +159,12 @@ class TickReport:
     #: dual-core scenario's owner moves with the evidence, so which one it
     #: was IS part of what the tick concluded.
     chain_owners: Mapping[str, str] = field(default_factory=dict)
+    #: scenario_id -> `{owner, basis, values, production_ref}`. The same
+    #: selection with the QUANTITY that made it: production's `avg_spike`
+    #: when the origin distribution was measured this tick, the
+    #: admitted-evidence fallback when no core had one (§7-2 #116). NP6
+    #: applies to the ranking too — an owner is not a derivation.
+    chain_ranking: Mapping[str, dict] = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return {"tick_id": self.tick_id, "now": self.now,
@@ -174,17 +180,28 @@ class TickReport:
                 "scoring": dict(self.scoring),
                 "settings": dict(self.settings),
                 "attention": dict(self.attention),
-                "chain_owners": dict(self.chain_owners)}
+                "chain_owners": dict(self.chain_owners),
+                "chain_ranking": {scenario_id: dict(row) for scenario_id, row
+                                  in self.chain_ranking.items()}}
 
 
 def fetch_cycle(*, now: float, registry, store, client,
                 geography: Geography, countries: Sequence[str],
                 credentials: Optional[CredentialPlan] = None,
-                tick_id: Optional[str] = None):
-    """Steps 1-4: schedule, expand, plan, execute. Returns a CycleResult."""
+                tick_id: Optional[str] = None,
+                adversaries: Sequence[str] = ()):
+    """Steps 1-4: schedule, expand, plan, execute. Returns a CycleResult.
+
+    `adversaries` reaches the cloudflare fold, where an origin country's
+    declared role decides the floor its spike is measured against — 0.5%
+    for an adversary and 3.0%/2.0% for anyone else (`core.py:775-777`).
+    Production reads the FOCUSED scenario's list; a cycle here fetches for
+    every scored scenario at once, so the union is what is supplied.
+    """
     states = recorder.load_states(store)
     baselines = baselines_module.for_cycle(store, now=now,
-                                           countries=countries)
+                                           countries=countries,
+                                           adversaries=adversaries)
     expansions = expansion_module.for_cycle(
         geography, countries, now=now,
         carried=baselines_module.carried_values(store, now=now))
@@ -195,7 +212,8 @@ def fetch_cycle(*, now: float, registry, store, client,
         plan, registry, client=client, store=store,
         tick_id=tick_id or tick_id_for(now), countries=countries,
         context_for=lambda adapter: expansion_module.context_for(
-            adapter, geography, countries, now=now),
+            adapter, geography, countries, now=now,
+            adversaries=adversaries),
         hooks=build_hooks(state, baselines=baselines, now=now,
                           credentials=credentials))
     # Step 4b: advance the baselines, from what was just written. A stage
@@ -230,13 +248,18 @@ def score_cycle(*, now: float, store, geography: Geography,
     fixes. Resolution is bounded at `now` so a replayed tick computes with
     the override that was in force then.
 
-    Returns `(TickResult, ScoringSettings, chain_owners)`. The settings
+    Returns `(TickResult, ScoringSettings, chain_ranking)`. The settings
     come back because the report discloses them — a score whose thresholds
     are not published with it cannot be argued with (NP6) — and the chain
-    owners for the same reason: the focused bonus is computed against ONE
+    ranking for the same reason: the focused bonus is computed against ONE
     belligerent's escalation chain, chosen from this tick's observations
     (`v3/runtime/chain.py`), and a bonus whose owner nobody can name
     afterwards is a bonus nobody can check.
+
+    The ranking carries the QUANTITY as well as the winner. Production's
+    `avg_spike` and v3's admitted-evidence fallback pick the same shape of
+    answer from different measurements (§7-2 #116), so an owner published
+    without its basis is two different claims wearing one label.
     """
     settings = scoring_module.settings_for(store, config=config, at=now)
     inputs = scoring_module.assemble(
@@ -245,7 +268,9 @@ def score_cycle(*, now: float, store, geography: Geography,
         focused_scenario_id=focused_scenario_id)
     result = scoring_module.score(inputs)
     scoring_module.persist_tl(store, result, tick_id=tick_id)
-    return result, settings, dict(inputs.chain_countries)
+    return result, settings, scoring_module.chain_rankings(
+        store, now=now, scenarios=inputs.scenarios,
+        observations=inputs.observations)
 
 
 def run_tick(*, now: float, registry, store, client, geography: Geography,
@@ -296,16 +321,19 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
     cycle, state = fetch_cycle(
         now=now, registry=registry, store=store, client=client,
         geography=geography, countries=countries, credentials=credentials,
-        tick_id=identity)
+        tick_id=identity,
+        adversaries=tuple(dict.fromkeys(
+            country for scenario_id in scenarios
+            for country in adversaries_of(geography, scenario_id))))
 
     # Step 5: score. AFTER the observations are written, because the
     # scoring input is the ledger's in-force projection at `now` — the
     # same reader the parity harness uses, so what parity measures is
     # what production scored (S5-VERIF-031).
     settings_disclosure: Mapping[str, object] = {}
-    chain_owners: Mapping[str, str] = {}
+    chain_ranking: Mapping[str, dict] = {}
     if config is not None:
-        result, settings, chain_owners = score_cycle(
+        result, settings, chain_ranking = score_cycle(
             now=now, store=store, geography=geography,
             scenario_ids=scenarios, config=config, tick_id=identity,
             focused_scenario_id=focused_scenario_id)
@@ -354,7 +382,9 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
                  for scenario_id, scored in results_by_scenario.items()},
         settings=settings_disclosure,
         attention=ranking.as_dict(),
-        chain_owners=dict(chain_owners))
+        chain_owners={scenario_id: row["owner"]
+                      for scenario_id, row in chain_ranking.items()},
+        chain_ranking=dict(chain_ranking))
 
 
 __all__ = ["run_tick", "fetch_cycle", "score_cycle", "conclude",

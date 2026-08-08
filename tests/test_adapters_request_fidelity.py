@@ -133,16 +133,28 @@ class TestCloudflareRadarCanFetch:
             source
 
     def test_the_shipped_request_carries_that_header(self):
-        calls, outcomes = wire("cloudflare_radar")
-        assert len(calls) == 4          # l3, l7, hijacks, leaks
+        calls, outcomes = wire("cloudflare_radar", {"country": "TW"})
+        # l3, l7, hijacks, leaks + the four per-target attack-ORIGIN
+        # requests avg_spike is computed from (WP-4.1d, §7-2 #9/#116).
+        assert len(calls) == 8
         for call in calls:
             assert call["headers"]["Authorization"] == "Bearer cf-token"
             assert "Auth-Key" not in call["headers"]
         assert all(outcome.succeeded for outcome in outcomes)
 
+    def test_the_origin_requests_are_addressed_to_the_target(self):
+        calls, _ = wire("cloudflare_radar", {"country": "TW"})
+        origin = [call for call in calls if "locations/origin" in call["url"]]
+        assert len(origin) == 4
+        assert {tuple(call["params"])[0] for call in origin} == {
+            ("location", "TW")}
+        assert {dict(call["params"])["dateRange"] for call in origin} == {
+            "1d", "28d"}
+
     def test_without_the_token_it_refuses_rather_than_asking_anonymously(
             self):
-        calls, outcomes = wire("cloudflare_radar", credentials={})
+        calls, outcomes = wire("cloudflare_radar", {"country": "TW"},
+                               credentials={})
         assert calls == []
         assert {o.outcome for o in outcomes} == {client.AUTH_MISSING}
 
@@ -617,6 +629,11 @@ class TestNoPlaceholderCanReachTheWire:
             "ais_maritime": ["chokepoint", "lat", "latmax", "latmin", "lon",
                              "lonmax", "lonmin"],
             "check_host": ["request_id", "target_url"],
+            # WP-4.1d. Four of its eight declarations are the per-target
+            # attack-ORIGIN distribution; the other four ask about the
+            # world and carry no placeholder, which is why the expander
+            # still sends them once (`v3/runtime/expansion.py`).
+            "cloudflare_radar": ["country"],
             "ct_log": ["domain"],
             # WP-2.7. `{gdelt_query}` is the per-country search expression
             # (`QUERY_TEMPLATES`, or a name-based fallback), and

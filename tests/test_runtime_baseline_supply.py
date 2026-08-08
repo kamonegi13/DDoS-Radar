@@ -121,13 +121,21 @@ class TestTheAccountIsStillHonest:
 
     def test_a_readable_baseline_whose_consumer_still_withholds_counts_as_unanswered(
             self):
-        """§7-2 #9's condition is the SCORE. `cf_attack_share_baseline`'s
-        rows are readable and its consumer still cannot decide, so
-        reporting it as answered would retire the entry on storage."""
+        """§7-2 #9's condition is the SCORE, and the separation survives
+        its last occupant.
+
+        `cf_attack_share_baseline` sat in `withheld` for a phase: its rows
+        were readable while the quantity they judge was neither computed
+        nor fetched. WP-4.1d closed it, so the mapping is empty — but the
+        DISTINCTION is what the entry turns on, and a `coverage()` that
+        counted storage as an answer would retire a family half-wired.
+        A withheld baseline must never be reported as answered.
+        """
         report = baselines.coverage(build_registry().all())
-        assert "cf_attack_share_baseline" in report["withheld"]
-        assert "cf_attack_share_baseline" in report["unanswered"]
-        assert "cf_attack_share_baseline" not in report["answered"]
+        assert baselines.VERDICT_WITHHELD == {}
+        assert report["withheld"] == {}
+        assert set(report["withheld"]) & set(report["answered"]) == set()
+        assert set(report["withheld"]) <= set(report["unanswered"])
 
     def test_the_baselines_that_went_live_are_answered(self):
         report = baselines.coverage(build_registry().all())
@@ -618,10 +626,16 @@ class TestTheCycleAdvancesItsOwnBaselines:
         assert set(history) == {"https://a.tw", "https://b.tw"}
         assert history["https://a.tw"][0]["value"] == 12.0
 
-    def test_nothing_is_recorded_under_the_cloudflare_baseline_id(self):
+    def test_the_cloudflare_baseline_id_receives_avg_spike_and_nothing_else(
+            self):
         """Writing a DIFFERENT quantity into the migrated `hod` series
-        would corrupt 28 days of history that means `avg_spike`."""
-        assert "cf_attack_share_baseline" not in record.PHASE_SAMPLES
+        would corrupt 28 days of history that means `avg_spike`. WP-4.1d
+        made v3 compute the SAME quantity (`v3/runtime/spike.py`
+        transcribing `core.py:762-817`), so the series can advance —
+        pinned to that flag, on that signal source, so a later rename
+        cannot quietly point it at a neighbouring number."""
+        assert record.PHASE_SAMPLES["cf_attack_share_baseline"] == (
+            "cloudflare_radar", "cf_spike_core", "avg_spike")
 
 
 # ── §7-2 #73: the registered claim, measured ────────────────────────────

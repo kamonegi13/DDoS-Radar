@@ -711,7 +711,12 @@ class TestTheSplitDidNotShrinkWhatIsReasonedAbout:
     def test_the_folds_live_in_the_declared_modules(self):
         modules = {entry.fold.__module__ for entry in R.REDUCTIONS}
         assert modules <= {"v3.runtime.reduce_physical",
-                           "v3.runtime.reduce_info"}
+                           "v3.runtime.reduce_info",
+                           # WP-4.1d: `cloudflare_radar`'s BGP disjunction
+                           # and its attack-origin spike are one adapter's
+                           # two joins, and they moved together out of the
+                           # physical-domain module when the second landed.
+                           "v3.runtime.reduce_cyber"}
 
     def test_every_public_name_the_module_promises_is_still_bound(self):
         for name in R.__all__:
@@ -719,7 +724,8 @@ class TestTheSplitDidNotShrinkWhatIsReasonedAbout:
                 f"{name} is in reduce.__all__ but the split lost it"
 
     @pytest.mark.parametrize("name", ["reduce.py", "reduce_common.py",
-                                      "reduce_info.py", "reduce_physical.py"])
+                                      "reduce_info.py", "reduce_physical.py",
+                                      "reduce_cyber.py"])
     def test_each_module_is_within_the_line_limit(self, name):
         from pathlib import Path
         path = Path(__file__).resolve().parent.parent / "v3" / "runtime" / name

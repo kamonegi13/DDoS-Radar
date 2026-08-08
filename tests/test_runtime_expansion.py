@@ -171,10 +171,30 @@ class TestTheNormalizeContextIsSupplied:
         registry = build_registry()
         adapter = registry.get(registry.resolve("ais_maritime"))
         context = expansion.context_for(adapter, real_geography, ["TW"],
-                                        now=NOW)
+                                        now=NOW, adversaries=["CN"])
         assert context.countries == ("TW",)
         assert context.chokepoints
         assert all(row[3] == "TW" for row in context.chokepoints)
+
+    def test_the_adversaries_arrive_rather_than_being_empty(self,
+                                                            real_geography):
+        """The regression. `adversaries` was hard-coded to `()` here, and
+        the adapters that read it silently watched nobody."""
+        registry = build_registry()
+        adapter = registry.get(registry.resolve("usgs_seismic"))
+        context = expansion.context_for(adapter, real_geography, ["TW"],
+                                        now=NOW, adversaries=["cn", "CN"])
+        assert context.adversaries == ("CN",)
+
+    def test_omitting_the_adversaries_is_not_expressible(self,
+                                                         real_geography):
+        """No default, so the omission that caused the defect cannot be
+        written a second time."""
+        import inspect
+        parameter = inspect.signature(
+            expansion.context_for).parameters["adversaries"]
+        assert parameter.default is inspect.Parameter.empty
+        assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
 
     def test_it_reaches_no_client_or_store(self, real_geography):
         import dataclasses

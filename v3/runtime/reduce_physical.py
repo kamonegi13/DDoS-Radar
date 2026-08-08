@@ -17,9 +17,6 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Mapping, Sequence
 
-from v3.adapters.cyber.cloudflare_radar import (BGP_HIJACK_SIGNAL,
-                                                BGP_LEAK_SIGNAL,
-                                                LEAK_FIRE_THRESHOLD)
 from v3.adapters.physical.ihr_health import LADDER_RANK
 from v3.adapters.physical.opensky import (AWACS_ACTIVE, ISR_SURGE_THRESHOLD,
                                           TANKER_SURGE, TRANSPORT_SURGE,
@@ -129,56 +126,10 @@ def _fold_mil_air(drafts: Sequence[ObservationDraft],
     return reduced
 
 
-# ── §7-2 #12/#13: Cloudflare BGP disjunction ────────────────────────────
-
-def _fold_cf_bgp(drafts: Sequence[ObservationDraft],
-                 baselines: Mapping[str, Any],
-              now: float) -> list[ObservationDraft]:
-    """hijack OR leak -> the single `cf_bgp_hijack` entry (`core.py:1150-1170`).
-
-    The port's docstring assumed S1-SCORE-008's MAX fold would reassemble
-    the disjunction downstream. It would not have: the two halves shared a
-    `signal_source`, so L1 rejected the second row before any scoring saw
-    it (§7-2 #12). They were split into two names to survive the ledger,
-    and rejoined here, where the country's whole picture exists.
-
-    Untouched rows pass through: `cf_l3` / `cf_l7` are OBSERVED shares
-    whose spike verdict belongs to the scoring layer's DDoS time series,
-    not to this fold.
-    """
-    reduced = []
-    for country, group in _by_country(drafts).items():
-        hijack = next((d for d in group
-                       if d.signal_source == BGP_HIJACK_SIGNAL), None)
-        leak = next((d for d in group
-                     if d.signal_source == BGP_LEAK_SIGNAL), None)
-        reduced.extend(d for d in group
-                       if d.signal_source not in (BGP_HIJACK_SIGNAL,
-                                                  BGP_LEAK_SIGNAL))
-        if hijack is None and leak is None:
-            continue
-        hijacks = int((hijack.flags.get("count", 0) if hijack else 0) or 0)
-        ongoing = int((hijack.flags.get("ongoing", 0) if hijack else 0) or 0)
-        leaks = int((leak.flags.get("count", 0) if leak else 0) or 0)
-        fired = ongoing > 0 or leaks >= LEAK_FIRE_THRESHOLD
-        present = [d for d in (hijack, leak) if d is not None]
-        reduced.append(ObservationDraft(
-            signal_source=BGP_HIJACK_SIGNAL, domain=present[0].domain,
-            country=country,
-            status=STATUS_FIRED if fired else STATUS_OK,
-            raw_score=1.0 if fired else 0.0,
-            confidence=_min_confidence(present),
-            value=f"hijack={hijacks}(ongoing={ongoing}) leak={leaks}",
-            reason=(f"BGP manipulation detected: {ongoing} ongoing "
-                    f"hijack(s), {leaks} route leak(s)") if fired else "",
-            flags={"hijacks": hijacks, "ongoing": ongoing, "leaks": leaks,
-                   "leak_fire_threshold": LEAK_FIRE_THRESHOLD,
-                   "events": [event for d in present
-                              for event in list(d.flags.get("events", ()))],
-                   "folded_sources": [d.signal_source for d in present]},
-            evidence_url=_first_url(present)))
-    return reduced
-
+# `cloudflare_radar`'s fold moved to `reduce_cyber.py` when its
+# second half (the attack-origin spike, §7-2 #9/#116) landed: this
+# module is the PHYSICAL-domain folds, and one adapter's two halves
+# in two files is how the next reader concludes there is only one.
 
 # ── §7-2 #11: space weather's two endpoints ─────────────────────────────
 

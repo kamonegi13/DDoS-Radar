@@ -15,35 +15,32 @@ does not hold is a baseline no replay can reproduce.
 """
 from __future__ import annotations
 
-import json
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, Sequence
 
+from v3.adapters.cyber.cloudflare_radar import SPIKE_SIGNAL
+from v3.ledger import records
 from v3.ledger.baselines import record_bucket_sample
 from v3.runtime.baselines import ENTITY_BASELINES, PHASE_BASELINES
 
 #: `ref -> (sensor, signal_source, flag key holding the sample)`.
-#: Only the refs whose sample v3 actually produces appear here;
-#: `cf_attack_share_baseline` is absent because nothing in v3 computes
-#: production's `avg_spike` (see `VERDICT_WITHHELD`), and recording a
-#: different quantity under the same `baseline_id` would corrupt 28
-#: migrated days with a series that means something else.
+#: Only the refs whose sample v3 actually produces appear here.
+#: `cf_attack_share_baseline` was absent for a phase because nothing in v3
+#: computed production's `avg_spike`, and recording a DIFFERENT quantity
+#: under the same `baseline_id` would have corrupted 28 migrated days with
+#: a series that means something else. It is here now because the quantity
+#: is the same one: `v3/runtime/spike.py::origin_spike` transcribes
+#: `core.py:762-817` and the fold puts it on the row this reads.
 PHASE_SAMPLES: Mapping[str, tuple] = {
     "bgp_hod": ("ripe_bgp", "bgp", "announced_prefixes"),
     "checkhost_hod": ("check_host", "check_host", "success_rate"),
     "gdelt_dow_tone": ("gdelt", "gdelt", "tone"),
+    "cf_attack_share_baseline": ("cloudflare_radar", SPIKE_SIGNAL,
+                                 "avg_spike"),
 }
 
 
-def _flags(row: Optional[Mapping]) -> dict:
-    if not row:
-        return {}
-    flags = row.get("flags")
-    if isinstance(flags, str):
-        try:
-            flags = json.loads(flags)
-        except ValueError:
-            return {}
-    return dict(flags) if isinstance(flags, Mapping) else {}
+#: The decode lives with the encode (`v3/ledger/records.py::flags_json`).
+_flags = records.flags_of
 
 
 def _row(store, *, now: float, sensor: str, signal_source: str,
@@ -80,7 +77,8 @@ def record_entity_state(store, *, now: float,
     written = {"ct_log_domain_first_observed": 0,
                "ct_log_known_ca_per_domain": 0,
                "checkhost_latency_history": 0,
-               "ais_vessel_history": 0}
+               "ais_vessel_history": 0,
+               "cf_origin_baseline": 0}
     for country in countries:
         written["ct_log_domain_first_observed"] += _record_ct_log(
             store, now=now, country=country, written=written)
@@ -88,6 +86,8 @@ def record_entity_state(store, *, now: float,
             store, now=now, country=country)
         written["ais_vessel_history"] += _record_ais(store, now=now,
                                                      country=country)
+        written["cf_origin_baseline"] += _record_cf_origin_baseline(
+            store, now=now, country=country)
     return written
 
 
@@ -157,6 +157,39 @@ def _record_ais(store, *, now: float, country: str) -> int:
             max_samples=baseline.per_entity, now=now)
         count += 1
     return count
+
+
+def _record_cf_origin_baseline(store, *, now: float, country: str) -> int:
+    """Keep the origin baseline this cycle used, for the next one to fall
+    back to.
+
+    Production stores the same thing for the same reason
+    (`baseline_set`, `core.py:742`): the baseline is fetched, and a fetch
+    that comes back empty must not become an empty baseline — with no
+    baseline every origin sits at the minimum floor and the guard at
+    `core.py:762-765` suppresses the whole computation. One row per
+    target, replaced each cycle, because that is the shape production
+    holds; the 28-day window it is a baseline OVER is in the query string,
+    not here.
+
+    An EMPTY snapshot writes nothing. Recording it would overwrite the
+    last good answer with the failure that produced it — the exact
+    overwrite `fetch_cf_data_cached` refuses at `scoring.py:648-654`.
+    """
+    baseline = _row(store, now=now, sensor="cloudflare_radar",
+                    signal_source=SPIKE_SIGNAL,
+                    country=country).get("origin_baseline") or {}
+    layer_3 = dict((baseline.get("l3") or {})) if baseline else {}
+    layer_7 = dict((baseline.get("l7") or {})) if baseline else {}
+    if not layer_3 and not layer_7:
+        return 0
+    entity = ENTITY_BASELINES["cf_origin_baseline"]
+    store.append_entity_observation(
+        series=entity.ref, sensor=entity.sensor, entity=country,
+        observed_at=now, value=float(len(layer_3) + len(layer_7)),
+        payload={"l3": layer_3, "l7": layer_7},
+        max_samples=entity.per_entity, now=now)
+    return 1
 
 
 def record_cycle(store, *, now: float, countries: Sequence[str]) -> dict:

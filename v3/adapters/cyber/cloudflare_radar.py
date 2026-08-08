@@ -23,14 +23,28 @@ disjunction is reassembled by a WP-4.1 reduction step — see `_bgp_events`
 for why L1 cannot be asked to do it.
 
 Attack-share spikes are NOT decided here. That verdict compares against a
-DDoS time series baseline in the scoring layer (S1-SCORE-025/029/030 are
-excluded from L2 as derived-observation producers), so the L3/L7 rankings
-are reported as OBSERVED with the share in the flags.
+DDoS time series baseline (`v3/runtime/spike.py`), and the two halves it
+needs — this cycle's origin distribution and the same target's longer-range
+baseline distribution — arrive as four separate payloads, so the fold does
+it (`v3/runtime/reduce_cyber.py::_fold_cf_spike`). The L3/L7 TARGET
+rankings stay OBSERVED with the share in the flags: they are the global
+share of attack traffic, a different quantity from the per-target origin
+distribution the spike is computed from.
+
+**The origin requests are the input §7-2 #9 and #116 were both waiting
+for.** Production asks `attacks/layer{3,7}/top/locations/origin` once per
+target for the current window and once per target for
+`BASELINE_DATE_RANGE` (`core.py:740-741,748-749`); without them v3 had no
+`avg_spike` to withhold a verdict about and no quantity to rank a chain
+owner by. Four declarations, one placeholder, and the expander turns each
+into one request per participant.
 """
 from __future__ import annotations
 
-from v3.adapters.common import (as_float, iso2, list_or_empty, load_json,
-                                mapping_or_empty)
+from typing import Mapping
+
+from v3.adapters.common import (as_float, country_of, iso2, list_or_empty,
+                                load_json, mapping_or_empty)
 from v3.adapters.types import (AdapterId, AUTH_API_KEY, AuthRequirement,
                                CYBER, NormalizeContext, ObservationDraft,
                                RequestSpec, SourceAdapter, STATUS_FIRED,
@@ -44,6 +58,9 @@ _L3_URL = f"{_RADAR_BASE}/attacks/layer3/top/locations/target"
 _L7_URL = f"{_RADAR_BASE}/attacks/layer7/top/locations/target"
 _HIJACKS_URL = f"{_RADAR_BASE}/bgp/hijacks/events"
 _LEAKS_URL = f"{_RADAR_BASE}/bgp/leaks/events"
+#: Where the attack came FROM, for one target. `core.py:740-741,748-749`.
+_L3_ORIGIN_URL = f"{_RADAR_BASE}/attacks/layer3/top/locations/origin"
+_L7_ORIGIN_URL = f"{_RADAR_BASE}/attacks/layer7/top/locations/origin"
 
 #: A9: hijack accusations below this are dropped; leaks are not filtered.
 BGP_EVENT_MIN_CONFIDENCE = 50
@@ -57,6 +74,12 @@ LEAK_FIRE_THRESHOLD = 3
 BGP_DATE_RANGE = "1d"
 #: `CURRENT_DATE_RANGE`'s shipped default (`radar/config.py:147`).
 DEFAULT_DATE_RANGE = "1d"
+#: `BASELINE_DATE_RANGE`'s shipped default (`radar/config.py:148`). The
+#: register described this as a 90-day origin baseline; it is 28 days, and
+#: it is a QUERY WINDOW — production asks the same endpoint over the
+#: longer range rather than accumulating a series, which is why the ledger
+#: holds one snapshot per target and not ninety days of anything.
+BASELINE_DATE_RANGE = "28d"
 
 #: The ledger key each BGP payload lands under. `cf_bgp_hijack` is
 #: production's rationale entry (`radar/routes/core.py:1165`); the leak
@@ -64,6 +87,35 @@ DEFAULT_DATE_RANGE = "1d"
 #: `(tick_id, sensor, signal_source, country)` — see `_bgp_events`.
 BGP_HIJACK_SIGNAL = "cf_bgp_hijack"
 BGP_LEAK_SIGNAL = "cf_bgp_leak"
+
+#: The four origin requests, by label. Two windows x two layers, because
+#: the spike is a RATIO between them and `normalize` sees one payload.
+ORIGIN_L3 = "origin_l3"
+ORIGIN_L7 = "origin_l7"
+ORIGIN_L3_BASELINE = "origin_l3_base"
+ORIGIN_L7_BASELINE = "origin_l7_base"
+ORIGIN_LABELS: tuple[str, ...] = (ORIGIN_L3, ORIGIN_L7, ORIGIN_L3_BASELINE,
+                                  ORIGIN_L7_BASELINE)
+#: label -> `(signal_source, layer, window)`. Four DISTINCT signal sources
+#: for the reason `cf_bgp_leak` has one: L1 is UNIQUE on
+#: `(tick_id, sensor, signal_source, country)` and a same-key collision is
+#: either fatal or SILENT (`store.py:282-295`). The fold collapses all
+#: four into production's single `cf_spike_core` entry before the write,
+#: so none of these names reaches the ledger.
+_ORIGIN_SPEC: Mapping[str, tuple[str, str, str]] = {
+    ORIGIN_L3: ("cf_origin_l3", "l3", DEFAULT_DATE_RANGE),
+    ORIGIN_L7: ("cf_origin_l7", "l7", DEFAULT_DATE_RANGE),
+    ORIGIN_L3_BASELINE: ("cf_origin_l3_base", "l3", BASELINE_DATE_RANGE),
+    ORIGIN_L7_BASELINE: ("cf_origin_l7_base", "l7", BASELINE_DATE_RANGE),
+}
+ORIGIN_SIGNALS: Mapping[str, str] = {
+    label: spec[0] for label, spec in _ORIGIN_SPEC.items()}
+#: The one row per country per cycle production writes (`core.py:1025`).
+SPIKE_SIGNAL = "cf_spike_core"
+#: `location=` is Cloudflare's name for the target country; it is not in
+#: `common.COUNTRY_PARAMS` because adding it there would change how five
+#: other adapters recover a country from a URL.
+ORIGIN_COUNTRY_PARAMS: tuple[str, ...] = ("location",)
 #: `radar/scoring.py:604` — "CF free tier allows ~1200 req/5min (~4/s); we
 #: conservatively limit to ~3/s". Four endpoints fire per cycle, so the
 #: pacing is the whole reason the rate-limit group exists; a group with no
@@ -173,6 +225,8 @@ def normalize_leaks(payload) -> list[dict]:
 def normalize(payload, context: NormalizeContext
               ) -> tuple[ObservationDraft, ...]:
     """Dispatch on the request label; one observation per country in scope."""
+    if payload.label in ORIGIN_SIGNALS:
+        return _origin_distribution(payload, context)
     if payload.label in ("l3", "l7"):
         return _attack_shares(payload, context)
     if payload.label == "hijacks":
@@ -204,6 +258,51 @@ def _attack_shares(payload, context) -> tuple[ObservationDraft, ...]:
             flags={"share_pct": shares[country], "layer": payload.label},
             evidence_url=payload.url))
     return tuple(drafts)
+
+
+def origins_in(payload) -> dict[str, float]:
+    """`parse_origins` (`radar/scoring.py:659-668`) over a top_0 list.
+
+    The same two rules `_attack_shares` uses, applied to the other axis:
+    there the rows are targets, here they are the origins attacking ONE
+    target. Reusing `location_of` / `share_of` rather than restating them
+    is DP4 — a second copy of a parse is a second thing to keep in step,
+    and this one has a documented history of resolving to nothing when a
+    single hard-coded key was assumed.
+    """
+    distribution: dict = {}
+    for entry in _top_locations(payload):
+        code = location_of(entry)
+        if code:
+            distribution[code] = share_of(entry)
+    return distribution
+
+
+def _origin_distribution(payload, context) -> tuple[ObservationDraft, ...]:
+    """One row: WHO attacked this target, over this window.
+
+    The target is the country the request was addressed to
+    (`location=`), not anything in the body — the body is a list of
+    attackers. A payload whose target cannot be recovered produces
+    NOTHING rather than a row attributed to the first country in scope:
+    a distribution filed under the wrong target is corroboration for an
+    attack that was never observed there.
+
+    No verdict. The spike is a ratio against the baseline window, which
+    is a different payload (§2-2), so the claim belongs to the fold.
+    """
+    target = country_of(payload, context, params=ORIGIN_COUNTRY_PARAMS)
+    if not target:
+        return ()
+    signal_source, layer, window = _ORIGIN_SPEC[payload.label]
+    distribution = origins_in(payload)
+    return (ObservationDraft(
+        signal_source=signal_source, domain=CYBER, country=target,
+        status=STATUS_OBSERVED, raw_score=0.0,
+        value=f"{layer}_origins={len(distribution)}@{window}",
+        flags={"origins": distribution, "layer": layer, "window": window,
+               "origin_count": len(distribution)},
+        evidence_url=payload.url),)
 
 
 def _bgp_events(payload, context, records, country_key, signal_source
@@ -286,14 +385,32 @@ CLOUDFLARE_RADAR_ADAPTER = SourceAdapter(
                                   ("format", "json")), label="hijacks"),
               RequestSpec(url=_LEAKS_URL, expect_content="json",
                           params=(("dateRange", BGP_DATE_RANGE),
-                                  ("format", "json")), label="leaks")),
+                                  ("format", "json")), label="leaks"))
+             # Parameter ORDER is production's: `{"location": t,
+             # "dateRange": ..., "format": "json"}` is a dict literal, so
+             # insertion order is what goes on the wire, and the WP-2.6
+             # sweep found a reordered table on another adapter.
+             + tuple(RequestSpec(
+                 url=(_L3_ORIGIN_URL if layer == "l3" else _L7_ORIGIN_URL),
+                 expect_content="json",
+                 params=(("location", "{country}"), ("dateRange", window),
+                         ("format", "json")), label=label)
+                 for label, (_, layer, window) in _ORIGIN_SPEC.items()),
     cadence=_CADENCE, normalize=normalize,
     freshness_horizon_sec=_FRESHNESS_HORIZON_SEC, auth=_CF_AUTH,
     rate_limit_group="cloudflare", min_interval_sec=CF_MIN_INTERVAL_SEC,
-    baseline_refs=("cf_attack_share_baseline",))
+    # `cf_attack_share_baseline` is the hour-of-day series `avg_spike` is
+    # judged against; `cf_origin_baseline` is the stored origin snapshot
+    # it is COMPUTED against, kept so that a failed baseline fetch falls
+    # back to the last good one rather than to the empty-baseline guard.
+    baseline_refs=("cf_attack_share_baseline", "cf_origin_baseline"))
 
 __all__ = ["CLOUDFLARE_RADAR", "CLOUDFLARE_RADAR_ADAPTER", "normalize",
            "normalize_hijacks", "normalize_leaks", "location_of", "share_of",
-           "BGP_EVENT_MIN_CONFIDENCE", "LEAK_FIRE_THRESHOLD",
-           "BGP_DATE_RANGE", "DEFAULT_DATE_RANGE", "CF_MIN_INTERVAL_SEC",
-           "CF_AUTH", "LOCATION_KEYS", "BGP_HIJACK_SIGNAL", "BGP_LEAK_SIGNAL"]
+           "origins_in", "BGP_EVENT_MIN_CONFIDENCE", "LEAK_FIRE_THRESHOLD",
+           "BGP_DATE_RANGE", "DEFAULT_DATE_RANGE", "BASELINE_DATE_RANGE",
+           "CF_MIN_INTERVAL_SEC", "CF_AUTH", "LOCATION_KEYS",
+           "BGP_HIJACK_SIGNAL", "BGP_LEAK_SIGNAL", "SPIKE_SIGNAL",
+           "ORIGIN_L3", "ORIGIN_L7", "ORIGIN_L3_BASELINE",
+           "ORIGIN_L7_BASELINE", "ORIGIN_LABELS", "ORIGIN_SIGNALS",
+           "ORIGIN_COUNTRY_PARAMS"]

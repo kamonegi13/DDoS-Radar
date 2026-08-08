@@ -100,6 +100,33 @@ class SignalObservation:
                           allow_nan=False, ensure_ascii=False)
 
 
+def flags_of(row: Optional[Mapping]) -> dict:
+    """The flags of a stored row, decoded. The inverse of `flags_json`.
+
+    It lives beside the encoder deliberately. `flags_json` decides the
+    encoding, so the module that decides it is the module that must know
+    how to read it back — three readers each carrying their own
+    `json.loads` is three places to keep in step with one `json.dumps`,
+    which is DP4's whole point.
+
+    A row that cannot be decoded yields `{}` rather than raising: the
+    store hands back whatever SQLite holds, including rows an older
+    writer left, and a malformed flags blob must not take down a scoring
+    tick. Callers decide what an absent key means for them — the KEY-level
+    semantics differ (a missing baseline date is not a missing spike), so
+    only the decode is shared.
+    """
+    if not row:
+        return {}
+    flags = row.get("flags")
+    if isinstance(flags, str):
+        try:
+            flags = json.loads(flags)
+        except ValueError:
+            return {}
+    return dict(flags) if isinstance(flags, Mapping) else {}
+
+
 @dataclass(frozen=True, slots=True)
 class TLObservation:
     """One scenario's threat level at one tick. `threat_level=None` is the
@@ -602,4 +629,4 @@ class AttentionRankRecord:
 
 __all__ = ["SignalObservation", "TLObservation", "ConclusionRecord",
            "CommandRecord", "LabelRecord", "ProposalRecord",
-           "AttentionRankRecord", "ATTENTION_FACTORS"]
+           "AttentionRankRecord", "ATTENTION_FACTORS", "flags_of"]

@@ -254,38 +254,51 @@ class TestTheSelectionRuleIsProductions:
         assert chain_module.effective_cores(scenario) == ("IR",)
 
 
-# ── 2. the obstacle, and what stands in for it ────────────────────────────
-class TestTheAvgSpikeObstacleIsRealAndRegistered:
-    """Why the ordering quantity is not production's, with the evidence.
+# ── 2. the obstacle, REMOVED, and what still stands in ────────────────────
+class TestTheAvgSpikeObstacleIsGone:
+    """The registered obstacle was ACQUISITION, and it was closed.
 
     `avg_spike` (core.py:817) is `target_weighted_spike / max(
     total_local_pct, 5.0)` over the per-target ATTACK ORIGIN distribution
-    (core.py:747-748) against a 90-day origin baseline (core.py:741-742).
-    §7-2 #9 already records that v3 computes it nowhere; the harder fact
-    is below — v3 never fetches the endpoint it is computed FROM, so this
-    is not a derivation gap that L1 wiring could close.
+    (core.py:748-749) against a baseline-window distribution
+    (core.py:740-741 — `BASELINE_DATE_RANGE`, 28 days, not the 90 the
+    register recorded). §7-2 #116 named the harder fact: v3 never fetched
+    the endpoint it is computed from, so no amount of L1 wiring could
+    close it. WP-4.1d declared the four origin requests, and
+    `tests/test_runtime_cf_spike.py` is the transcription's evidence.
+
+    What remains is the WARM-UP case, and it is narrower than the entry:
+    the fallback quantity is used only for a scenario where NO core has a
+    measured spike this tick.
     """
 
-    def test_v3_never_fetches_the_origin_endpoint_avg_spike_needs(self):
+    def test_v3_now_fetches_the_origin_endpoint_avg_spike_needs(self):
         from v3.adapters.cyber.cloudflare_radar import \
             CLOUDFLARE_RADAR_ADAPTER
         urls = [spec.url for spec in CLOUDFLARE_RADAR_ADAPTER.requests]
-        assert urls, "the adapter declares requests"
-        assert not any("locations/origin" in url for url in urls), (
-            "if v3 ever fetches the per-target origin distribution, "
-            "avg_spike becomes reconstructible and §7-2's registered "
-            "difference for the ordering rule must be revisited")
+        assert sum("layer3/top/locations/origin" in url for url in urls) == 2
+        assert sum("layer7/top/locations/origin" in url for url in urls) == 2
 
     def test_production_computes_avg_spike_from_that_endpoint(self):
         source = (REPO_ROOT / "radar/routes/core.py").read_text()
         assert "layer3/top/locations/origin" in source
         assert "avg_spike_record = round(target_weighted_spike" in source
 
+    def test_the_measured_quantity_ranks_when_it_exists(self):
+        """Production's own quantity, and production's own default for a
+        core it has no row for (`target_details.get(ec, {}).get(
+        'avg_spike', 0)`)."""
+        observations = (_obs("IR", 3.0), _obs("IR", 1.5, domain=INFO,
+                                              sensor="gdelt"))
+        spikes = {"IR": 8.0}
+        assert chain_module.escalation_intensity(
+            observations, "IR", spikes=spikes) == 8.0
+        assert chain_module.escalation_intensity(
+            observations, "IL", spikes=spikes) == 0.0
+
     def test_the_stand_in_is_this_ticks_admitted_evidence(self):
-        """The smallest honest alternative: a live measurement, not a
-        constant. Same default as production's — a country with no
-        reading scores 0 (`target_details.get(ec, {}).get('avg_spike',
-        0)`)."""
+        """Still a live measurement, not a constant — used where the
+        measured one does not exist yet."""
         observations = (_obs("IR", 3.0), _obs("IR", 1.5, domain=INFO,
                                               sensor="gdelt"))
         assert chain_module.escalation_intensity(observations, "IR") == 4.5
