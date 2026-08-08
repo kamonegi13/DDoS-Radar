@@ -483,6 +483,19 @@ class LedgerStore:
             (scenario_id, conclusion_type, at_ts)).fetchone()
         return dict(row) if row else None
 
+    def conclusion_by_id(self, conclusion_id: str) -> Optional[dict]:
+        """One conclusion by its id — P7 R4's primitive.
+
+        The derivation surface (formula, effective thresholds, source
+        URLs, prompt sha) is addressed by conclusion id, not by
+        (scenario, type, instant): an auditor arrives holding an id from
+        a report and must land on the same row it was written from.
+        """
+        row = self._read_connection().execute(
+            "SELECT * FROM conclusion WHERE id = ?",
+            (conclusion_id,)).fetchone()
+        return dict(row) if row else None
+
     def conclusions_between(self, *, scenario_id: str, conclusion_type: str,
                             start: float, end: float) -> list:
         """One type's rows across a window, oldest first.
