@@ -46,17 +46,18 @@ LEDGER_DIR = Path(__file__).resolve().parent.parent / "ledger"
 ROOT_MODULE = LEDGER_DIR / "store.py"
 STORE_CLASS = "LedgerStore"
 
-#: The floor, reviewed 2026-08-08 when `store.py` was split three ways
-#: (`store.py` + `store_entities.py` + `store_migration.py`). Counts EVERY
+#: The floor, reviewed 2026-08-08 when WP-3.3 added a fourth module to
+#: the chain (`store_calibration.py`: the label ledger and the proposal
+#: queue), on top of WP-4.1b's three-way split. Counts EVERY
 #: function def on the chain, public and private, because the private ones
 #: are what the read seam's call-graph fixpoint propagates through — a
 #: hidden `_entity_rows` would reclassify its public callers as writers by
 #: omission, which shrinks the read surface without a word.
-METHOD_FLOOR = 54
+METHOD_FLOOR = 62
 #: The public half of the same count. Named separately because the two
 #: seams partition PUBLIC methods (`READ_METHODS` / `WRITE_METHODS`), and
 #: a public method that stopped being seen is the one an analyst notices.
-PUBLIC_METHOD_FLOOR = 44
+PUBLIC_METHOD_FLOOR = 52
 
 
 def _bindings(tree: ast.Module) -> dict:

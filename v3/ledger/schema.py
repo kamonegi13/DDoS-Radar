@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # ADR-V3-005 / P1 §5: the signal horizon is derived from the parity
 # requirement (30-day replay window x 2), not chosen for convenience.
@@ -160,12 +160,29 @@ RETENTION_POLICIES: tuple[RetentionPolicy, ...] = (
                   "nothing reads). Permanent is also what AP4 means by a "
                   "decision trail: a trail with a horizon cannot answer "
                   "'what did the tool believe when this was decided'."),
+    # ── schema v6 (WP-3.3, L4 storage) ──────────────────────────────────
+    RetentionPolicy(
+        table="calibration_label", time_column=None, retention_days=None,
+        rationale="WP-3.3: a label is the EVIDENCE a recall number was "
+                  "computed from. Pruning one silently changes a published "
+                  "measurement's denominator, and the three calibration "
+                  "disasters were all discovered by re-reading old labels — "
+                  "a horizon here would have hidden every one of them. "
+                  "Growth is bounded by analyst effort, not by tick rate."),
+    RetentionPolicy(
+        table="calibration_proposal", time_column=None, retention_days=None,
+        rationale="WP-3.3: the proposal is the subject of its adjudication "
+                  "commands, which are permanent (command_record). A pruned "
+                  "proposal would leave an 'applied' decision with nothing "
+                  "it applied to — the mirror of the dangling audit row "
+                  "G-15 describes."),
 )
 
 PERSISTED_TABLES: tuple[str, ...] = (
     "signal_observation", "tl_observation", "conclusion", "baseline_stat",
     "schema_meta", "fetch_schedule", "fetch_log", "llm_call", "fetch_body",
     "entity_observation", "entity_marker", "command_record",
+    "calibration_label", "calibration_proposal",
 )
 
 # ── DDL ─────────────────────────────────────────────────────────────────
@@ -588,8 +605,126 @@ _MIGRATION_5 = Migration(
         """,
     ))
 
+_MIGRATION_6 = Migration(
+    version=6,
+    rationale="WP-3.3: the label ledger and the proposal queue. Both are "
+              "storage the calibration layer has needed since WP-3.2 built "
+              "its type system: an epoch-stamped label cannot be compared "
+              "with another epoch's, and a proposal cannot be adjudicated, "
+              "without somewhere to put them. The four provenance columns "
+              "are NOT NULL because S5-VERIF-032 makes them the identity of "
+              "the label population, and F-16 is what a nullable one costs.",
+    statements=(
+        # The v3 form of `analyst_feedback`. Append-only: a relabel is a
+        # NEW row and the fold takes the latest per (conclusion_id,
+        # analyst_id) (S1-CALIB-026). An UPDATE would erase the analyst's
+        # earlier judgement, which is the one thing the decision trail is
+        # for — and all three calibration disasters were label
+        # contamination, so the ability to see what a label USED to say is
+        # the forensic record.
+        """
+        CREATE TABLE IF NOT EXISTS calibration_label (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            label_id             TEXT NOT NULL UNIQUE,
+            conclusion_id        TEXT NOT NULL,
+            scenario_id          TEXT NOT NULL,
+            conclusion_type      TEXT NOT NULL,
+            label                TEXT NOT NULL,
+            analyst_id           TEXT NOT NULL,
+            observed_at          REAL NOT NULL,
+            labelled_at          REAL NOT NULL,
+            recorded_at          REAL NOT NULL,
+            generator_id         TEXT NOT NULL,
+            generator_version    TEXT NOT NULL,
+            rule_id              TEXT NOT NULL,
+            epoch_id             TEXT NOT NULL,
+            is_automated         INTEGER NOT NULL DEFAULT 0,
+            observed_outcome_url TEXT,
+            reason               TEXT,
+            CHECK (length(trim(epoch_id)) > 0),
+            CHECK (length(trim(generator_id)) > 0),
+            CHECK (length(trim(generator_version)) > 0),
+            CHECK (length(trim(rule_id)) > 0),
+            CHECK (is_automated IN (0, 1))
+        )
+        """,
+        # The cell aggregation reads (epoch, window, scenario, type); the
+        # epoch leads because it is the partition key. A query that could
+        # scan across epochs cheaply is a query somebody will write.
+        "CREATE INDEX IF NOT EXISTS idx_calibration_label_epoch_window "
+        "ON calibration_label (epoch_id, observed_at)",
+        "CREATE INDEX IF NOT EXISTS idx_calibration_label_subject "
+        "ON calibration_label (conclusion_id, analyst_id, labelled_at DESC)",
+        """
+        CREATE TRIGGER IF NOT EXISTS calibration_label_no_update
+        BEFORE UPDATE ON calibration_label
+        BEGIN
+            SELECT RAISE(ABORT,
+                'calibration_label is append-only: a relabel is a new row, and the fold takes the latest per (conclusion_id, analyst_id)');
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS calibration_label_no_delete
+        BEFORE DELETE ON calibration_label
+        BEGIN
+            SELECT RAISE(ABORT,
+                'a label is never deleted: it is the evidence a recall number was computed from');
+        END
+        """,
+        # The proposal QUEUE. One row per emitted proposal, append-only —
+        # the STATE is not a column here, it is the fold of the
+        # adjudication commands in `command_record` (WP-4.1c's seam). That
+        # is the shape S1-CALIB-041 asks for and production does not have:
+        # a refusal leaves no row there, so "why was nothing proposed" is
+        # unanswerable. Here the emission and every adjudication are both
+        # rows, and neither can exist without the other being visible.
+        """
+        CREATE TABLE IF NOT EXISTS calibration_proposal (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            proposal_id       TEXT NOT NULL UNIQUE,
+            proposal_type     TEXT NOT NULL,
+            scenario_id       TEXT NOT NULL,
+            target_country    TEXT NOT NULL DEFAULT '',
+            proposal_key      TEXT NOT NULL,
+            prior_value       REAL,
+            proposed_value    REAL,
+            direction         TEXT NOT NULL DEFAULT '',
+            impact            TEXT NOT NULL,
+            sample_n          INTEGER NOT NULL DEFAULT 0,
+            emitted_at        REAL NOT NULL,
+            recorded_at       REAL NOT NULL,
+            epoch_id          TEXT NOT NULL,
+            formula_ref       TEXT NOT NULL,
+            evidence_json     TEXT NOT NULL DEFAULT '{}',
+            payload_json      TEXT NOT NULL DEFAULT '{}',
+            CHECK (length(trim(epoch_id)) > 0),
+            CHECK (length(trim(impact)) > 0)
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_calibration_proposal_queue "
+        "ON calibration_proposal (scenario_id, proposal_type, emitted_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_calibration_proposal_time "
+        "ON calibration_proposal (emitted_at DESC)",
+        """
+        CREATE TRIGGER IF NOT EXISTS calibration_proposal_no_update
+        BEFORE UPDATE ON calibration_proposal
+        BEGIN
+            SELECT RAISE(ABORT,
+                'calibration_proposal is append-only: a proposal state is the fold of its adjudication commands, not a column edited in place');
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS calibration_proposal_no_delete
+        BEFORE DELETE ON calibration_proposal
+        BEGIN
+            SELECT RAISE(ABORT,
+                'a proposal is never deleted: dismissing one is an adjudication, and an erased proposal is an adjudication with no subject');
+        END
+        """,
+    ))
+
 MIGRATIONS: tuple[Migration, ...] = (_MIGRATION_2, _MIGRATION_3, _MIGRATION_4,
-                                     _MIGRATION_5)
+                                     _MIGRATION_5, _MIGRATION_6)
 
 if MIGRATIONS and MIGRATIONS[-1].version != SCHEMA_VERSION:
     raise RuntimeError(

@@ -43,6 +43,7 @@ from v3.runtime import expansion as expansion_module
 from v3.runtime import health as health_module
 from v3.runtime import record as record_module
 from v3.runtime import reduce as reduce_module
+from v3.runtime import scoring as scoring_module
 from v3.runtime import suppression as suppression_module
 from v3.runtime.geo import Geography, adversaries_of, participants_of
 from v3.runtime.secrets import CredentialPlan
@@ -139,6 +140,14 @@ class TickReport:
     credentials: Mapping
     suppressors: Mapping
     coverage: Mapping
+    #: scenario_id -> `ScoringResult.as_dict()`. Empty when the tick ran
+    #: acquisition-only, which is a different fact from "scored, nothing
+    #: found" and must not look like it (NP5+8).
+    scoring: Mapping[str, dict] = field(default_factory=dict)
+    #: The resolved settings this tick computed with, and the layer each
+    #: value came from. Disclosed on the report because a published score
+    #: whose thresholds are not stated is not reproducible (NP6).
+    settings: Mapping[str, object] = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return {"tick_id": self.tick_id, "now": self.now,
@@ -150,7 +159,9 @@ class TickReport:
                 "conclusions": dict(self.conclusions),
                 "credentials": dict(self.credentials),
                 "suppressors": dict(self.suppressors),
-                "coverage": dict(self.coverage)}
+                "coverage": dict(self.coverage),
+                "scoring": dict(self.scoring),
+                "settings": dict(self.settings)}
 
 
 def fetch_cycle(*, now: float, registry, store, client,
@@ -197,19 +208,66 @@ def conclude(*, now: float, store, scenario_id: str, health: InputHealth,
     return persist(store, conclusions)
 
 
+def score_cycle(*, now: float, store, geography: Geography,
+                scenario_ids: Sequence[str], config, tick_id: str,
+                focused_scenario_id: Optional[str] = None,
+                chain_countries: Optional[Mapping[str, str]] = None):
+    """Steps 5a-5c: resolve, assemble, score, write the TL stream.
+
+    The three impure steps and the one pure one, in the order S1-PIPE-020
+    fixes. Resolution is bounded at `now` so a replayed tick computes with
+    the override that was in force then.
+
+    Returns `(TickResult, ScoringSettings)`. The settings come back because
+    the report discloses them: a score whose thresholds are not published
+    with it cannot be argued with (NP6).
+    """
+    settings = scoring_module.settings_for(store, config=config, at=now)
+    result = scoring_module.score(scoring_module.assemble(
+        now=now, store=store, geography=geography,
+        scenario_ids=scenario_ids, settings=settings,
+        focused_scenario_id=focused_scenario_id,
+        chain_countries=chain_countries))
+    scoring_module.persist_tl(store, result, tick_id=tick_id)
+    return result, settings
+
+
 def run_tick(*, now: float, registry, store, client, geography: Geography,
              scenario_ids: Sequence[str],
              credentials: Optional[CredentialPlan] = None,
+             config=None, focused_scenario_id: Optional[str] = None,
+             chain_countries: Optional[Mapping[str, str]] = None,
              score=None) -> TickReport:
     """One whole tick. The composition root's single unit of work.
 
-    `score` is injected rather than imported so a caller can run the
-    acquisition half alone — which is what a shadow deployment does, and
-    what the parity harness needs when it replays observations through a
-    scoring build it is comparing.
+    `config` is the composition root's `ConfigResolver`. Supplying it is
+    what makes the tick SCORE: the settings are resolved through v3's own
+    three layers (`v3/runtime/scoring.py::settings_for`) and handed to the
+    kernel, so a C7 override reaches the formula rather than stopping at
+    the settings screen. Omitting it runs the acquisition half alone —
+    which is what a shadow deployment does, and what the parity harness
+    needs when it replays observations through a scoring build it is
+    comparing.
+
+    `score` is the other way in, and it exists for a caller that has its
+    own scoring build (the parity harness comparing two of them). It takes
+    `(now, cycle)` and returns `{scenario_id: ScoringResult}` — the WHOLE
+    tick, not one scenario, because S1-PIPE-025 requires every scenario to
+    be scored from one observation set and a per-scenario callable invites
+    the re-collection that made focused and background incommensurable.
+
+    The two are mutually exclusive, and the refusal is deliberate: two
+    scoring paths in one tick is the state where "which number did the
+    ledger get" has no answer.
     """
     if now <= 0:
         raise DomainError(f"now must be a positive timestamp, got {now}")
+    if config is not None and score is not None:
+        raise DomainError(
+            "a tick has one scoring path: supply `config` (v3's own "
+            "resolution chain) or `score` (a caller's own build), never "
+            "both. Two paths is the state where nobody can say which "
+            "settings produced the row that was written.")
     scenarios = tuple(scenario_ids)
     if not scenarios:
         raise DomainError(
@@ -225,6 +283,23 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
         geography=geography, countries=countries, credentials=credentials,
         tick_id=identity)
 
+    # Step 5: score. AFTER the observations are written, because the
+    # scoring input is the ledger's in-force projection at `now` — the
+    # same reader the parity harness uses, so what parity measures is
+    # what production scored (S5-VERIF-031).
+    settings_disclosure: Mapping[str, object] = {}
+    if config is not None:
+        result, settings = score_cycle(
+            now=now, store=store, geography=geography,
+            scenario_ids=scenarios, config=config, tick_id=identity,
+            focused_scenario_id=focused_scenario_id,
+            chain_countries=chain_countries)
+        results_by_scenario = dict(result.results)
+        settings_disclosure = settings.disclosed()
+    else:
+        results_by_scenario = dict(score(now, cycle) or {}) \
+            if score is not None else {}
+
     outcomes = health_module.outcomes_for_cycle(cycle,
                                                 credentials=credentials)
     stale = health_module.stale_sources(store, now=now,
@@ -237,10 +312,9 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
             history_span=health_module.history_span_sec(store, scenario_id,
                                                         now=now))
         health_by_scenario[scenario_id] = health.as_dict()
-        result = score(scenario_id, cycle) if score is not None else None
         conclusions_by_scenario[scenario_id] = conclude(
             now=now, store=store, scenario_id=scenario_id, health=health,
-            result=result,
+            result=results_by_scenario.get(scenario_id),
             participants=participants_of(geography, scenario_id))
 
     return TickReport(
@@ -253,9 +327,12 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
         conclusions=conclusions_by_scenario,
         credentials=credentials.as_dict() if credentials else {},
         suppressors=state.suppressors.as_dict(),
-        coverage=expansion_module.coverage_report(geography, countries))
+        coverage=expansion_module.coverage_report(geography, countries),
+        scoring={scenario_id: scored.as_dict()
+                 for scenario_id, scored in results_by_scenario.items()},
+        settings=settings_disclosure)
 
 
-__all__ = ["run_tick", "fetch_cycle", "conclude", "build_hooks",
-           "order_producers_first", "tick_id_for", "TickReport",
-           "PRODUCER_ORDER"]
+__all__ = ["run_tick", "fetch_cycle", "score_cycle", "conclude",
+           "build_hooks", "order_producers_first", "tick_id_for",
+           "TickReport", "PRODUCER_ORDER"]

@@ -324,5 +324,181 @@ class CommandRecord:
                 "payload": dict(self.payload)}
 
 
+@dataclass(frozen=True, slots=True)
+class LabelRecord:
+    """One label on one conclusion — `analyst_feedback`'s v3 form.
+
+    The four provenance fields are REQUIRED and non-empty, and that is the
+    whole point of the type. F-16 is a null in exactly this position: the
+    checked-in recall baseline carried `since: null`, so every gate run
+    compared across two series breaks and nobody could see it. A label
+    that cannot say which generator, which version, which rule and which
+    EPOCH produced it is not a weaker label — it is a label that cannot be
+    compared with any other, and pooling it is how a recall number becomes
+    an artefact (S5-VERIF-032, incidents #1 / #2 / #3).
+
+    L1 enforces PRESENCE. Whether `generator_version` is legitimately
+    declared against `epoch_id` is L4's question, answered by
+    `v3.calibration.epoch.LabelProvenance`, and `v3/calibration/labels.py`
+    is the only module that builds one of these in production — proved by
+    AST in `labels.audit_label_construction_sites()`, the same discipline
+    `matrix.audit_recall_arithmetic_sites()` uses. The layer rule holds:
+    L1 never imports L4, so the check runs the other way round.
+    """
+
+    label_id: str
+    conclusion_id: str
+    scenario_id: str
+    conclusion_type: str
+    label: str
+    analyst_id: str
+    observed_at: float
+    labelled_at: float
+    generator_id: str
+    generator_version: str
+    rule_id: str
+    epoch_id: str
+    is_automated: bool = False
+    observed_outcome_url: Optional[str] = None
+    reason: Optional[str] = None
+
+    def __init_subclass__(cls, **kwargs):
+        raise TypeError(
+            "LabelRecord is final: a subclass could default a provenance "
+            "field, and a defaulted epoch is an undeclared population.")
+
+    def __post_init__(self) -> None:
+        for name in ("label_id", "conclusion_id", "scenario_id",
+                     "conclusion_type", "label", "analyst_id",
+                     "generator_id", "generator_version", "rule_id",
+                     "epoch_id"):
+            object.__setattr__(self, name,
+                               _require_text(getattr(self, name), name=name))
+        for name in ("observed_at", "labelled_at"):
+            value = _optional_number(getattr(self, name), name=name)
+            if value is None or value <= 0:
+                raise DomainError(
+                    f"{name} must be a positive timestamp, got "
+                    f"{getattr(self, name)!r}: a label outside every window "
+                    f"is a label no measurement can include or exclude")
+            object.__setattr__(self, name, value)
+        if not isinstance(self.is_automated, bool):
+            raise DomainError(
+                f"is_automated must be a real bool, got "
+                f"{type(self.is_automated).__name__}: `exclude_auto` is a "
+                f"filter on this field and a truthy string would place an "
+                f"automated label in the human population")
+        for name in ("observed_outcome_url", "reason"):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, str):
+                raise DomainError(f"{name} must be a string or None")
+
+    def as_dict(self) -> dict:
+        return {"label_id": self.label_id,
+                "conclusion_id": self.conclusion_id,
+                "scenario_id": self.scenario_id,
+                "conclusion_type": self.conclusion_type,
+                "label": self.label, "analyst_id": self.analyst_id,
+                "observed_at": self.observed_at,
+                "labelled_at": self.labelled_at,
+                "generator_id": self.generator_id,
+                "generator_version": self.generator_version,
+                "rule_id": self.rule_id, "epoch_id": self.epoch_id,
+                "is_automated": self.is_automated,
+                "observed_outcome_url": self.observed_outcome_url,
+                "reason": self.reason}
+
+
+@dataclass(frozen=True, slots=True)
+class ProposalRecord:
+    """One emitted proposal. The QUEUE row, never the state.
+
+    There is deliberately no `state` column. S1-CALIB-052 fixes six values
+    and production keeps them in a column an UPDATE moves — which is why
+    `state_changed_by` marker strings are the only way to tell an analyst
+    dismissal from an automatic one (ACCIDENTAL A9), and why S1-CALIB-041
+    has no persistent trace of a refusal at all. Here the state is the
+    fold of the adjudication commands in `command_record`, so every
+    transition carries the actor, the instant and the reason the write
+    seam already requires, and a marker string is not load-bearing.
+
+    `epoch_id` is on the row because a proposal is only as comparable as
+    the labels that motivated it: applying a proposal generated under a
+    quarantined epoch is the mechanism of incident #1, not a variant of it.
+    """
+
+    proposal_id: str
+    proposal_type: str
+    scenario_id: str
+    proposal_key: str
+    impact: str
+    emitted_at: float
+    epoch_id: str
+    formula_ref: str
+    target_country: str = ""
+    prior_value: Optional[float] = None
+    proposed_value: Optional[float] = None
+    direction: str = ""
+    sample_n: int = 0
+    evidence: Mapping[str, Any] = field(default_factory=dict)
+    payload: Mapping[str, Any] = field(default_factory=dict)
+
+    def __init_subclass__(cls, **kwargs):
+        raise TypeError("ProposalRecord is final.")
+
+    def __post_init__(self) -> None:
+        for name in ("proposal_id", "proposal_type", "scenario_id",
+                     "proposal_key", "impact", "epoch_id", "formula_ref"):
+            object.__setattr__(self, name,
+                               _require_text(getattr(self, name), name=name))
+        emitted = _optional_number(self.emitted_at, name="emitted_at")
+        if emitted is None or emitted <= 0:
+            raise DomainError(
+                f"emitted_at must be a positive timestamp, got "
+                f"{self.emitted_at!r}: the auto-dismiss hooks judge by it "
+                f"(S1-CALIB-053) and a proposal with no emission instant is "
+                f"one they can neither retire nor keep")
+        object.__setattr__(self, "emitted_at", emitted)
+        for name in ("prior_value", "proposed_value"):
+            object.__setattr__(self, name,
+                               _optional_number(getattr(self, name),
+                                                name=name))
+        for name in ("target_country", "direction"):
+            value = getattr(self, name)
+            if not isinstance(value, str):
+                raise DomainError(f"{name} must be a string, got {value!r}")
+            object.__setattr__(self, name, value.strip())
+        if isinstance(self.sample_n, bool) or \
+                not isinstance(self.sample_n, int) or self.sample_n < 0:
+            raise DomainError(
+                f"sample_n must be a non-negative integer, got "
+                f"{self.sample_n!r}")
+        for name in ("evidence", "payload"):
+            value = getattr(self, name)
+            if not isinstance(value, Mapping):
+                raise DomainError(f"{name} must be a mapping")
+            object.__setattr__(self, name, MappingProxyType(dict(value)))
+
+    def evidence_json(self) -> str:
+        return _json(dict(self.evidence), name="evidence")
+
+    def payload_json(self) -> str:
+        return _json(dict(self.payload), name="payload")
+
+    def as_dict(self) -> dict:
+        return {"proposal_id": self.proposal_id,
+                "proposal_type": self.proposal_type,
+                "scenario_id": self.scenario_id,
+                "target_country": self.target_country,
+                "proposal_key": self.proposal_key,
+                "prior_value": self.prior_value,
+                "proposed_value": self.proposed_value,
+                "direction": self.direction, "impact": self.impact,
+                "sample_n": self.sample_n, "emitted_at": self.emitted_at,
+                "epoch_id": self.epoch_id, "formula_ref": self.formula_ref,
+                "evidence": dict(self.evidence),
+                "payload": dict(self.payload)}
+
+
 __all__ = ["SignalObservation", "TLObservation", "ConclusionRecord",
-           "CommandRecord"]
+           "CommandRecord", "LabelRecord", "ProposalRecord"]

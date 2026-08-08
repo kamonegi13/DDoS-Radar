@@ -36,8 +36,8 @@ class Owner:
     """
 
     API_COMMANDS = "WP-4.1d (L6: 指令面の残り)"
-    ATTENTION = "WP-3.3 (S8 注目台帳) + WP-4.1d"
-    DECISIONS = "WP-3.3 (統一判断台帳) + WP-4.1d"
+    ATTENTION = "WP-3.3b (S8 注目台帳) + WP-4.1d"
+    DECISIONS = "WP-4.1d (統一判断台帳の射影)"
     INTEL = "WP-4.1d (インテルキュー読み取り)"
     PROPOSALS = "WP-4.1d (提案キュー統合)"
     # CONFIG は WP-4.1d で解消（R14 / C7 が着地）。オーナー定数を残すと
@@ -99,16 +99,28 @@ SERVED: tuple[Served, ...] = (
 
 DEFERRED: tuple[Deferred, ...] = (
     Deferred("R6", "順位付き注目リスト（AP1）", Owner.ATTENTION,
-             "S8 が順位を書く台帳が L1 に無い。フロントで再計算すると "
-             "P5 O-8（台帳に残らない順位）を再生産するため、台帳の着地を待つ"),
+             "**未着手**。WP-3.3 は較正台帳 2 面（ラベル・提案）を出したが "
+             "S8 注目台帳は出していない。順位を書く表が L1 に無い状態は "
+             "変わらず、フロントで再計算すると P5 O-8（台帳に残らない順位）"
+             "を再生産する。attention_score の入力（novelty / "
+             "confidence_delta / analyst_blindness）はいずれも L1 の既存表"
+             "から導けるため、阻害は設計ではなく単純に未実装"),
     Deferred("R9", "統一判断台帳（AP4）", Owner.DECISIONS,
-             "監査 5 面を 1 本化する先の decision 表が L1 に無い"),
+             "**供給側は 5 面中 4 面が揃った**（WP-3.3）: focus / label / "
+             "config / ground_truth に加えて提案裁定が command_record に載り、"
+             "v3/commands/state.py::proposal_history が 1 提案の時系列を返す。"
+             "**decision 表を新設する必要は無い** — command_record が既に"
+             "統一台帳であり、R9 は複数 target_kind を跨ぐ 1 射影で足りる。"
+             "残る阻害は 5 面目（R6 の注目 ack）と、射影ハンドラそのもの"),
     Deferred("R11", "インテルキュー読み取り", Owner.INTEL,
              "intel item は L1 の観測として落ちる（§4-2）が、キューの "
              "裁定状態を持つ表がまだ無い"),
     Deferred("R13", "統一提案キュー", Owner.PROPOSALS,
-             "v3/calibration/proposals.py は提案を生成できるが、"
-             "キューの永続化と裁定履歴が L1 に無い"),
+             "**阻害は解消**（WP-3.3）: calibration_proposal 表が着地し、"
+             "v3/calibration/queue.py::entries が「発行行 + 畳んだ状態 + "
+             "裁定履歴」を返す。?at= 過去断面も同じ 1 射影で答える。"
+             "残るのは L6 のルート束縛とレスポンス語彙のみで、"
+             "読み手不在ではなくなった"),
     Deferred("C3", "インテル裁定 4 動詞", Owner.INTEL,
              "R11 と対。キューの裁定状態を持つ表が無く、確定した裁定を"
              "読み返す先が存在しない"),
@@ -118,22 +130,26 @@ DEFERRED: tuple[Deferred, ...] = (
              "順位を書く S8 台帳が無い以上 ack は読み手のいない書込みになる"
              "（= G-15）。R6 と同時に着地させる"),
     Deferred("C5", "提案 apply/dismiss/defer", Owner.PROPOSALS,
-             "阻害 2 件のうち 1 件は解消: 裁定履歴は指令台帳が持てる。"
-             "残る 1 件は提案の同一性 — v3/calibration/proposals.py の "
-             "Proposal は id を持たず、生成の入力 CalibrationEvidence を"
-             "組み立てる側が未着地（WP-3.3）"),
+             "**阻害 2 件とも解消**（WP-3.3）: ①同一性は "
+             "lifecycle.proposal_id_for（epoch を含む決定論的 id）②生成入力 "
+             "CalibrationEvidence は labels.evidence_for が L1 から組む。"
+             "遷移関数（resolve_proposal / apply_proposal_*）も "
+             "v3/commands/state.py に着地済で、読み手（R13）も存在する。"
+             "残るのは CommandSpec 登録とルート束縛 = L6 スライスのみ"),
     Deferred("C6", "反実仮想 1 系統", Owner.API_COMMANDS,
-             "副作用の無い指令（side_effect=False の POST）として着地"
-             "できる。**旧理由の半分は解消**（WP-4.1d が reduce.py を "
-             "reduce/_common/_physical/_info の 4 本へ分割し、いずれも "
-             "800 行未満）。残る阻害は分割ではなく**入力組み立て**: "
-             "L2 カーネルを dry-run で呼ぶには ScoringInput 一式を "
-             "採点ティック外で構成する経路が要り、それは v3/runtime/tick.py "
-             "の中にしか存在しない"),
+             "**入力組み立ての阻害は解消**（WP-4.1e）: "
+             "v3/runtime/scoring.py::assemble が ScoringInputs を採点ティック"
+             "外で構成し、settings を引数で受ける純関数境界を持つ。反実仮想は "
+             "assemble(..., settings=<別値>) + score() で、L1 へ 1 行も書かない"
+             "（test_runtime_scoring_wiring.py が実証）。残るのは L6 側だけ — "
+             "side_effect=False の POST ハンドラと、どの値を反実仮想の対象に"
+             "許すかの語彙。分割・配線ではなく API スライス"),
     Deferred("C8", "ノイズ除外規則", Owner.SCORING_TICK,
-             "消費者は採点ティック。規則を fold から読ませる配線が "
-             "v3/runtime 側の変更（reduce.py の分割を含む）になる。"
-             "配線前に出すと『除外したのに除外されない』"),
+             "消費者（採点ティック）は WP-4.1e で着地したが、それは阻害の"
+             "片方でしかない。残るのは規則そのものを fold / gating に読ませる"
+             "経路: v3/runtime/suppression.py は adapter 間の抑制しか持たず、"
+             "指令台帳の除外規則を参照する辺が無い。配線前に出すと"
+             "『除外したのに除外されない』"),
     Deferred("C10", "AP3 人間アンカー", Owner.API_COMMANDS,
              "設問の生成側（S1-UI-028 の独立性を壊さない出題）が未着地。"
              "回答だけ受け取っても採点されない"),
@@ -156,13 +172,15 @@ DEFERRED: tuple[Deferred, ...] = (
 WS_TRANSPORT: Deferred = Deferred(
     "WS", "1 チャネル 4 イベントの socket 層", Owner.FRONTEND,
     "語彙（v3/api/ws.py）は着地済で、`theater` 系イベントは既に消えている。"
-    "transport を出さなかった理由は依存ではなく**発行者が存在しない**こと: "
-    "4 イベントのうち attention_update は R6（繰延）、notification_result は "
-    "v3 に通知系が無く、sensor_status/conclusion_update の発行者は採点ティック"
-    "（v3/runtime の配線。reduce.py の 800 行分割は WP-4.1d で完了済のため"
-    "阻害から外れた）。発行者ゼロのチャネルは"
-    "「読み手のいない書込み」の鏡像であり、C4/C8 を繰延した理由と"
-    "同じ規律で繰延する。flask-socketio は依存に存在するため技術的障害は無い")
+    "transport を出さなかった理由は依存ではなく**発行者が存在しない**こと。"
+    "**4 イベント中 2 件は解消**（WP-4.1e）: 採点ティックが配線され "
+    "(v3/runtime/tick.py::score_cycle)、TickReport が scenario 毎の "
+    "ScoringResult と InputHealth を返すので conclusion_update / "
+    "sensor_status には発行者がある。残る 2 件は依然として発行者ゼロ — "
+    "attention_update は R6（WP-3.3 の S8 注目台帳）、notification_result は "
+    "v3 に通知系そのものが無い。半分だけ発行するチャネルは"
+    "「4 イベント契約」を満たさないため、R6 の着地と同時に出す。"
+    "flask-socketio は依存に存在するため技術的障害は無い")
 
 
 @dataclass(frozen=True, slots=True)

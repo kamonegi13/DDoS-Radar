@@ -32,6 +32,7 @@ from __future__ import annotations
 import hashlib
 from typing import Optional
 
+from v3.calibration import lifecycle as _lifecycle
 from v3.calibration.ground_truth import RULE_ORDER
 from v3.kernel.errors import DomainError
 
@@ -41,10 +42,20 @@ CONCLUSION_LABEL = "conclusion.label"
 GROUND_TRUTH_ASSERT = "ground_truth.assert"
 CONFIG_OVERRIDE = "config.override"
 CONFIG_CLEAR = "config.clear"
+#: WP-3.3: the proposal adjudications. Spelled in
+#: `v3/calibration/lifecycle.py` — the state machine owns its own
+#: vocabulary and this module imports it, so the six states and the
+#: five edges exist once.
+PROPOSAL_APPLY = _lifecycle.PROPOSAL_APPLY
+PROPOSAL_DISMISS = _lifecycle.PROPOSAL_DISMISS
+PROPOSAL_DEFER = _lifecycle.PROPOSAL_DEFER
+PROPOSAL_REVIVE = _lifecycle.PROPOSAL_REVIVE
+PROPOSAL_SUPERSEDE = _lifecycle.PROPOSAL_SUPERSEDE
 
 TARGET_SCENARIO = "scenario"
 TARGET_CONCLUSION = "conclusion"
 TARGET_CONFIG = "config"
+TARGET_PROPOSAL = _lifecycle.TARGET_PROPOSAL
 
 #: An analyst's label uses THE calibration vocabulary, imported rather
 #: than re-spelled. There is deliberately no fifth "unclear" value: the
@@ -321,6 +332,72 @@ def apply_config_clear(before, *, target_id, payload, actor_id, at,
     return resolver.project(target_id, override=None).as_dict()
 
 
+
+# ── C5: proposal adjudication (WP-3.3) ──────────────────────────────────
+#: `latest_after` folds ONE action at a time, and a proposal's state is the
+#: fold of FIVE. So the state is the latest row across all of them, which
+#: `command_records(target_kind=..., target_id=...)` returns directly — the
+#: same shape `config_state` uses for its two actions, and for the same
+#: reason: a fold that saw only one edge would report a deferred proposal
+#: as still pending.
+def proposal_state(ledger, proposal_id: str, *,
+                   until: Optional[float] = None):
+    """The last adjudication's `after` for one proposal, or None.
+
+    None means never adjudicated, which IS `pending` — there is no row
+    anywhere that says "pending", so a proposal cannot be emitted into
+    some other state by accident.
+    """
+    rows = ledger.command_records(target_kind=TARGET_PROPOSAL,
+                                  target_id=proposal_id, until=until)
+    folded = [row for row in rows if row["action"] in _lifecycle.ACTIONS]
+    return folded[-1]["after"] if folded else None
+
+
+def proposal_history(ledger, proposal_id: str, *,
+                     until: Optional[float] = None) -> tuple:
+    """Every adjudication of one proposal, oldest first (AP4).
+
+    The decision trail's unit. Production can only distinguish an analyst
+    dismissal from an automatic one by a marker string inside
+    `state_changed_by` (ACCIDENTAL A9); here each transition is a command
+    row carrying its own actor, instant and reason, so the distinction is
+    a field rather than a parsing convention.
+    """
+    rows = ledger.command_records(target_kind=TARGET_PROPOSAL,
+                                  target_id=proposal_id, until=until)
+    return tuple(
+        _lifecycle.Adjudication(
+            proposal_id=proposal_id, action=row["action"],
+            state=row["after"]["state"], actor_id=row["actor_id"],
+            at=row["issued_at"], reason=row.get("reason"))
+        for row in rows if row["action"] in _lifecycle.ACTIONS)
+
+
+def resolve_proposal(ledger, *, target_id, actor_id, until, config=None):
+    return proposal_state(ledger, target_id, until=until)
+
+
+def _apply_adjudication(action):
+    def apply(before, *, target_id, payload, actor_id, at, config=None):
+        return _lifecycle.apply_adjudication(
+            before, action=action, actor_id=actor_id, at=at,
+            reason=payload.get("reason"))
+    apply.__name__ = f"apply_{action.replace('.', '_')}"
+    apply.__doc__ = (
+        f"S1-CALIB-052's {action!r} edge. Legal from "
+        f"{sorted(_lifecycle._ALLOWED_FROM[action])} only; production lets "
+        f"the illegal case UPDATE nothing and report success, which loses "
+        f"the analyst's decision without telling them.")
+    return apply
+
+
+apply_proposal_apply = _apply_adjudication(_lifecycle.PROPOSAL_APPLY)
+apply_proposal_dismiss = _apply_adjudication(_lifecycle.PROPOSAL_DISMISS)
+apply_proposal_defer = _apply_adjudication(_lifecycle.PROPOSAL_DEFER)
+apply_proposal_revive = _apply_adjudication(_lifecycle.PROPOSAL_REVIVE)
+apply_proposal_supersede = _apply_adjudication(_lifecycle.PROPOSAL_SUPERSEDE)
+
 __all__ = ["FOCUS_SET", "CONCLUSION_LABEL", "GROUND_TRUTH_ASSERT",
            "CONFIG_OVERRIDE", "CONFIG_CLEAR",
            "TARGET_SCENARIO", "TARGET_CONCLUSION", "TARGET_CONFIG",
@@ -330,4 +407,10 @@ __all__ = ["FOCUS_SET", "CONCLUSION_LABEL", "GROUND_TRUTH_ASSERT",
            "apply_focus", "resolve_labels", "apply_label",
            "resolve_ground_truth", "apply_ground_truth",
            "config_state", "config_override", "resolve_config",
-           "apply_config_override", "apply_config_clear"]
+           "apply_config_override", "apply_config_clear",
+           "PROPOSAL_APPLY", "PROPOSAL_DISMISS", "PROPOSAL_DEFER",
+           "PROPOSAL_REVIVE", "PROPOSAL_SUPERSEDE", "TARGET_PROPOSAL",
+           "proposal_state", "proposal_history", "resolve_proposal",
+           "apply_proposal_apply", "apply_proposal_dismiss",
+           "apply_proposal_defer", "apply_proposal_revive",
+           "apply_proposal_supersede"]

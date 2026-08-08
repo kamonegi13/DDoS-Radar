@@ -61,9 +61,11 @@ class TestTheStoreIsSplitAndUnderTheHouseLimit:
     def test_the_bases_declare_no_state(self):
         """A mixin that took an `__init__` or a `__slots__` would make the
         store two objects wearing one name."""
+        from v3.ledger.store_calibration import CalibrationLedgerMixin
         from v3.ledger.store_entities import EntityStateMixin
         from v3.ledger.store_migration import MigrationSupportMixin
-        for mixin in (EntityStateMixin, MigrationSupportMixin):
+        for mixin in (CalibrationLedgerMixin, EntityStateMixin,
+                      MigrationSupportMixin):
             assert "__init__" not in vars(mixin)
             assert "__slots__" not in vars(mixin)
             assert mixin.__bases__ == (object,)
@@ -72,7 +74,8 @@ class TestTheStoreIsSplitAndUnderTheHouseLimit:
 class TestTheAuditFollowsTheClassAcrossModules:
     def test_it_parses_every_module_the_class_spans(self):
         report = SS.coverage()
-        assert report["modules"] == ["store.py", "store_entities.py",
+        assert report["modules"] == ["store.py", "store_calibration.py",
+                                     "store_entities.py",
                                      "store_migration.py"]
 
     def test_every_public_runtime_method_is_classified(self):

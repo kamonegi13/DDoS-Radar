@@ -48,6 +48,7 @@ from v3.kernel.errors import DomainError
 from v3.ledger import schema as schema_module
 from v3.ledger.records import (CommandRecord, ConclusionRecord,
                                SignalObservation, TLObservation)
+from v3.ledger.store_calibration import CalibrationLedgerMixin
 from v3.ledger.store_entities import EntityStateMixin
 from v3.ledger.store_migration import MigrationSupportMixin
 
@@ -100,7 +101,8 @@ def _command_row(row) -> dict:
     return decoded
 
 
-class LedgerStore(EntityStateMixin, MigrationSupportMixin):
+class LedgerStore(CalibrationLedgerMixin, EntityStateMixin,
+                  MigrationSupportMixin):
     """The v3 observation ledger, baselines, and conclusion storage.
 
     ONE object with one connection pair, assembled from three modules for

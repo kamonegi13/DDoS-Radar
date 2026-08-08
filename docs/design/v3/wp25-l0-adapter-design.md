@@ -1046,12 +1046,18 @@ L2 の条項レジストリと同じ機構であり、**転写のドリフトが
 | 77 | L6 指令面 focus（**WP-4.1c**） | **focus をサーバ単一状態にした**。本番は per-user 行（`GET/PUT /api/auth/settings` の `focused_scenario`、JWT で自分の行のみ）と API param `?focus=` の 2 系統。v3 は指令台帳の fold 1 系統（最後の指令が勝つ）で、誰が動かしたかは `actor_id` に残る | **理屈上 insensitive**（複数アナリストが別シナリオを focus した場合、C-lite の全センサー稼働先が 1 つに定まる）／**実測差は生じない見込み** — 本番の per-user focus は **UI からの参照が存在しない**（D2 B-09、S2-PROP-014 が drop を裁定済）ため実効性が無い | **登録**（WP-4.1c、2026-08-08）。単一状態を採る理由は C-lite の意味論 — focus は「どのシナリオに全センサー予算を使うか」というサーバ側の資源配分であり、per-user にすると「focused」がスコアリングモードの言う focused と別物になる。**解消条件**: なし（意図的差分）。cutover 時にオーナー確認のみ。証跡: `tests/test_api_commands.py::TestFocusIsACommandAndItsEffectIsReal` |
 | 78 | L6 指令面 feedback（**WP-4.1c**） | **ラベル投稿に理由（`reason`）を必須化した**。本番 `POST /api/v2/conclusions/<id>/feedback` の body は `{label, observed_outcome_url?, notes?}` で、`notes` は任意（`radar/routes/conclusions_v2.py:286`） | **insensitive 寄り**（本番が受け入れるラベルを v3 は 400 で拒否する = 人手ラベルの収集数が減りうる。較正の人手比率 `labels_human` が下がる方向） | **登録**（WP-4.1c、2026-08-08）。理由を要求する根拠は較正災害 3 件がすべてラベル汚染だったこと — 事後に監査できないラベルは誤ったラベルと区別がつかない。`observed_outcome_url` は**本番と同名で保持**しており（`conclusions_v2.py:344-347` が人手ラベルを ground truth に昇格させる条件）、こちらを落とせば別種の insensitive 差分になるため落としていない。**解消条件**: 運用で摩擦が報告された場合に `CommandSpec.requires_reason=False` へ戻す（1 行）。証跡: `TestG01IsStructurallyDead::test_a_label_without_a_reason_is_refused` / `::test_the_outcome_url_survives_into_the_projection` |
 | 79 | L6 指令面 feedback の集計（**WP-4.1c**） | **ラベルは (結論, アナリスト) ごとに最新 1 件が有効**。本番 `radar/conclusions/feedback.py:110-111` は `SELECT label, COUNT(*) ... GROUP BY label` で**全行を数える**ため、同一アナリストが TRUE_POSITIVE を後から FALSE_POSITIVE に訂正しても**旧ラベルが票として残り続ける** | **中立〜sensitive**（本番は訂正前の TP が残るため recall が実態より高く出る＝楽観側。v3 は訂正のみを数えるため recall が下がりうる → 較正系は緩和方向の提案を出しやすくなる＝発火しやすい側） | **登録**（WP-4.1c、2026-08-08）。**旧ラベルは失われない** — 指令台帳は追記専用で全改訂を保持し、AP4 の判断履歴として再生できる。差分は「射影が何を有効票と見なすか」だけ。**解消条件**: なし（意図的差分）。ラベル台帳を較正系へ配線する WP-3.3 が本規範を前提とすること。証跡: `tests/test_api_write_seam.py::TestOneProjectionOnly::test_the_fold_equals_a_replay_of_every_row` |
+| 80 | L1 `calibration_label`（**WP-3.3**） | **ラベル台帳を追記専用にし、生成器同一性 4 列（`generator_id` / `generator_version` / `rule_id` / `epoch_id`）を NOT NULL + CHECK にする**。本番 `analyst_feedback` は `(conclusion_id, analyst_id)` を UPDATE で上書きし、epoch 列を持たない | 中立〜**sensitive**（記録が増える方向）。再ラベルが行として残るため「そのラベルは以前どう書かれていたか」に答えられる — 較正事故 3 件はいずれもこの問いで発見された | **登録**（WP-3.3、2026-08-08）。F-16 は**まさにこの位置の null**（recall baseline の `since: null`）であり、epoch を任意列にした瞬間に 2 母集団のプールが再発する。二重扉: 型（`LabelRecord`）が空文字を拒否し、DB CHECK が生 SQL を拒否し、AST 監査（`labels.unexpected_construction_sites`）が第 2 の構築点を拒否する。**cross-epoch 読取は存在しない**（`labels_in_epoch` は `epoch_id` 必須で、跨ぐメソッドが無い）。証跡: `TestALabelCannotExistWithoutItsEpoch` / `TestTwoEpochsCannotBePooled` |
+| 81 | L4 `lifecycle`（**WP-3.3**、A9 / S1-CALIB-052） | **提案の状態を列ではなく指令台帳の fold にする**。本番は `state` 列を UPDATE で動かし、アナリスト裁定と自動裁定は `state_changed_by` のマーカー文字列でしか区別できない。加えて **非 pending からの遷移を例外にする**（本番は UPDATE が 0 行に一致して成功を返す） | 中立（6 状態・遷移可能集合は条項どおり）。ただし**アナリストが「却下した」と信じた操作が記録されない**経路が消える = G-01 と同型の穴の封鎖 | **登録**（WP-3.3、2026-08-08）。actor / 時刻 / 理由が遷移ごとに書込面の既存規律で載るため、マーカー文字列が意味を担わなくなる。`reverted` は条項どおり**宣言され到達不能**（閾値台帳専用）。証跡: `TestTheStateMachineIsTheClause`（8 件） |
+| 82 | L4 `lifecycle.defer_survives_revival`（**WP-3.3**、DP6 HIGH） | **本番の欠陥をそのまま移植した**: snooze 復活は `state_changed_at` で判定して `pending` に戻すが `emitted_at` を更新せず、自動 dismiss は `emitted_at` で判定する。既定（snooze 30 日 = stale 30 日）では Defer は「30 日後に必ず却下」と同義 | **insensitive**（アナリストが保留したつもりの提案が消える）。ただし本番と同一 | **登録 + 裁定要求 11**（WP-3.3、2026-08-08）。S1-CALIB-054 は DEFECT-PRESERVE かつ「**現行系でも要修正**」。港で黙って直すと本番との差分になり、黙って残すと欠陥が二重化する。よって**移植して証明した** — `TestDeferIsStructurallyBroken` が条項が「未検証」と記す相互作用を初めて pin する。境界は等号なので復活の瞬間は生存し、次ティックで死ぬ（`revival_boundary_is_equality`）。**retire 条件**: 本番修正の裁定が下りた時点で両系同時に修正 |
+| 83 | L4 `queue.pending_count`（**WP-3.3**、A6 / ADR-V3-006） | **cap 用の pending 計数が例外時に fail-CLOSED**（例外を伝播）。本番 `scenario_improver` は計数失敗を 0 件として扱うため、DB 障害中は**上限が消える** | **sensitive 側**（v3 は提案を出さない方向に倒れる） | **登録**（WP-3.3、2026-08-08）。ADR-V3-006 の適用。負荷時に消える上限は、最も必要な瞬間に不在の上限である |
+| 84 | L2 採点ティック配線（**WP-4.1e**） | **採点ティックが v3 自身の 3 層解決で settings を解決する**（`v3/runtime/scoring.py::settings_for`）。WP-4.1d 以前は `Threshold.resolve` の registry-backed 分岐が legacy `radar.config_layered` に落ちており、C7 override は台帳・監査行・設定画面には届くが**式には届かなかった** | **中立**（override 不在時の解決値は同一）。override 存在時は**本番と同じ値**になる — つまり本項は差分ではなく**差分の解消** | **登録**（WP-4.1e、2026-08-08）。「解消」を登録するのは、G-15 が「読まれない登録値」であり、その反転（読まれるようになった）は**公開数値が動きうる変更**だから。加えて `at=now` で override fold を束縛するため、**過去ティックの再生は当時の override で解決する**（P7 導出原則 4）。証跡: `TestAnOverrideChangesAScoredOutcome`（3 件）+ 4 つの mutation |
+| 85 | L1 `tl_observation` の書き手（**WP-4.1e**） | **採点ティックが TL ストリームを書く**。WP-4.1d までこの表の書き手は `v3/etl/migrate.py` だけで、稼働中の v3 は 1 行も書かなかった（= R3 の系列・トレンド窓・null-zone がすべて空） | **sensitive**（結論不可だった読み取りが結論を返すようになる） | **登録**（WP-4.1e、2026-08-08）。ヒステリシスの `previous_tl` も同じ表から読む（`prior_state`）ため、**再起動が保持中の TL を一斉に解放する**（= 配備が引き起こす見かけの de-escalation）経路も同時に閉じる。自分が書いた行を自分の prior として読まないよう `observed_at >= now` を除外する — 除外しないと同一 tick の再実行が別結果になり `append_tl` が冪等再生を拒否する。証跡: `TestHysteresisSurvivesTheProcess`（3 件） |
 
 ---
 
 ## 8. 裁定要求
 
-以下 10 件は本書の権限を超える。**各件に推奨を付す**。（1〜4 は 2026-08-07、5〜8 は WP-2.6 remediation で追加、9・10 は WP-2.7 実装中に追加、いずれも 2026-08-08。**9 と 10 は裁定済み**）
+以下 11 件は本書の権限を超える。**各件に推奨を付す**。（1〜4 は 2026-08-07、5〜8 は WP-2.6 remediation で追加、9・10 は WP-2.7 実装中に追加、11 は WP-3.3 で追加、いずれも 2026-08-08。**9 と 10 は裁定済み**）
 
 ### 裁定要求 1 — LLM インテルの時間減衰をどこに置くか（O-17 との整合）
 
@@ -1262,6 +1268,35 @@ DROP には reason を必須とし（S1-INGEST-020 の沈黙名が保存され�
 **残る差分**: 評価順序に起因する drop reason 名の変化のみ — §7-2 #48 に登録済。
 
 ---
+
+### 裁定要求 11 — Defer は構造的に機能していない（S1-CALIB-054 / DP6、HIGH）
+
+**問題**: snooze 復活は `state_changed_at` を基準に `pending` へ戻すが **`emitted_at` を更新しない**。
+自動 dismiss（S1-CALIB-053 の実行可能型フック）は `emitted_at` を基準に判定する。既定値は
+snooze 30 日 = stale 30 日なので、**Defer した提案は復活直後の次ティックで必ず
+`auto:timeout_no_action` になる**。アナリストから見れば「保留」は「30 日後の却下予約」と同義であり、
+UI にはその区別が出ない。
+
+**現状**: WP-3.3 は本欠陥を**そのまま移植した**（§7-2 #82）。`v3/calibration/lifecycle.py::
+defer_survives_revival` が「復活後の最初の評価で生き残るか」を計算し、全型で `False` を返す。
+S1-CALIB-054 が「この相互作用は未検証」と記すとおり本番にテストは無く、
+`TestDeferIsStructurallyBroken` が初めてこれを pin した。境界は等号なので**復活の瞬間だけ生存**する
+（`revival_boundary_is_equality`）— これが欠陥を見落としやすくしている実態でもある。
+
+**なぜ本書の権限を超えるか**: 条項の分類は **DEFECT-PRESERVE** でありながら注記は「**現行系でも要修正**」。
+港で黙って直せば本番との差分（提案が 30 日を超えて生き残る = パリティ窓で mismatch）になり、
+黙って残せば欠陥が二重化して修正コストが倍になる。どちらも移植者が単独で選ぶ判断ではない。
+
+**推奨 (a) — 両系同時修正**: 復活時に `emitted_at` を復活時刻へ進める（＝ staleness 時計を再始動する）。
+Defer の意味が「30 日後にもう一度見る」になり、UI の語と一致する。パリティ窓では
+「本番で消えた提案が v3 で残る」差分が出るため、修正は**本番先行 → v3 追随**の順で行う（§7-2 の標準規律 (a) 側）。
+
+**推奨 (b) — 語を実態に合わせる**: 状態名を `snoozed_30d` から変えず、UI 文言を
+「30 日後に自動却下」に改める。修正コストはゼロだが、状態機械の意味は壊れたまま残る。
+
+**推奨は (a)**。NP7（組織内ノード）は「シナリオ登録判断はアナリスト組織側が行う」と定めており、
+提案の保留はその判断プロセスそのものである。保留が黙って却下になる仕組みは、
+ツールが組織の判断を上書きしている状態にあたる。
 
 ## 9-0. オーナー承認（2026-08-08）
 

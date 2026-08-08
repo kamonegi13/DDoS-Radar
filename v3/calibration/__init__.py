@@ -24,9 +24,20 @@ unrepresentable:
                the permit it returns cannot be constructed anywhere else,
                so the tested path and the running path are the same path
                (E-03).
+    labels     the one door a label enters through, and the only module
+               that may build a `LabelRecord` — proved by AST, because
+               the epoch coherence check lives here and L1 can only
+               enforce presence (WP-3.3).
+    lifecycle  the proposal's six states, held as the fold of its
+               adjudication commands rather than as a column an UPDATE
+               moves (S1-CALIB-052 / ACCIDENTAL A9).
+    queue      emission behind the generation Permit, and R13's
+               projection: the emitted row, its folded state, and the
+               trail that moved it.
 
 Import-inert, no environment reads, no HTTP: the v3 invariants.
 """
 from __future__ import annotations
 
-__all__ = ["epoch", "matrix", "recall", "authority", "guards"]
+__all__ = ["epoch", "matrix", "recall", "authority", "guards",
+           "labels", "lifecycle", "queue"]

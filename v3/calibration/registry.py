@@ -44,6 +44,7 @@ class Owner:
     """Which work package owes a deferred clause."""
 
     L4_PROPOSALS = "WP-3.3 (L4: the scenario-proposal family)"
+    L4_GENERATORS = "WP-3.3b (L4: the nine proposal generators)"
     L4_LLM = "WP-3.3 (L4: LLM calibration)"
     L6_API = "WP-4.1 (L6 public API / scheduling surface)"
 
@@ -181,6 +182,28 @@ IMPLEMENTED: dict = {entry.clause: entry for entry in (
                 "TestThereIsOneGuardEvaluator",
                 "DP7 / E-03 closed: one evaluator, and the permit it "
                 "mints is the only way into a write. This is condition 1."),
+    Implemented("S1-CALIB-052", "lifecycle (the whole module)",
+                "TestTheStateMachineIsTheClause",
+                "Six states, and no state COLUMN: the state is the fold of "
+                "the adjudication commands, so there is no UPDATE that can "
+                "move one. An analyst transition from a non-pending state "
+                "RAISES rather than matching no row — production's silent "
+                "failure loses a decision the analyst believes they made. "
+                "`reverted` is declared and unreachable, as the clause "
+                "records. Registered as §7-2 #81."),
+    Implemented("S1-CALIB-053", "lifecycle.auto_dismiss_marker",
+                "TestTheAutoDismissHooks",
+                "Three hooks, three markers, three windows, judged by "
+                "`emitted_at` and not by the last state change. The "
+                "inactive-scenario hook has no time condition at all."),
+    Implemented("S1-CALIB-054", "lifecycle.defer_survives_revival",
+                "TestDeferIsStructurallyBroken",
+                "DP6 (HIGH) PRESERVED and, for the first time, PROVED: the "
+                "snooze and the staleness window are both 30 days and the "
+                "revival does not move `emitted_at`, so Defer is a slower "
+                "Dismiss. The clause says the interaction is untested in "
+                "production. Repair is a ruling, not a port decision — "
+                "§7-2 #82 / 裁定要求 11."),
     Implemented("S1-CALIB-056", "guards._guard_tier_gate + "
                 "proposals.impact_of", "TestTierAndCooldownGuards",
                 "Raising recall is low, reducing it is high; an unknown "
@@ -221,9 +244,14 @@ DEFERRED: dict = {entry.clause: entry for entry in (
     Deferred("S1-CALIB-032", Owner.L6_API,
              "Post-autotune recall regression, two-stage. S5-VERIF-038 "
              "additionally requires it to be strict rather than warn-only."),
-    Deferred("S1-CALIB-033", Owner.L4_PROPOSALS,
-             "The nine proposal types and the five with an apply "
-             "primitive."),
+    Deferred("S1-CALIB-033", Owner.L4_GENERATORS,
+             "**Half landed** (WP-3.3): the nine types and the "
+             "five-with-an-apply-primitive partition are declared in "
+             "lifecycle.PROPOSAL_TYPES / AUTO_APPLICABLE_TYPES, and an "
+             "undeclared type has no proposal_id (ADR-V3-006). What remains "
+             "is the nine GENERATORS — each has its own evidence rules "
+             "(034/035/036/038/039/047/050) and they land against a queue "
+             "that now exists rather than bringing one each."),
     Deferred("S1-CALIB-034", Owner.L4_PROPOSALS, "weight_too_low."),
     Deferred("S1-CALIB-036", Owner.L4_PROPOSALS,
              "Five-source triangulation and the six-rung evidence ladder."),
@@ -233,8 +261,14 @@ DEFERRED: dict = {entry.clause: entry for entry in (
     Deferred("S1-CALIB-038", Owner.L4_PROPOSALS, "Scenario vitality."),
     Deferred("S1-CALIB-039", Owner.L4_PROPOSALS, "missing_participant."),
     Deferred("S1-CALIB-040", Owner.L4_PROPOSALS,
-             "dedup / cap / insert. ACCIDENTAL A6 (fail-open counting) "
-             "must be settled first — ADR-V3-006 says fail closed."),
+             "**Two of three exits landed** (WP-3.3): dedup is structural "
+             "(proposal_id is derived from what the proposal IS, so a "
+             "re-emission converges instead of stacking) and the INSERT is "
+             "append-only. ACCIDENTAL A6 is settled the way ADR-V3-006 "
+             "requires — queue.pending_count raises rather than counting a "
+             "failure as zero. What remains is the CAP ITSELF (refusing at "
+             "5 pending) and the 7-day dedup WINDOW, both of which belong "
+             "with the generator loop that calls them."),
     Deferred("S1-CALIB-043", Owner.L4_PROPOSALS, "The auto-apply tree."),
     Deferred("S1-CALIB-044", Owner.L4_PROPOSALS,
              "DP8: role_reclassify's unreachable auto-apply."),
@@ -250,15 +284,18 @@ DEFERRED: dict = {entry.clause: entry for entry in (
     Deferred("S1-CALIB-050", Owner.L4_PROPOSALS, "Sensor-disable proposals."),
     Deferred("S1-CALIB-051", Owner.L4_PROPOSALS,
              "DP10: the dry-run escalation that writes `applied`."),
-    Deferred("S1-CALIB-052", Owner.L4_PROPOSALS, "Proposal state machine."),
-    Deferred("S1-CALIB-053", Owner.L4_PROPOSALS, "Three auto-dismiss hooks."),
-    Deferred("S1-CALIB-054", Owner.L4_PROPOSALS,
-             "DP6 (HIGH): Defer is structurally broken in production and "
-             "needs fixing there too."),
-    Deferred("S1-CALIB-055", Owner.L4_PROPOSALS, "Supersede, two families."),
+    Deferred("S1-CALIB-055", Owner.L4_PROPOSALS,
+             "**The edge landed** (WP-3.3): lifecycle.PROPOSAL_SUPERSEDE is "
+             "legal from pending AND snoozed, and the marker is an actor_id "
+             "rather than a parsed string. What remains is the two "
+             "FAMILIES (3-column equality vs discovery fingerprint) and the "
+             "3-per-tick re-gate budget, which need the generator loop."),
     Deferred("S1-CALIB-057", Owner.L4_PROPOSALS,
              "DP15: unknown applied_by. The authority module already "
-             "refuses an undeclared action; the impact table is WP-3.3's."),
+             "refuses an undeclared action and lifecycle refuses an "
+             "undeclared proposal TYPE (so an unknown type cannot reach the "
+             "cheapest impact by default). What remains is the impact table "
+             "per type, which arrives with the generators."),
     Deferred("S1-CALIB-058", Owner.L4_PROPOSALS, "Tier promotion/demotion."),
     Deferred("S1-CALIB-059", Owner.L4_PROPOSALS, "DP13: revert rate."),
     Deferred("S1-CALIB-060", Owner.L4_PROPOSALS,
