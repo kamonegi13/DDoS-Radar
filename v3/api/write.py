@@ -177,7 +177,8 @@ class WriteContext:
         try:
             after = spec.apply(before, target_id=change.target.id,
                                payload=dict(change.payload),
-                               actor_id=actor.user_id, at=self.now)
+                               actor_id=actor.user_id, at=self.now,
+                               config=self.read.config)
         except DomainError as exc:
             # An `apply` refusal is the caller's fault, not the server's:
             # it is a payload the vocabulary does not admit. Surfacing it
@@ -209,9 +210,17 @@ class WriteContext:
         return committed
 
     def _resolve(self, spec, target):
+        """The one projection, plus the one resolution chain.
+
+        `config` is threaded from the read context rather than reached for,
+        so a command that resolves a configured value resolves it through
+        the chain the read surface serves — the same "there is only one
+        projection to be right or wrong about" property, extended to the
+        layer G-15 actually broke.
+        """
         return spec.resolve(self.read.ledger, target_id=target.id,
                             actor_id=self.principal.user_id,
-                            until=self.now)
+                            until=self.now, config=self.read.config)
 
     def _command_id(self, change: Change, after) -> str:
         """Deterministic identity, derived rather than random.

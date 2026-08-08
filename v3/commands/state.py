@@ -39,9 +39,12 @@ from v3.kernel.errors import DomainError
 FOCUS_SET = "focus.set"
 CONCLUSION_LABEL = "conclusion.label"
 GROUND_TRUTH_ASSERT = "ground_truth.assert"
+CONFIG_OVERRIDE = "config.override"
+CONFIG_CLEAR = "config.clear"
 
 TARGET_SCENARIO = "scenario"
 TARGET_CONCLUSION = "conclusion"
+TARGET_CONFIG = "config"
 
 #: An analyst's label uses THE calibration vocabulary, imported rather
 #: than re-spelled. There is deliberately no fifth "unclear" value: the
@@ -90,11 +93,11 @@ def focus_state(ledger, *, until: Optional[float] = None) -> Optional[str]:
     return latest_after(ledger, FOCUS_SET, until=until, empty=None)
 
 
-def resolve_focus(ledger, *, target_id, actor_id, until):
+def resolve_focus(ledger, *, target_id, actor_id, until, config=None):
     return focus_state(ledger, until=until)
 
 
-def apply_focus(before, *, target_id, payload, actor_id, at):
+def apply_focus(before, *, target_id, payload, actor_id, at, config=None):
     return target_id
 
 
@@ -112,11 +115,11 @@ def labels_for(ledger, conclusion_id: str, *,
                         until=until, empty={})
 
 
-def resolve_labels(ledger, *, target_id, actor_id, until):
+def resolve_labels(ledger, *, target_id, actor_id, until, config=None):
     return labels_for(ledger, target_id, until=until)
 
 
-def apply_label(before, *, target_id, payload, actor_id, at):
+def apply_label(before, *, target_id, payload, actor_id, at, config=None):
     label = payload.get("label")
     if label not in ANALYST_LABELS:
         raise DomainError(
@@ -172,11 +175,12 @@ def ground_truth_for(ledger, scenario_id: str, *,
                         until=until, empty=[])
 
 
-def resolve_ground_truth(ledger, *, target_id, actor_id, until):
+def resolve_ground_truth(ledger, *, target_id, actor_id, until, config=None):
     return ground_truth_for(ledger, target_id, until=until)
 
 
-def apply_ground_truth(before, *, target_id, payload, actor_id, at):
+def apply_ground_truth(before, *, target_id, payload, actor_id, at,
+                       config=None):
     missing = [name for name in GROUND_TRUTH_FIELDS
                if payload.get(name) in (None, "")]
     if missing:
@@ -212,9 +216,118 @@ def apply_ground_truth(before, *, target_id, payload, actor_id, at):
         merged, key=lambda k: (merged[k]["observed_at"], k))]
 
 
+# ── C7: the configuration override layer (P6 O-18 group (a)) ────────────
+#: What an override carries besides its value. `actor_id` and `at` are
+#: stamped by `commit()`; `reason` is required by the spec. Together they
+#: are why this layer needed no new table: the questions an override table
+#: would have to answer — who, when, why, and what was there before — are
+#: already columns on `command_record`, and a second store holding the
+#: same facts is a second thing to disagree with the audit trail.
+OVERRIDE_FIELDS: tuple[str, ...] = ("value", "actor_id", "reason", "at")
+
+
+def config_state(ledger, key: str, *, until: Optional[float] = None):
+    """The last `config` command's `after` for `key`, or None.
+
+    Folds BOTH actions, because `config.override` and `config.clear` write
+    the same state and a fold that saw only one would report a cleared key
+    as still overridden — the exact class of bug (a write nothing reads,
+    or a clear nothing applies) this whole surface exists to end.
+    """
+    rows = ledger.command_records(target_kind=TARGET_CONFIG, target_id=key,
+                                  until=until)
+    folded = [row for row in rows
+              if row["action"] in (CONFIG_OVERRIDE, CONFIG_CLEAR)]
+    return folded[-1]["after"] if folded else None
+
+
+def config_override(ledger, key: str, *, until: Optional[float] = None):
+    """The override layer's answer for `key`: `{value, actor_id, reason, at}`
+    or None when the key is not overridden.
+
+    THE top layer of `v3.config.resolution.ConfigResolver`. The resolver
+    calls this and nothing else calls it, so "the resolution path reads
+    the override rows" is a single edge rather than a convention.
+    """
+    state = config_state(ledger, key, until=until)
+    return None if state is None else state.get("override")
+
+
+def _require_resolver(config, action: str):
+    if config is None:
+        raise DomainError(
+            f"{action} needs the composition root's ConfigResolver: its "
+            f"state IS the resolved value, and resolving without the chain "
+            f"would verify the effect against a projection nothing serves. "
+            f"That is the G-15 shape, and WP-4.1c refused to ship it.")
+    return config
+
+
+def resolve_config(ledger, *, target_id, actor_id, until, config=None):
+    """THE read seam for a config command — the full 3-layer resolution.
+
+    Deliberately not the override row. `commit()` compares this against
+    what the command claimed, so making it the resolved value is what
+    turns the effect check into a proof that the chain reads the override:
+    a resolver that ignored the ledger would return the env or default
+    value here and the command would be refused.
+    """
+    return _require_resolver(config, "config").resolve(
+        target_id, ledger=ledger, at=until).as_dict()
+
+
+def apply_config_override(before, *, target_id, payload, actor_id, at,
+                          config=None):
+    """Set an override. Pure: `(before, payload) -> after`.
+
+    `registry.coerce_value` refuses a pinned key, an unknown key, and a
+    value the unit does not admit — before any row is written, so a
+    refused override leaves no trace of a change that did not happen.
+    """
+    from v3.config import registry as config_registry
+
+    resolver = _require_resolver(config, CONFIG_OVERRIDE)
+    if "value" not in payload:
+        raise DomainError(
+            f"a {CONFIG_OVERRIDE} needs a value: an override with none is "
+            f"indistinguishable from a clear, and the two have opposite "
+            f"effects on what the tool computes")
+    # Normalised the same way `v3.api.write._reason_for` normalises the
+    # audit row's column, because the two are the same sentence seen from
+    # two places and a whitespace difference between them would be a
+    # difference an auditor has to explain.
+    reason = payload.get("reason")
+    reason = None if reason is None or not str(reason).strip() \
+        else str(reason).strip()
+    override = {
+        "value": config_registry.coerce_value(target_id, payload["value"]),
+        "actor_id": actor_id,
+        "reason": reason,
+        "at": at,
+    }
+    return resolver.project(target_id, override=override).as_dict()
+
+
+def apply_config_clear(before, *, target_id, payload, actor_id, at,
+                       config=None):
+    """Remove an override, returning the key to env-or-default.
+
+    Not a delete. The row saying the override was removed is appended like
+    every other, so the decision trail holds the removal as an event with
+    an actor and a reason — which is what an operator asking "when did
+    this go back to the default, and who did it" needs to find.
+    """
+    resolver = _require_resolver(config, CONFIG_CLEAR)
+    return resolver.project(target_id, override=None).as_dict()
+
+
 __all__ = ["FOCUS_SET", "CONCLUSION_LABEL", "GROUND_TRUTH_ASSERT",
-           "TARGET_SCENARIO", "TARGET_CONCLUSION", "ANALYST_LABELS",
+           "CONFIG_OVERRIDE", "CONFIG_CLEAR",
+           "TARGET_SCENARIO", "TARGET_CONCLUSION", "TARGET_CONFIG",
+           "ANALYST_LABELS", "OVERRIDE_FIELDS",
            "GROUND_TRUTH_FIELDS", "latest_after", "focus_state", "labels_for",
            "ground_truth_for", "event_id_for", "resolve_focus",
            "apply_focus", "resolve_labels", "apply_label",
-           "resolve_ground_truth", "apply_ground_truth"]
+           "resolve_ground_truth", "apply_ground_truth",
+           "config_state", "config_override", "resolve_config",
+           "apply_config_override", "apply_config_clear"]

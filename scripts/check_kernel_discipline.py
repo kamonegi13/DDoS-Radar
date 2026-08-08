@@ -29,7 +29,14 @@ cannot reliably eyeball:
      every normalize) are what cover it, which is why §2-2 uses four
      independent barriers rather than one.
 
-A fourth rule is heuristic and reported as such: flagging `int(...)` /
+  4. **No `resolver=` injection outside the one licensed file.** The
+     kernel's `Threshold.resolve(resolver=...)` seam is how v3's own
+     3-layer chain reaches a registry-backed key without the kernel
+     importing L1 (WP-4.1d). Exactly one non-test module may pass it:
+     `v3/config/resolution.py`. Anywhere else it is a private
+     configuration path, which is precisely the G-15 shape.
+
+A fifth rule is heuristic and reported as such: flagging `int(...)` /
 `float(...)` applied to something named like a threat level, and direct
 ordering comparisons between such names. ThreatLevel already raises on
 all of these at runtime; the static pass only catches them earlier, and
@@ -85,12 +92,24 @@ _ENV_OWNER = "v3/runtime/secrets.py"
 # contracts regardless.
 _TL_HINTS = ("threat_level", "_tl", "tl_", "threatlevel")
 _UNIT_HINTS = ("ratio", "percent", "pct", "threshold")
-# The test-only injection seam on Threshold.resolve / exceeded_by.
+# The injection seam on Threshold.resolve / exceeded_by.
 _SEAM_KWARG = "resolver"
 _TEST_PATH_MARKERS = ("tests/", "test_")
 # The module that DEFINES the seam forwards it internally
 # (exceeded_by -> resolve); flagging that would be flagging the contract.
 _SEAM_OWNER = "v3/kernel/threshold.py"
+# WP-4.1d: v3 now has its own 3-layer chain, and the kernel reaches it
+# through this seam. So `resolver=` is no longer "tests only" — it is
+# "one file", and the file is the chain itself.
+#
+# The exemption is scoped the same way `_ENV_OWNER` is, and for the same
+# reason. A resolver constructed at an arbitrary call site IS a private
+# configuration path, which is the G-15 shape the rule exists to prevent;
+# widening the licence to `v3/config/` would let the next module become a
+# second injector by inheritance rather than by decision.
+# `tests/test_config_resolution.py` sweeps all of `v3/` by AST to prove
+# exactly one module passes it.
+_RESOLVER_OWNER = "v3/config/resolution.py"
 # The blessed comparison idioms — never flag these.
 _SAFE_SUFFIXES = (".severity", ".severity_key")
 
@@ -173,6 +192,7 @@ class _KernelVisitor(ast.NodeVisitor):
         self.is_test_path = any(marker in rel_path
                                 for marker in _TEST_PATH_MARKERS)
         self.is_seam_owner = rel_path.endswith(_SEAM_OWNER)
+        self.is_resolver_owner = rel_path.endswith(_RESOLVER_OWNER)
         self.is_http_owner = rel_path.endswith(_HTTP_OWNER)
         self.is_env_owner = rel_path.endswith(_ENV_OWNER)
 
@@ -244,14 +264,17 @@ class _KernelVisitor(ast.NodeVisitor):
                 f"Threshold.registry_backed(key) for an operationally "
                 f"variable value, or Threshold.pinned(value, "
                 f"provenance_ref=...) for a constant (P6 O-18)."))
-        if not self.is_test_path and not self.is_seam_owner and any(
-                kw.arg == _SEAM_KWARG for kw in node.keywords):
+        if not self.is_test_path and not self.is_seam_owner and \
+                not self.is_resolver_owner and any(
+                    kw.arg == _SEAM_KWARG for kw in node.keywords):
             self.findings.append(Finding(
-                self.rel_path, node.lineno, "test-only-seam",
-                f"{_SEAM_KWARG}= is a test-only injection point on "
-                f"Threshold.resolve()/exceeded_by(). In production it is a "
-                f"private configuration path, which is the G-15 shape — "
-                f"leave it unset so the real 3-layer chain answers."))
+                self.rel_path, node.lineno, "unlicensed-resolver-injection",
+                f"{_SEAM_KWARG}= on Threshold.resolve()/exceeded_by() is "
+                f"licensed to {_RESOLVER_OWNER} alone (WP-4.1d). A resolver "
+                f"built at any other call site is a private configuration "
+                f"path — the G-15 shape. Take the composition root's chain "
+                f"(v3/runtime/config.py::build_resolver) instead, or leave "
+                f"it unset for the legacy registry."))
         if callee in ("int", "float") and node.args:
             argument = _name_of(node.args[0])
             if argument and _looks_like_threat_level(argument):

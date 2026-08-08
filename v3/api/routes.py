@@ -24,12 +24,13 @@ from typing import Callable, Optional
 from v3.api.authorization import Access
 from v3.api.handlers import commands as H_commands
 from v3.api.handlers import conclusions as H_conclusions
+from v3.api.handlers import config as H_config
 from v3.api.handlers import disclosure as H_disclosure
 from v3.api.handlers import evidence as H_evidence
 from v3.api.handlers import reliability as H_reliability
 from v3.api.handlers import scenarios as H_scenarios
-from v3.api.vocabulary import (API_PREFIX, GET, METHODS, POST, ROLE_ANALYST,
-                               ROLE_VIEWER, SAFE_METHODS)
+from v3.api.vocabulary import (API_PREFIX, DELETE, GET, METHODS, POST,
+                               ROLE_ANALYST, ROLE_VIEWER, SAFE_METHODS)
 from v3.kernel.errors import DomainError
 
 _READ_ONLY = ("読み取り射影。AP3 の透明性情報を含め viewer に開放する"
@@ -136,6 +137,9 @@ ROUTES: tuple[Route, ...] = (
           H_evidence.read_observations, ("O-4",)),
     _read("R10", f"{API_PREFIX}/thresholds", H_disclosure.read_thresholds,
           ("O-6",), note="O-18 の可変キーと provenance 付き定数の両方"),
+    _read("R14", f"{API_PREFIX}/config", H_config.read_config, ("I-2",),
+          note="O-18 の可変キーのみ。値・出所層（override/env/default）・"
+               "既定値・可変である理由・読み手を返す"),
     _read("R12", f"{API_PREFIX}/scenarios/<scenario_id>/report.md",
           H_disclosure.read_report, ("O-6", "O-8"),
           note="唯一の報告出力。SALUTE/weather/sitrep/daily は持たない"),
@@ -156,6 +160,14 @@ ROUTES: tuple[Route, ...] = (
     _command("C9p", f"{API_PREFIX}/scenarios/<scenario_id>/ground_truth",
              H_commands.assert_ground_truth, ("I-2",),
              note="S9 の教師信号。観測時刻と検証可能な出典を必須とする"),
+    _command("C7s", f"{API_PREFIX}/config/<key>", H_config.set_config,
+             ("I-2",),
+             note="可変キーの変更。効果は 3 層チェーンで読み戻される"
+                  "（読まれない変更は commit が拒否する = G-15 の恒久化）"),
+    _command("C7d", f"{API_PREFIX}/config/<key>", H_config.clear_config,
+             ("I-2",), method=DELETE,
+             note="override の解除。削除ではなく追記 — 誰がいつ既定へ戻したかが"
+                  "判断履歴に残る（AP4）"),
 )
 
 

@@ -22,7 +22,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
-from v3.kernel import Ratio, Window
+from v3.kernel import Ratio, Threshold, Window
 from v3.kernel.errors import DomainError
 from v3.scoring.thresholds import VARIABLE
 
@@ -150,20 +150,37 @@ class ScoringSettings:
         }
 
 
-def resolve_settings() -> ScoringSettings:
+def resolve_settings(resolve_threshold=None) -> ScoringSettings:
     """Resolve every variable key through the 3-layer chain. NOT PURE.
 
     The only function in `v3.scoring` that talks to configuration, and it
     is unreachable from `score_tick`. Call it once per tick, in the caller,
     and hand the result to the kernel.
 
+    `resolve_threshold` is the INJECTION POINT, not a test seam. It takes a
+    `Threshold` and returns a `ResolvedThreshold`, and the composition root
+    supplies v3's own chain through it
+    (`ConfigResolver.settings_resolver(ledger=..., at=...)`) — which is what
+    makes an analyst's C7 override reach the scoring path rather than stop
+    at the settings screen. Left unset it falls to `Threshold.resolve`,
+    whose registry-backed branch still terminates in the legacy
+    `radar.config_layered` registry; that is the pre-v3 behaviour, kept for
+    the parity period and for callers that have no ledger.
+
+    The parameter is deliberately NOT named `resolver`: that name is the
+    kernel's own seam, whose use outside `v3/config/resolution.py` the
+    discipline gate refuses, and two differently-scoped things sharing a
+    name is how a licence gets inherited by accident.
+
     Failures are not defaulted: `Threshold.resolve()` raises rather than
     substituting, because a silent fallback is exactly how 95 dead keys
     went unnoticed for months (G-15).
     """
+    resolve_one = (Threshold.resolve if resolve_threshold is None
+                   else resolve_threshold)
     values: dict[str, Any] = {}
     for name, entry in VARIABLE.items():
-        raw = entry.threshold.resolve().value
+        raw = resolve_one(entry.threshold).value
         values[name] = getattr(raw, "value", raw)
     return ScoringSettings(
         domain_cap=values["DOMAIN_CAP"],

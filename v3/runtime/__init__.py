@@ -13,6 +13,8 @@ Inertness has to end somewhere, and this is where. What lands here is
 everything the pure layers deliberately could not express:
 
     secrets     the ONLY module under v3/ that may read os.environ
+    config      v3's 3-layer resolution chain, built here and injected —
+                the kernel keeps taking a resolver and never imports L1
     geo         deployment geography, loaded from geo_data.json
     scenarios   participant model -> ExpansionInput / NormalizeContext
     reduce      N per-payload drafts -> the ONE row per (country, source)

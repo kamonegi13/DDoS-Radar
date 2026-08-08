@@ -18,6 +18,13 @@ ones whose bodies use `_read_connection()`, and that connection is opened
 "we listed the safe methods" but "the listed methods hold a handle the
 database will not let them write through".
 
+`LedgerStore` now spans three modules (the 800-line house limit), so the
+audit follows the class rather than a file: `v3/api/store_source.py`
+resolves the declared base chain and refuses to return fewer methods than
+the recorded floor. Without that, splitting the store would have made this
+check quietly stop covering whatever moved — the same failure it exists to
+catch, arriving through the refactor rather than through the code.
+
 LIMITATION, stated rather than implied (the discipline gate states its
 own the same way): this object holds the store in an attribute, and
 Python offers no attribute that introspection cannot reach. The SQLite
@@ -29,13 +36,11 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Sequence
 
+from v3.api.store_source import (STORE_CLASS as _STORE_CLASS, class_methods,
+                                 public_methods)
 from v3.kernel.errors import DomainError
-
-_STORE_SOURCE = (Path(__file__).resolve().parent.parent
-                 / "ledger" / "store.py")
-_STORE_CLASS = "LedgerStore"
 
 #: Attributes whose presence in a body means the method can write.
 _WRITE_HANDLES = frozenset({"_connection", "_maybe_transaction",
@@ -197,31 +202,27 @@ def _classify_all(methods: dict) -> dict:
 
 
 def audit_store_methods(read_methods: Optional[Iterable[str]] = None,
-                        source: Optional[Path] = None) -> dict:
-    """Re-derive the classification from `store.py` and compare.
+                        source: Optional[Path] = None,
+                        extra_sources: Optional[Sequence[Path]] = None
+                        ) -> dict:
+    """Re-derive the classification from the store's SOURCES and compare.
 
     Returns `{classified: {name: kind}, misclassified: [...]}`. The suite
     treats a non-empty `misclassified` as a failure, so a `LedgerStore`
     method that starts writing stops being forwarded on the same commit
     the write is added — not on the commit somebody notices.
+
+    Plural sources since 2026-08-08. `LedgerStore` is assembled from three
+    modules for the 800-line limit, and `v3/api/store_source.py` follows
+    the declared base chain to find them — because a method moved into a
+    module this audit did not parse would drop out of the classification
+    with no failure at all, which is the precise defect the audit exists to
+    catch. The floor check there refuses to return a shrunken chain.
     """
     whitelist = frozenset(READ_METHODS if read_methods is None
                           else read_methods)
-    tree = ast.parse((source or _STORE_SOURCE).read_text(encoding="utf-8"))
-    bodies: dict = {}
-    public: set = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ClassDef) or node.name != _STORE_CLASS:
-            continue
-        for item in node.body:
-            if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            bodies[item.name] = item
-            is_property = any(isinstance(dec, ast.Name)
-                              and dec.id == "property"
-                              for dec in item.decorator_list)
-            if not item.name.startswith("_") and not is_property:
-                public.add(item.name)
+    bodies = class_methods(root=source, extra_sources=extra_sources)
+    public = public_methods(bodies)
     every = _classify_all(bodies)
     classified = {name: kind for name, kind in every.items()
                   if name in public}

@@ -673,3 +673,62 @@ class TestTheRegisterIsDerivedFromTheCode:
     def test_no_adapter_is_folded_twice(self):
         ids = [r.adapter_id for r in R.REDUCTIONS]
         assert len(ids) == len(set(ids))
+
+
+class TestTheSplitDidNotShrinkWhatIsReasonedAbout:
+    """WP-4.1d — `reduce.py` split four ways, and the same care as the store.
+
+    The store's audits had to learn to follow the class across modules
+    (`v3/api/store_source.py`); the reductions have no AST audit, but they
+    have this suite, and it reaches every fold through `v3.runtime.reduce`.
+    So the equivalent risk is a fold that quietly stops being registered —
+    the registry shrinks, the adapter passes through unfolded, and the
+    per-country row count silently changes without any test naming it.
+
+    Hence a floor, spelled here rather than implied: fifteen reductions,
+    every one of them reachable and callable through the one module.
+    """
+
+    #: Reviewed 2026-08-08 at the split. Lower it deliberately, in the
+    #: same commit as a removal, and say why.
+    REDUCTION_FLOOR = 15
+
+    def test_the_registry_did_not_shrink(self):
+        assert len(R.REDUCTIONS) >= self.REDUCTION_FLOOR, (
+            f"the reduction registry holds {len(R.REDUCTIONS)}, below the "
+            f"floor of {self.REDUCTION_FLOOR}: a fold that stopped being "
+            f"registered lets its adapter pass through unfolded, which "
+            f"changes the per-country rows with nothing to say so")
+        assert len(R.REDUCTIONS) == self.REDUCTION_FLOOR
+
+    def test_every_fold_is_reachable_through_the_one_module(self):
+        """`reduce.py` re-exports so callers still see one name. If a fold
+        moved into a module the registry does not import, this fails."""
+        for entry in R.REDUCTIONS:
+            assert entry.fold.__module__.startswith("v3.runtime.reduce")
+            assert callable(entry.fold)
+
+    def test_the_folds_live_in_the_declared_modules(self):
+        modules = {entry.fold.__module__ for entry in R.REDUCTIONS}
+        assert modules <= {"v3.runtime.reduce_physical",
+                           "v3.runtime.reduce_info"}
+
+    def test_every_public_name_the_module_promises_is_still_bound(self):
+        for name in R.__all__:
+            assert hasattr(R, name), \
+                f"{name} is in reduce.__all__ but the split lost it"
+
+    @pytest.mark.parametrize("name", ["reduce.py", "reduce_common.py",
+                                      "reduce_info.py", "reduce_physical.py"])
+    def test_each_module_is_within_the_line_limit(self, name):
+        from pathlib import Path
+        path = Path(__file__).resolve().parent.parent / "v3" / "runtime" / name
+        lines = path.read_text(encoding="utf-8").splitlines()
+        assert len(lines) <= 800, f"{name} is {len(lines)} lines"
+
+    def test_the_registry_itself_did_not_move(self):
+        """The one thing the split had to leave alone. A reader asking
+        "which adapters have a fold, and why" must find one answer."""
+        import v3.runtime.reduce as module
+        assert "REDUCTIONS" in module.__dict__, \
+            "REDUCTIONS must be DEFINED here, not re-exported from elsewhere"

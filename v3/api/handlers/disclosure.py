@@ -25,15 +25,30 @@ from v3.calibration import thresholds as calibration_thresholds
 from v3.conclusions import CONCLUSION_TYPES, NP7_DISCLAIMER
 from v3.conclusions import thresholds as conclusion_thresholds
 from v3.conclusions.availability import registry_disclosure
+from v3.config import registry as config_registry
 
 
 def read_thresholds(context) -> ApiResponse:
-    """R10 — the registry's current values with their provenance."""
+    """R10 — the registry's current values with their provenance.
+
+    BOTH halves of O-18, which is what P7 R10 asks for. The pinned
+    catalogues carry the constants; `variable` is the group-(a) set with
+    its declared reader, so a threshold nobody can change and a dial an
+    analyst can turn are distinguishable from one document rather than by
+    knowing which endpoint to ask. The variable keys' CURRENT values, with
+    the layer that answered, are R14's — this is the declaration, that is
+    the resolution.
+    """
     return tool_response(
         observed_at=context.now,
         thresholds={
             "conclusions": conclusion_thresholds.disclosure(),
             "calibration": calibration_thresholds.disclosure(),
+            "scoring_pinned": {
+                name: body for name, body in
+                config_registry.pinned_disclosure().items()
+                if body.get("catalogue") == "scoring"},
+            "variable": config_registry.variable_disclosure(),
         },
         unavailable_reason_registry=registry_disclosure())
 

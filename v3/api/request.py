@@ -19,6 +19,7 @@ from typing import Any, Mapping, Optional
 
 from v3.api.readonly import ReadOnlyLedger
 from v3.api.vocabulary import METHODS, ROLES
+from v3.config.resolution import ConfigResolver
 from v3.kernel.errors import DomainError
 
 
@@ -106,8 +107,22 @@ class ReadContext:
     scenarios: tuple[ScenarioRef, ...] = ()
     adapters: tuple[str, ...] = ()
     app_config: Mapping[str, Any] = field(default_factory=dict)
+    #: v3's 3-layer resolution chain, built by the composition root
+    #: (`v3/runtime/config.py`). Optional because a deployment may be
+    #: composed without one — and NOT defaulted to an empty resolver,
+    #: because an empty chain answers "default" for every key including
+    #: the ones the environment sets, which is a confident wrong answer.
+    #: R14 and the C7 commands raise rather than guess (`None` reaches
+    #: them as `None`).
+    config: Optional[Any] = None
 
     def __post_init__(self) -> None:
+        if self.config is not None and not isinstance(self.config,
+                                                      ConfigResolver):
+            raise DomainError(
+                f"a read context's config chain is a ConfigResolver, got "
+                f"{type(self.config).__name__}. A hand-rolled resolver is a "
+                f"second configuration path, which is what G-15 was.")
         if not isinstance(self.ledger, ReadOnlyLedger):
             raise DomainError(
                 f"a read handler takes a ReadOnlyLedger, not a "

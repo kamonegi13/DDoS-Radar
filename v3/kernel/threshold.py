@@ -91,10 +91,17 @@ class ResolvedThreshold:
 
 
 def _default_resolver(key: str) -> tuple[Any, str]:
-    """Resolve through the legacy 3-layer registry.
+    """Resolve through the LEGACY 3-layer registry.
 
     Imported lazily and only here: importing `radar.*` boots the whole
     application, so the kernel must never do it at module scope.
+
+    This is the fallback, not the destination. v3 has its own 3-layer
+    chain (`v3/config/resolution.py`, override -> env -> default), owned by
+    the composition root and injected through `resolve(resolver=...)`. The
+    kernel does not know that chain exists — it takes a callable and never
+    imports L1 — which is exactly what keeps this type pure while the layer
+    below it changes.
     """
     from radar import config_layered
     return (config_layered.get_config(key), config_layered.get_value_source(key))
@@ -153,12 +160,19 @@ class Threshold:
                 ) -> ResolvedThreshold:
         """The only path to a value. Returns it with its provenance.
 
-        `resolver` is a TEST-ONLY seam: it lets the kernel suite exercise
-        resolution without booting the legacy application. Production code
-        must leave it None so the real 3-layer chain answers — passing a
-        resolver in production would reintroduce exactly the private
-        configuration path this type exists to remove (G-15). The kernel
-        discipline gate flags `resolver=` outside tests/.
+        `resolver` is `(key) -> (value, source)` and it is THE seam through
+        which v3's own resolution chain arrives. WP-4.1d's ruling: the
+        kernel stays pure and the composition root supplies the chain, so
+        this parameter is how `v3/config/resolution.py` — built by
+        `v3/runtime/config.py` with an environment snapshot and handed a
+        ledger — answers for a registry-backed key without the kernel ever
+        importing L1.
+
+        It is not a free-for-all. The discipline gate licenses `resolver=`
+        in exactly one non-test file (`_RESOLVER_OWNER`), because a private
+        resolver constructed at an arbitrary call site is the G-15 shape:
+        a configuration path nobody else can see. Left unset, resolution
+        falls to `_default_resolver` and the LEGACY registry answers.
         """
         if not self.is_registry_backed:
             return ResolvedThreshold(
@@ -211,7 +225,8 @@ class Threshold:
                     resolver: Optional[Callable[[str], tuple]] = None) -> bool:
         """True when `observed >= threshold`, in matching units.
 
-        `resolver` is the same TEST-ONLY seam as on resolve().
+        `resolver` is the same injected chain as on resolve(), under the
+        same one-file licence.
         """
         self._check_unit(observed, unit)
         _reject_non_finite(_raw(observed), role="observed value",

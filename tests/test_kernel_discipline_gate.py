@@ -187,15 +187,21 @@ class TestValueBypassRule:
 
 
 class TestResolverSeamRule:
-    """resolver= is a test-only injection point; in production it would be
-    a private configuration path, which is the G-15 shape."""
+    """resolver= is licensed to ONE file (WP-4.1d).
+
+    It used to be "tests only", because until v3 had its own 3-layer
+    chain any injected resolver in production WAS a private configuration
+    path. Now the chain exists and the seam is how the composition root
+    supplies it — so the rule became a file-scoped licence, exactly like
+    the environment licence, rather than a blanket refusal.
+    """
 
     def test_resolver_kwarg_is_flagged_in_v3_code(self):
-        assert "test-only-seam" in _rules(
+        assert "unlicensed-resolver-injection" in _rules(
             "x = threshold.resolve(resolver=my_resolver)\n")
 
     def test_resolver_on_exceeded_by_is_flagged(self):
-        assert "test-only-seam" in _rules(
+        assert "unlicensed-resolver-injection" in _rules(
             "x = t.exceeded_by(value, resolver=fake)\n")
 
     def test_a_plain_resolve_call_is_fine(self):
@@ -207,3 +213,18 @@ class TestResolverSeamRule:
             "x = threshold.resolve(resolver=fake)\n",
             "tests/test_kernel_threshold.py")
         assert {f.rule for f in findings} == set()
+
+    def test_the_one_licensed_file_may_inject(self):
+        gate = _gate()
+        findings = gate.scan_source(
+            "x = threshold.resolve(resolver=chain)\n",
+            "v3/config/resolution.py")
+        assert {f.rule for f in findings} == set()
+
+    def test_the_licence_does_not_extend_to_the_package(self):
+        """Scoped to a file, so a second injector is a new failure."""
+        gate = _gate()
+        findings = gate.scan_source(
+            "x = threshold.resolve(resolver=chain)\n",
+            "v3/config/registry.py")
+        assert {f.rule for f in findings} == {"unlicensed-resolver-injection"}

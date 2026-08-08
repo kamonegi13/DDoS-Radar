@@ -27,7 +27,8 @@ from typing import Callable, Optional
 from v3.commands import state as S
 from v3.kernel.errors import DomainError
 
-TARGET_KINDS: frozenset = frozenset({S.TARGET_SCENARIO, S.TARGET_CONCLUSION})
+TARGET_KINDS: frozenset = frozenset({S.TARGET_SCENARIO, S.TARGET_CONCLUSION,
+                                     S.TARGET_CONFIG})
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +108,31 @@ SPECS: tuple[CommandSpec, ...] = (
         effect_key="ground_truth",
         summary="P7 C9 — human ground truth, S9's teacher signal. Same "
                 "reason requirement, same chain."),
+    CommandSpec(
+        action=S.CONFIG_OVERRIDE,
+        target_kind=S.TARGET_CONFIG,
+        resolve=S.resolve_config,
+        apply=S.apply_config_override,
+        requires_reason=True,
+        effect_key="config",
+        summary="P7 C7 — an operationally variable key changes (O-18 group "
+                "(a)). THE G-15 endpoint: an override IS a command, so it "
+                "gets an actor, a reason and a before/after row, and its "
+                "`resolve` is the full 3-layer chain — which makes commit's "
+                "effect check a proof that the resolution path reads the "
+                "override rather than a claim that it does."),
+    CommandSpec(
+        action=S.CONFIG_CLEAR,
+        target_kind=S.TARGET_CONFIG,
+        resolve=S.resolve_config,
+        apply=S.apply_config_clear,
+        requires_reason=True,
+        effect_key="config",
+        summary="P7 C7's second half — the override is removed and the key "
+                "returns to env-or-default. A reason is required for the "
+                "same reason it is on the way in: reverting a dial during "
+                "an incident is a decision, and an unexplained one cannot "
+                "be audited afterwards."),
 )
 
 ACTIONS: tuple[str, ...] = tuple(spec.action for spec in SPECS)

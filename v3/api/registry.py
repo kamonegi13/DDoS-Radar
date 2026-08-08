@@ -40,7 +40,8 @@ class Owner:
     DECISIONS = "WP-3.3 (統一判断台帳) + WP-4.1d"
     INTEL = "WP-4.1d (インテルキュー読み取り)"
     PROPOSALS = "WP-4.1d (提案キュー統合)"
-    CONFIG = "WP-4.1d (O-18 可変キーレジストリ)"
+    # CONFIG は WP-4.1d で解消（R14 / C7 が着地）。オーナー定数を残すと
+    # 「誰かが負っている」の見た目だけが残るため削除する。
     NARRATIVE = "WP-4.1d (P7 §4 決定論ナラティブ)"
     SCORING_TICK = "WP-4.1d + 採点ティック配線 (v3/runtime)"
     AUTH = "WP-4.1d (認証・利用者ストア)"
@@ -85,12 +86,15 @@ SERVED: tuple[Served, ...] = (
     Served("R7", "合成信頼度 + 内訳（AP3）", ("R7",)),
     Served("R8", "センサー健全性の単一形 + 観測系列", ("R8", "R8o")),
     Served("R10", "閾値レジストリの現在値と出典", ("R10",)),
+    Served("R14", "O-18 可変キーの現在値・出所層・読み手", ("R14",)),
     Served("R12", "唯一の報告出力（結論 Markdown）", ("R12",)),
     Served("R15", "起動設定 / 死活 probe", ("R15c", "R15h")),
     # ── WP-4.1c: the command surface's first three ──────────────────────
     Served("C1", "focus 登録（読み取りの副作用から分離）", ("C1",)),
     Served("C2", "結論フィードバック投稿（G-01 の恒久化）", ("C2",)),
     Served("C9", "人手 ground truth（GET/POST）", ("C9g", "C9p")),
+    # ── WP-4.1d: the override layer, once it had a reader ───────────────
+    Served("C7", "可変キーの変更・解除（POST/DELETE）", ("C7s", "C7d")),
 )
 
 DEFERRED: tuple[Deferred, ...] = (
@@ -105,9 +109,6 @@ DEFERRED: tuple[Deferred, ...] = (
     Deferred("R13", "統一提案キュー", Owner.PROPOSALS,
              "v3/calibration/proposals.py は提案を生成できるが、"
              "キューの永続化と裁定履歴が L1 に無い"),
-    Deferred("R14", "O-18 可変キーの現在値", Owner.CONFIG,
-             "可変キー 20〜30 の registry が v3 に未着地（§7-2 #52 の "
-             "retire 条件と同一の依存）"),
     Deferred("C3", "インテル裁定 4 動詞", Owner.INTEL,
              "R11 と対。キューの裁定状態を持つ表が無く、確定した裁定を"
              "読み返す先が存在しない"),
@@ -123,16 +124,12 @@ DEFERRED: tuple[Deferred, ...] = (
              "組み立てる側が未着地（WP-3.3）"),
     Deferred("C6", "反実仮想 1 系統", Owner.API_COMMANDS,
              "副作用の無い指令（side_effect=False の POST）として着地"
-             "できるが、L2 カーネルを dry-run で呼ぶ入力組み立てが "
-             "v3/runtime/reduce.py 側にあり、そこは 1,078 行で分割待ち。"
-             "同一スライスで触ると分割と機能追加が混ざる"),
-    Deferred("C7", "可変キーの変更・解除", Owner.CONFIG,
-             "**着地させてはならない状態**: v3 の 3 層解決は "
-             "v3/kernel/threshold.py の Threshold.registry_backed が "
-             "legacy radar.config_layered に委譲して終端する。v3 側に "
-             "override を書いても解決経路がそれを読まないため、"
-             "commit の効果検証が必ず失敗する — つまり今 C7 を出すことは "
-             "G-15 の再生産そのもの。解決経路を v3 に移す設計判断が先"),
+             "できる。**旧理由の半分は解消**（WP-4.1d が reduce.py を "
+             "reduce/_common/_physical/_info の 4 本へ分割し、いずれも "
+             "800 行未満）。残る阻害は分割ではなく**入力組み立て**: "
+             "L2 カーネルを dry-run で呼ぶには ScoringInput 一式を "
+             "採点ティック外で構成する経路が要り、それは v3/runtime/tick.py "
+             "の中にしか存在しない"),
     Deferred("C8", "ノイズ除外規則", Owner.SCORING_TICK,
              "消費者は採点ティック。規則を fold から読ませる配線が "
              "v3/runtime 側の変更（reduce.py の分割を含む）になる。"
@@ -162,8 +159,9 @@ WS_TRANSPORT: Deferred = Deferred(
     "transport を出さなかった理由は依存ではなく**発行者が存在しない**こと: "
     "4 イベントのうち attention_update は R6（繰延）、notification_result は "
     "v3 に通知系が無く、sensor_status/conclusion_update の発行者は採点ティック"
-    "（v3/runtime、reduce.py の 800 行分割を含む配線）。発行者ゼロのチャネルは"
-    "「読み手のいない書込み」の鏡像であり、本 WP が C4/C7/C8 を繰延した理由と"
+    "（v3/runtime の配線。reduce.py の 800 行分割は WP-4.1d で完了済のため"
+    "阻害から外れた）。発行者ゼロのチャネルは"
+    "「読み手のいない書込み」の鏡像であり、C4/C8 を繰延した理由と"
     "同じ規律で繰延する。flask-socketio は依存に存在するため技術的障害は無い")
 
 

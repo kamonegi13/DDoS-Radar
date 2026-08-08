@@ -23,6 +23,13 @@ AST facts about the store's source:
 2. NO OTHER store method writes `command_record`, so a row in the decision
    trail can only have arrived through this door.
 
+Fact 2 is only as good as the set of methods the audit can see, and since
+WP-4.1d `LedgerStore` spans three modules (the 800-line house limit). So
+the parse goes through `v3/api/store_source.py`, which follows the class's
+declared base chain and refuses to return a chain it cannot follow or one
+smaller than the recorded floor. A second writer hidden in an unparsed
+module would otherwise satisfy this audit exactly.
+
 Together those make "every change to what the command surface governs is
 an audit row" a property of the code rather than of a review checklist —
 because the effective state IS the fold of those rows (see
@@ -38,13 +45,11 @@ from __future__ import annotations
 import ast
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
+from v3.api.store_source import STORE_CLASS as _STORE_CLASS
+from v3.api.store_source import class_methods
 from v3.kernel.errors import DomainError
-
-_STORE_SOURCE = (Path(__file__).resolve().parent.parent
-                 / "ledger" / "store.py")
-_STORE_CLASS = "LedgerStore"
 
 #: The one table the command surface may write.
 COMMAND_TABLE = "command_record"
@@ -99,15 +104,17 @@ class CommandLedger:
         return f"CommandLedger<{COMMAND_TABLE}>"
 
 
-def _method_bodies(source: Optional[Path] = None) -> dict:
-    tree = ast.parse((source or _STORE_SOURCE).read_text(encoding="utf-8"))
-    bodies: dict = {}
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ClassDef) or node.name != _STORE_CLASS:
-            continue
-        for item in node.body:
-            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                bodies[item.name] = item
+def _method_bodies(source: Optional[Path] = None,
+                   extra_sources: Optional[Sequence[Path]] = None) -> dict:
+    """Every method on the class, across every module the chain reaches.
+
+    Delegated to `v3/api/store_source.py` since the store was split for
+    the 800-line limit. The delegation is the point: a writer of
+    `command_record` hidden in a module this file did not parse would
+    satisfy `writers == ["append_command"]` while a second door stood
+    open, and nothing would have failed.
+    """
+    bodies = class_methods(root=source, extra_sources=extra_sources)
     if not bodies:
         raise DomainError(
             f"the audit found no methods on {_STORE_CLASS}; the store moved "
@@ -125,7 +132,9 @@ def _tables_written(node) -> frozenset:
     return frozenset(tables)
 
 
-def audit_command_writes(source: Optional[Path] = None) -> dict:
+def audit_command_writes(source: Optional[Path] = None,
+                         extra_sources: Optional[Sequence[Path]] = None
+                         ) -> dict:
     """The two AST facts the seam's promise rests on.
 
     Returns `{writers: [...], extra_tables: [...]}`. `writers` is every
@@ -134,7 +143,7 @@ def audit_command_writes(source: Optional[Path] = None) -> dict:
     `writers == sorted(COMMAND_METHODS)` and `extra_tables == []`, so
     either half drifting is a red build on the commit that drifts it.
     """
-    bodies = _method_bodies(source)
+    bodies = _method_bodies(source, extra_sources)
     writers = sorted(name for name, node in bodies.items()
                      if COMMAND_TABLE in _tables_written(node))
     extra: set = set()
