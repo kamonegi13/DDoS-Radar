@@ -35,6 +35,7 @@ import pytest
 
 from v3.api import (ANONYMOUS, ApiRequest, Principal, ReadContext,
                     ReadOnlyLedger, handle)
+from v3.api import cookies as COOKIES
 from v3.api import routes as R
 from v3.api import registry as REG
 from v3.api.vocabulary import ROLE_ADMIN, ROLE_ANALYST, ROLE_VIEWER
@@ -94,6 +95,29 @@ def _login(store, user_id, password, *, now=NOW, provider=None, ip=None):
                              body={"user_id": user_id, "password": password},
                              client_ip=ip),
                   _read(store, now=now, provider=provider))
+
+
+def _transport(response) -> tuple:
+    """The refresh pair, taken from the COOKIES (§7-2 #103).
+
+    It is not in the body and must never be: S1-SVC-004 / S2-API-010 forbid
+    it and S1-UI-002 calls the cookie form CORE. `tests/test_api_cookies.py`
+    is where that property is proved; here the pair is simply read from
+    where the transport actually put it.
+    """
+    directives = {directive.spec.name: directive
+                  for directive in response.cookies}
+    return (directives[COOKIES.REFRESH_COOKIE.name].value,
+            directives[COOKIES.CSRF_COOKIE.name].value)
+
+
+def _refresh(store, *, refresh_token, csrf, now=NOW, provider=None):
+    return handle(
+        ApiRequest(method="POST", path="/api/v3/auth/refresh",
+                   cookies={COOKIES.REFRESH_COOKIE.name: refresh_token,
+                            COOKIES.CSRF_COOKIE.name: csrf},
+                   csrf_header=csrf),
+        _read(store, now=now, provider=provider))
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -382,16 +406,14 @@ class TestTheSessionLifecycle:
             self, store):
         _register(store, "kamo", role=ROLE_VIEWER)
         provider = _provider()
-        session = _login(store, "kamo", GOOD, now=NOW + 1,
-                         provider=provider).as_dict()["session"]
+        login = _login(store, "kamo", GOOD, now=NOW + 1, provider=provider)
+        refresh_token, csrf = _transport(login)
         handle(ApiRequest(method="PUT", path="/api/v3/auth/users/kamo",
                           body={"role": ROLE_ANALYST, "reason": "promotion"},
                           principal=ADMIN),
                _write(store, now=NOW + 2, provider=provider))
-        refreshed = handle(
-            ApiRequest(method="POST", path="/api/v3/auth/refresh",
-                       body={"refresh_token": session["refresh_token"]}),
-            _read(store, now=NOW + 3, provider=provider))
+        refreshed = _refresh(store, refresh_token=refresh_token, csrf=csrf,
+                             now=NOW + 3, provider=provider)
         assert refreshed.status == 200
         claims = provider.authority.verify(
             refreshed.as_dict()["session"]["access_token"],
@@ -399,21 +421,23 @@ class TestTheSessionLifecycle:
         assert claims.role == ROLE_ANALYST
 
     def test_an_access_token_is_refused_as_a_refresh_token(self, store):
+        """Even when the CSRF pair is internally consistent: the pair has
+        to belong to a REFRESH token, and an access token carries none."""
         _register(store, "kamo")
         provider = _provider()
-        session = _login(store, "kamo", GOOD, now=NOW + 1,
-                         provider=provider).as_dict()["session"]
-        response = handle(
-            ApiRequest(method="POST", path="/api/v3/auth/refresh",
-                       body={"refresh_token": session["access_token"]}),
-            _read(store, now=NOW + 2, provider=provider))
+        login = _login(store, "kamo", GOOD, now=NOW + 1, provider=provider)
+        session = login.as_dict()["session"]
+        _refresh_token, csrf = _transport(login)
+        response = _refresh(store, refresh_token=session["access_token"],
+                            csrf=csrf, now=NOW + 2, provider=provider)
         assert response.status == 401
 
     def test_logout_revokes_every_token_issued_before_it(self, store):
         _register(store, "kamo")
         provider = _provider()
-        session = _login(store, "kamo", GOOD, now=NOW + 1,
-                         provider=provider).as_dict()["session"]
+        login = _login(store, "kamo", GOOD, now=NOW + 1, provider=provider)
+        session = login.as_dict()["session"]
+        refresh_token, _csrf = _transport(login)
         principal = SESSION.principal_for(
             ReadOnlyLedger(store), provider,
             access_token=session["access_token"], now=NOW + 2)
@@ -429,8 +453,7 @@ class TestTheSessionLifecycle:
                                   now=NOW + 4)
         with pytest.raises(SESSION.SessionRefused):
             SESSION.principal_for(ReadOnlyLedger(store), provider,
-                                  access_token=session["refresh_token"],
-                                  now=NOW + 4)
+                                  access_token=refresh_token, now=NOW + 4)
 
     def test_a_password_change_revokes_the_users_sessions(self, store):
         _register(store, "kamo")

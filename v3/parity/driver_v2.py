@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
+from v3.intel import adjudication as INTEL
 from v3.kernel import ThreatLevel
 from v3.kernel.errors import DomainError
 from v3.parity.adapter import LedgerInputAdapter, to_wire
@@ -130,7 +131,16 @@ def replay(store: LedgerStore, scenarios: Sequence[Scenario], *,
         "global_signal_weight": global_signal_weight,
         "previous_tl": dict(previous_tl or {}),
         "config_overrides": dict(config_overrides or {}),
-        "ticks": [{"tick_ts": tick.tick_ts, "rows": to_wire(tick.rows)}
+        # The SAME admission predicate the v3 side applies (§7-2 #105).
+        # Production would not have scored an unadjudicated intel item
+        # either — `get_active_rationale` selects `auto_confirmed` and
+        # `confirmed` only — so feeding one to the legacy formulas here
+        # would manufacture a disagreement the harness invented. This is
+        # the §7-2 #38 lesson applied to a second asymmetry: both sides
+        # must receive the input each system would actually have.
+        "ticks": [{"tick_ts": tick.tick_ts,
+                   "rows": to_wire(INTEL.scoreable_rows(
+                       store, tick.rows, until=tick.tick_ts))}
                   for tick in adapter.ticks(start, end)],
     }
 

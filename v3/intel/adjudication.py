@@ -18,14 +18,39 @@ row rather than a content hash that a re-extraction could collide with.
 
 **What each verb actually does, and what reads it:**
 
-    confirm   the item leaves the pending queue. Read by R11's `?state=`
-              filter, which is the analyst's work list.
-    reject    the item leaves the queue AND stops scoring —
-              `v3/runtime/scoring.py::observations_at` drops the row.
-              That is the reader that makes 'reject' mean what it says.
+    confirm   the item leaves the pending queue AND starts scoring. Read
+              by R11's `?state=` filter, which is the analyst's work list,
+              and by `v3/runtime/scoring.py::observations_at`.
+    reject    the item leaves the queue and stays out of scoring.
     revert    both effects are undone. Legal only from a decided state;
               production lets a revert of a never-decided item update zero
               rows and report success, which loses the analyst's action.
+
+**Unadjudicated intel is not scored** (owner ruling on 裁定要求 13,
+2026-08-08). WP-2.7's O-17 landing made LLM intel an ordinary L1
+observation, and for a while that meant it was scored the moment it was
+extracted, with `reject` as the only subtraction. Production does not do
+that: `IntelQueue.get_active_rationale` (`radar/intel_queue.py:986-987`)
+selects `status="auto_confirmed"` and `status="confirmed"` and nothing
+else, so `pending`, `rejected`, `overridden` and `review_needed` never
+reach `compute_scenario_score`. The predicate here matches that: the
+question asked of every intel row is "is this in a state production would
+score", not "has somebody explicitly rejected it".
+
+The reason is NP6's discipline rather than precision arithmetic. The
+queue's states exist precisely because an unadjudicated LLM extraction is
+a hypothesis; scoring it publishes a hypothesis as a finding. A
+sensitive-direction extra also pollutes the parity agreement rate, which
+makes the differences that matter harder to see.
+
+**The residual, registered as §7-2 #105**: v3 has no `auto_confirmed`.
+Production's auto-confirm reads a credibility model, a source-ecosystem
+gate and a corroborator count (`_resolve_auto_confirm_status`,
+`radar/intel_queue.py:233-276`), none of which exist in v3 — and a
+confidence-only imitation would be a new threshold with no counterpart,
+which is what option (c) of 裁定要求 13 was rejected for. So v3 admits
+`confirmed` alone, which is a subset of what production admits, and that
+difference is registered rather than papered over.
 
 `override` is NOT here, and the blocker is named rather than papered
 over: production's override rewrites the extracted fields, and v3's L1 is
@@ -64,6 +89,17 @@ _STATE_FOR: dict = {INTEL_CONFIRM: STATE_CONFIRMED,
 #: S1-INTEL-020's literal, and the only `signal_source` R11 projects.
 INTEL_SIGNAL_SOURCE = "llm_intel"
 
+#: What PRODUCTION admits into convergence, measured rather than recalled:
+#: the two `db.intel_list(status=...)` calls in `get_active_rationale`
+#: (`radar/intel_queue.py:986-987`). Pinned here so a change on that side
+#: breaks a test rather than drifting quietly, and asserted by AST in
+#: `tests/test_api_intel.py::TestTheAdmittedSetIsProductions`.
+PRODUCTION_SCORING_STATES: tuple[str, ...] = ("auto_confirmed", "confirmed")
+
+#: What V3 admits. A subset of production's, because v3 has no
+#: auto-confirm tier to admit — see the module docstring and §7-2 #105.
+SCORED_STATES: frozenset = frozenset({STATE_CONFIRMED})
+
 
 def _rows(ledger, item_id: Optional[str], until: Optional[float]) -> list:
     rows = ledger.command_records(target_kind=TARGET_INTEL,
@@ -96,15 +132,40 @@ def adjudicated(ledger, *, until: Optional[float] = None) -> dict:
 
 
 def rejected_ids(ledger, *, until: Optional[float] = None) -> frozenset:
-    """THE scoring reader. `reject` means the row stops contributing.
+    """Items an analyst explicitly rejected. Projection only.
 
-    Called by `v3/runtime/scoring.py::observations_at`, which is the one
-    place the ledger becomes kernel input — so "rejected intel does not
-    score" is a single edge rather than a convention every caller keeps.
+    NOT the scoring predicate — `scoreable_rows` is, and it is default-deny
+    rather than default-admit. Kept because R11 and the decision trail ask
+    "what was rejected", which is a different question from "what scores".
     """
     return frozenset(item_id for item_id, state in
                      adjudicated(ledger, until=until).items()
                      if state == STATE_REJECTED)
+
+
+def is_intel_row(row) -> bool:
+    """Whether a ledger row is LLM intel, by its declared signal source."""
+    return str((row or {}).get("signal_source") or "") == INTEL_SIGNAL_SOURCE
+
+
+def scoreable_rows(ledger, rows, *, until: Optional[float] = None) -> list:
+    """THE scoring predicate. Intel scores only in an admitted state.
+
+    Called by `v3/runtime/scoring.py::observations_at` (the live tick) and
+    by `v3/parity/driver_v3.py::replay` (the parity window), because a
+    parity run that scored rows the tick would not admit would report an
+    agreement rate about a system nobody runs.
+
+    Default-DENY for intel and untouched for everything else. The scope is
+    load-bearing: a sensor reading has no adjudication and never will, so a
+    predicate that forgot to ask `is_intel_row` first would drop the entire
+    ledger. That is what the mutation test in `tests/test_api_intel.py`
+    breaks.
+    """
+    states = adjudicated(ledger, until=until)
+    return [row for row in rows
+            if not is_intel_row(row)
+            or states.get(str(row.get("id")), STATE_PENDING) in SCORED_STATES]
 
 
 def resolve_intel(ledger, *, target_id, actor_id, until, config=None):
@@ -141,6 +202,7 @@ apply_revert = _apply(INTEL_REVERT)
 
 __all__ = ["TARGET_INTEL", "INTEL_CONFIRM", "INTEL_REJECT", "INTEL_REVERT",
            "ACTIONS", "STATES", "STATE_PENDING", "STATE_CONFIRMED",
-           "STATE_REJECTED", "INTEL_SIGNAL_SOURCE", "intel_state",
-           "adjudicated", "rejected_ids", "resolve_intel", "apply_confirm",
-           "apply_reject", "apply_revert"]
+           "STATE_REJECTED", "INTEL_SIGNAL_SOURCE", "SCORED_STATES",
+           "PRODUCTION_SCORING_STATES", "intel_state", "adjudicated",
+           "rejected_ids", "is_intel_row", "scoreable_rows", "resolve_intel",
+           "apply_confirm", "apply_reject", "apply_revert"]

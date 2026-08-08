@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
 
+from v3.api.cookies import NONE_PRESENTED, PresentedCookies
 from v3.api.readonly import ReadOnlyLedger
 from v3.api.vocabulary import METHODS, ROLES
 from v3.config.resolution import ConfigResolver
@@ -164,6 +165,12 @@ class ReadContext:
     #: source, and a client-supplied address would let one caller occupy a
     #: fresh bucket per attempt.
     client_ip: Optional[str] = None
+    #: The cookies this ROUTE declared it accepts, and the CSRF companion
+    #: the dispatcher already matched. Stamped after authorization, and
+    #: filtered by `CookiePolicy.presents` — so a handler can only reach a
+    #: cookie-borne credential its route declared, and can only reach it
+    #: once the pairing held. Empty for every other route (§7-2 #103).
+    cookies: PresentedCookies = NONE_PRESENTED
 
     def __post_init__(self) -> None:
         if self.config is not None and not isinstance(self.config,
@@ -204,6 +211,11 @@ class ReadContext:
                 f"got {type(self.principal).__name__}: a bare string here is "
                 f"how a per-reader projection comes to serve whoever the "
                 f"caller claimed to be")
+        if not isinstance(self.cookies, PresentedCookies):
+            raise DomainError(
+                f"a read context's cookies are a PresentedCookies, got "
+                f"{type(self.cookies).__name__}: a raw dict here would let a "
+                f"handler read a credential its route never declared")
 
     @property
     def actor_id(self) -> Optional[str]:
@@ -240,6 +252,13 @@ class ApiRequest:
     #: The transport's view of the caller's address. The binding fills it;
     #: nothing else may, and no handler may read it from the body.
     client_ip: Optional[str] = None
+    #: Everything the transport carried. RAW — the dispatcher filters it
+    #: down to what the matched route declared before any handler sees it.
+    cookies: Mapping[str, str] = field(default_factory=dict)
+    #: The `X-CSRF-TOKEN` header's value, or `None`. A named field rather
+    #: than a general header bag: the surface reads exactly one header
+    #: besides `Authorization`, and a bag would be an input nobody declared.
+    csrf_header: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.method not in METHODS:
@@ -250,6 +269,9 @@ class ApiRequest:
             raise DomainError(f"path must be absolute, got {self.path!r}")
         object.__setattr__(self, "params", dict(self.params))
         object.__setattr__(self, "body", dict(self.body))
+        object.__setattr__(self, "cookies",
+                           {str(k): str(v) for k, v in
+                            dict(self.cookies).items()})
         if not (self.principal is ANONYMOUS
                 or isinstance(self.principal, Principal)):
             raise DomainError(

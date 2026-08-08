@@ -23,6 +23,7 @@ declaration is the failure this program spent WP-4.1a preventing.
 from __future__ import annotations
 
 import hashlib
+import hmac
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
@@ -97,8 +98,15 @@ class Claims:
     expires_at: float
     jti: str
     issuer: str
+    #: The CSRF companion, on REFRESH tokens only. Empty on an access
+    #: token, because an access token rides in `Authorization` — a header a
+    #: cross-site form cannot set — so a CSRF value there would be a
+    #: control with no reader.
+    csrf: str = ""
 
     def as_dict(self) -> dict:
+        """Deliberately WITHOUT `csrf`: it is a credential, and this dict
+        is what a diagnostic prints."""
         return {"subject": self.subject, "role": self.role,
                 "token_type": self.token_type, "issued_at": self.issued_at,
                 "expires_at": self.expires_at, "jti": self.jti,
@@ -147,6 +155,23 @@ class TokenAuthority:
                 "key_fingerprint": hashlib.sha256(
                     self.key.encode("utf-8")).hexdigest()[:12]}
 
+    def csrf_for(self, jti: str) -> str:
+        """The CSRF companion for a refresh token, derived from the key.
+
+        Production draws it from `secrets.token_hex(16)`
+        (flask-jwt-extended's `_create_csrf_token`). v3 derives it instead,
+        for the same reason `jti` is derived: `issue` is a function of its
+        arguments, so a replayed decision trail rebuilds the same session
+        identifiers (NP6). Unguessability is not lost — the value is an
+        HMAC under the signing key, which the cross-site attacker does not
+        have — and it is the SAME value that travels inside the signed
+        token, so the pair cannot be forged by anyone who can only write
+        cookies.
+        """
+        return hmac.new(self.key.encode("utf-8"),
+                        f"csrf\x1f{jti}".encode("utf-8"),
+                        hashlib.sha256).hexdigest()[:32]
+
     def ttl_for(self, token_type: str) -> float:
         if token_type == TYPE_ACCESS:
             return self.access_ttl_sec
@@ -170,9 +195,16 @@ class TokenAuthority:
         # identifiers (NP6). Randomness would make the trail unreproducible.
         material = f"{self.issuer}\x1f{user_id}\x1f{token_type}\x1f{issued:.6f}"
         jti = hashlib.sha256(material.encode("utf-8")).hexdigest()[:24]
-        return encode({"iss": self.issuer, "sub": str(user_id), "role": role,
-                       "typ": token_type, "jti": jti,
-                       "iat": int(issued), "exp": int(expires)}, key=self.key)
+        claims = {"iss": self.issuer, "sub": str(user_id), "role": role,
+                  "typ": token_type, "jti": jti,
+                  "iat": int(issued), "exp": int(expires)}
+        if token_type == TYPE_REFRESH:
+            # Inside the signature, exactly as production carries it: the
+            # header the SPA echoes is checked against THIS, not merely
+            # against a second cookie, so an attacker who can plant cookies
+            # still cannot present a pair that belongs to a live token.
+            claims["csrf"] = self.csrf_for(jti)
+        return encode(claims, key=self.key)
 
     def verify(self, token: Any, *, expected_type: str,
                now: float) -> Claims:
@@ -210,7 +242,8 @@ class TokenAuthority:
         return Claims(subject=str(payload["sub"]), role=role,
                       token_type=expected_type, issued_at=issued_at,
                       expires_at=expires_at, jti=str(payload.get("jti", "")),
-                      issuer=str(payload["iss"]))
+                      issuer=str(payload["iss"]),
+                      csrf=str(payload.get("csrf", "")))
 
 
 __all__ = ["ISSUER", "ALGORITHM", "TYPE_ACCESS", "TYPE_REFRESH",

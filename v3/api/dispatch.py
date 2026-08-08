@@ -19,6 +19,7 @@ import inspect
 
 from dataclasses import replace
 
+from v3.api import cookies as C
 from v3.api import errors as E
 from v3.api import routes as R
 from v3.api.authorization import authorize
@@ -50,6 +51,37 @@ def _handler_kwargs(route: R.Route, request: ApiRequest,
     for name, value in request.params.items():
         kwargs[name] = value
     return kwargs
+
+
+def _check_csrf(route: R.Route, request: ApiRequest) -> None:
+    """S1-UI-002's companion, enforced from the ROUTE, before the handler.
+
+    The browser attaches a cookie to a cross-site request whether or not
+    the caller meant it, so the httpOnly cookie alone proves possession
+    and not intent. The header proves intent, because a cross-site page
+    cannot set one. Production gets this from flask-jwt-extended's
+    `JWT_COOKIE_CSRF_PROTECT` on the refresh path (`radar/auth.py:249-252`);
+    v3 gets it from `CookiePolicy`, which cannot declare a cookie-borne
+    credential without it.
+
+    401 rather than 403: the caller has not established who they are on
+    this request, which is the same fact an expired token states.
+    """
+    if not route.cookies.csrf:
+        return
+    companion = request.cookies.get(C.CSRF_COOKIE.name)
+    if not C.csrf_matches(request.csrf_header, companion):
+        raise E.unauthenticated(
+            "CSRF トークンが一致しません。cookie の対トークンを "
+            f"{C.CSRF_HEADER} ヘッダへ返してください")
+
+
+def _with_cookies(context, route: R.Route, request: ApiRequest):
+    """Hand the handler ONLY the cookies its route declared."""
+    admitted = C.admit(route.cookies, request.cookies, request.csrf_header)
+    if isinstance(context, WriteContext):
+        return replace(context, read=replace(context.read, cookies=admitted))
+    return replace(context, cookies=admitted)
 
 
 def _with_principal(context, request: ApiRequest):
@@ -154,8 +186,13 @@ def handle(request: ApiRequest, context) -> ApiResponse:
         failure = authorize(route.access, request.principal)
         if failure is not None:
             raise failure
+        # The pairing, from the declaration, before anything reads a
+        # cookie-borne credential (§7-2 #103).
+        _check_csrf(route, request)
         handler_context = _context_for(
-            route, _with_principal(context, request), request)
+            route, _with_cookies(_with_principal(context, request), route,
+                                 request),
+            request)
         kwargs = _handler_kwargs(route, request, path_params)
         response = route.handler(handler_context, **kwargs)
         if not isinstance(response, ApiResponse):
@@ -163,6 +200,7 @@ def handle(request: ApiRequest, context) -> ApiResponse:
                 f"route {route.route_id} returned "
                 f"{type(response).__name__}; every route answers with the "
                 f"one envelope (P7 derivation principle 2)")
+        C.check_emissions(route.cookies, response.cookies)
         if route.side_effect:
             _audit_discipline(route, handler_context)
         # P7 §3: the freshness stamp is applied HERE, once, for every

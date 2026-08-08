@@ -124,17 +124,15 @@ def observations_at(store, *, now: float,
     from v3.intel import adjudication as intel
 
     adapter = LedgerInputAdapter(store, tick_interval_sec=tick_interval_sec)
-    # THE reader for P7 C3's `reject`. Applied here because this is the one
-    # place the ledger becomes kernel input, so "rejected intel does not
-    # score" is a single edge rather than a rule every caller keeps. The
-    # row is not deleted — L1 is append-only and R11 still shows it with
-    # its adjudication, which is what "an analyst decided" has to look
-    # like afterwards.
-    excluded = intel.rejected_ids(store, until=now)
+    # THE reader for P7 C3's adjudication. Applied here because this is the
+    # one place the ledger becomes kernel input, so "unadjudicated intel
+    # does not score" is a single edge rather than a rule every caller
+    # keeps. Rows are not deleted — L1 is append-only and R11 still shows
+    # every item with its state, which is what "an analyst has not looked
+    # at this yet" has to look like from the queue.
     for tick_input in adapter.ticks(now, now):
-        rows = [row for row in tick_input.rows
-                if str(row.get("id")) not in excluded]
-        return to_v3_observations(rows)
+        return to_v3_observations(
+            intel.scoreable_rows(store, tick_input.rows, until=now))
     return ()
 
 

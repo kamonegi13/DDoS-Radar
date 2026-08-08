@@ -956,6 +956,24 @@ L2 の条項レジストリと同じ機構であり、**転写のドリフトが
 > 利用者ストアは表を作らず `command_record` の fold にした — 繰延理由に書かれていた
 > 「キューの裁定状態を持つ表」も同様に不要で、**表が要ると読んだこと自体が誤り**だった。
 
+> **WP-4.3（cutover 阻害の解消・L7 ログインゲート・裁定要求 13 の実装）の更新（2026-08-08）**:
+> 本 WP は **retire 2 件（#103 / #99）**、**範囲縮小 1 件（#105）**、**新規登録 3 件（#109〜#111）**。
+> **#103 は本プログラム唯一の cutover 阻害項目であり、これで阻害はゼロになった**。
+> 解消手段は登録時の解消条件どおり: `v3/api/cookies.py` に cookie 面（`CookieSpec` / `SetCookie` /
+> `ClearCookie` / `CookiePolicy` / `PresentedCookies`）が着地し、`ApiRequest` が cookie と
+> `X-CSRF-TOKEN` を型付き入力として受け、`ApiResponse` が set/clear 指令を型付き出力として運び、
+> Flask 束縛だけがそれを `Set-Cookie` に翻訳する。**CSRF の対は宣言そのもので強制される** —
+> `CookiePolicy` は `presents` を持ちながら `csrf=False` である状態を構築時に拒否するため、
+> 「ハンドラが検査を忘れる」という綴りが存在しない（G-01 の恒久化をルート表側で反復）。
+> 姿勢（httpOnly / SameSite=Strict / Secure 既定 on / パス限定 / session cookie）は
+> `radar/auth.py` と導入済 `flask_jwt_extended` の**両方を AST で実測**して一致を証明した
+> （本番が「既定を上書きしていない」ことに由来する 2 値 — CSRF cookie の `/` パスと
+> `JWT_SESSION_COOKIE=True` による `Max-Age` 不在 — を含む）。
+> **#105 は裁定要求 13 のオーナー裁定により反転**した: 未裁定インテルは採点されない。
+> 述語は `v3/intel/adjudication.py::scoreable_rows` 1 本で、live ティック
+> （`v3/runtime/scoring.py::observations_at`）と parity 両ドライバが同じものを呼ぶ。
+> **#99 は L7 実装で解消**（`v3/ui/auth.js` + ゲート DOM + 401 の 1 回再試行 + refresh 直列化）。
+
 > **WP-4.1f（S8 注目台帳と、それが解いた L6 の残り）の更新（2026-08-08）**: 本 WP は **#86〜#93 を新規登録**、
 > **retire 1 件（#87 が置換した本番挙動ではなく、下記の DEFERRED 側）・範囲縮小 0 件**。
 > L0 アダプタの転写には触れないため既存エントリの解消条件に触れない。
@@ -1097,23 +1115,26 @@ L2 の条項レジストリと同じ機構であり、**転写のドリフトが
 | 96 | L7 鮮度表示の帯（**WP-4.2**、P5 O-13 の残余） | **`FRESHNESS_AGING_SEC = 900` / `FRESHNESS_STALE_SEC = 3600` の 2 値だけがフロント宣言の境界である**。他の全境界（recall / drift / null-zone / 鮮度上限 / calibration 標本下限 / ドメインバーの分母）は R7・R10・結論の `threshold_ref` から取得し、供給が無ければ `boundary_undisclosed` と表示して数値を発明しない | **中立**（採点に影響しない表示帯のみ。本番 HUD Row 3 は 12 チップの境界を**全てフロント直書き**していた） | **登録**（WP-4.2、2026-08-08）。由来は採点ティックの cadence 900 秒（`v3/runtime/tick.py`）— 1 cadence 超過が「やや古い」、4 cadence 超過が「古い」。**tooltip で値そのものを開示**する（`ui.freshness.boundaries`）ため NP6 は満たす。**解消条件**: R14 の可変キーに鮮度帯が登録された時点。証跡: `tests/test_v3_ui_discipline.py::ALLOWED_LITERALS`（この 2 値のみが数値掃引の許可リストに載る） |
 | 97 | L7 「前回確認からの変化」のローカル保持（**WP-4.2**、P8 §2 Tier 0） | **シナリオカードの「前回確認からの変化量」はブラウザローカルの記憶（`noroshi.v3.ui.v1` の `lastSeen`）から算出する**。サーバは「この画面が最後に表示した TL」を射影しない（R6 の `analyst_blindness` は §7-2 #87 により**組織の最終指令時刻**から測る別概念） | **中立**（本番に相当表示が無い） | **登録**（WP-4.2、2026-08-08）。2 つを混同すると v1 の「ack が 1 ブラウザの localStorage にしか無い」（A6）を綴り直すことになるため、**別物として別名で保持**する。記憶が無い場合は 0 を捏造せず「初回表示」と明示する。永続キーと形は 1 箇所（`app.js` の `STORE_KEY` / `STORE_SHAPE`）でのみ定義（DP9）。**解消条件**: なし（意図的差分。サーバ化するなら AP4 の判断台帳に載せる設計判断が要る） |
 | 98 | L7 pure module 6 本のうち 4 本が v3 で家を失う（**WP-4.2**、P1 §11 / P8 §7） | **`triage_score.js`・`self_explanation.js`・`hud_v2_overlay.js`・`wp_alarm.js` は v3 から参照しない**。順位付けはサーバ台帳の射影（P5 O-8）、ナラティブはサーバ昇格（P7 §4）、v3 に overlay すべき v1 は無く、Watchpane は廃止（P8 §7）。**ファイルは削除しない** — v1 は cutover まで稼働し続ける（ADR-V3-009） | **中立**（v1 側は無変更） | **登録**（WP-4.2、2026-08-08）。P1 §11 の「6 本を規範実装として keep」は**形（pure-core + 薄い DOM）の keep** であり、v3 の画面インベントリが 4 本の需要そのものを消した以上、機能としての keep は成立しない。`triage_display_mode.js`（表示モードの状態機械）と `map_dim.js`（focus 切替の 2 相ロード）の**意味論は生きている**が、v3 では地図が Tier 1 に降格し画面構造が違うため未移植（下記「残作業」）。**解消条件**: cutover 時に 4 本と v1 側テスト 106 件を削除する。証跡: `tests/test_v3_ui_discipline.py::TestRetiredSurfacesAreAbsent` が v3 側の不在を強制 |
-| 99 | L7 ログインゲートの不在（**WP-4.2**、S1-UI-001〜005） | **未認証遮蔽ゲートを実装しない**。C13（auth 族 9 本）が L6 に未着地のため、ゲートが呼ぶべき endpoint が存在しない。クライアントは `localStorage` のトークンがあれば `Authorization: Bearer` を付けるが、取得・更新・失効の経路は無い | **insensitive 方向ではない**（認可はサーバ側 `Access` 宣言が全ルートで強制しており、UI ゲートの不在は権限逸脱を生まない）。ただし**UX 上の退行**（401 が操作に到達する） | **登録**（WP-4.2、2026-08-08）。満たせないゲートを作ると「ログインできない画面」になるため、**未接続であることを明示**する（`ui.deferred.auth`）。S1-UI-003 の先行更新・401 の 1 回再試行・リフレッシュ直列化も同じ理由で未実装。**解消条件**: C13 の着地時。**cutover 前提条件**（認証なしで cutover してはならない） | **【範囲縮小 — WP-4.1g、2026-08-08】阻害要因は解消した: C13 の 9 本が着地し、ゲートが呼ぶべき endpoint (`POST /api/v3/auth/login` / `refresh` / `logout`) が実在する。残るのは L7 の実装そのもの。**認可はサーバ側 `Access` 宣言が全ルートで強制しているため、ゲート不在は依然として権限逸脱を生まない**（未認証 UI は 401 を受けるだけ）。解消条件を「L7 がゲートを実装したとき」へ読み替える**
+| 99 | L7 ログインゲートの不在（**WP-4.2**、S1-UI-001〜005） | **未認証遮蔽ゲートを実装しない**。C13（auth 族 9 本）が L6 に未着地のため、ゲートが呼ぶべき endpoint が存在しない。クライアントは `localStorage` のトークンがあれば `Authorization: Bearer` を付けるが、取得・更新・失効の経路は無い | **insensitive 方向ではない**（認可はサーバ側 `Access` 宣言が全ルートで強制しており、UI ゲートの不在は権限逸脱を生まない）。ただし**UX 上の退行**（401 が操作に到達する） | **登録**（WP-4.2、2026-08-08）。満たせないゲートを作ると「ログインできない画面」になるため、**未接続であることを明示**する（`ui.deferred.auth`）。S1-UI-003 の先行更新・401 の 1 回再試行・リフレッシュ直列化も同じ理由で未実装。**解消条件**: C13 の着地時。**cutover 前提条件**（認証なしで cutover してはならない） | **【範囲縮小 — WP-4.1g、2026-08-08】阻害要因は解消した: C13 の 9 本が着地し、ゲートが呼ぶべき endpoint (`POST /api/v3/auth/login` / `refresh` / `logout`) が実在する。残るのは L7 の実装そのもの。**認可はサーバ側 `Access` 宣言が全ルートで強制しているため、ゲート不在は依然として権限逸脱を生まない**（未認証 UI は 401 を受けるだけ）。解消条件を「L7 がゲートを実装したとき」へ読み替える** | **【RETIRED — WP-4.3、2026-08-08】L7 がゲートを実装した。`v3/ui/auth.js`（純モジュール、Node で 29 件）が状態機械（`checking` / `locked` / `open`）と閉じた lock 理由集合（never / expired / revoked / signed_out / refused / throttled / unavailable / transport）を持ち、`index.html` の `#auth-gate` が `<main hidden>` の手前に立つ。**未認証は空のダッシュボードではなくゲートを見る**（射影を 1 本も fetch しない）。**再読込でセッションは生き残る** — 生き残るのは httpOnly refresh cookie であり、`begin()` がそれをサーバに問う（access token は localStorage に置かない = #111）。**セッション中の 401 は理由付きでゲートへ戻る**: `client.js` が 1 回だけ再試行し、`auth.js` が refresh を直列化（同時 401 は refresh 1 本）、修復不能なら `revoked` で施錠して画面に理由を出す（黙って白紙化する G-10 型の否定）。証跡: `tests/ui_v3/test_auth.js`（29 件）/ `test_gate.js`（13 件）/ `test_client.js` の 401 群 5 件 / `test_app_smoke.js` のゲート 9 件** |
 
 | 100 | L6 C13 署名鍵の出所（**WP-4.1g**、S1-SVC-010） | **v3 は自分の鍵 ID `NOROSHI_V3_JWT_SECRET` で署名し、`JWT_SECRET_KEY` を読まない。鍵が無ければ生成せず、auth ルート全 9 本が 503 を返す** | 中立（稼働系は無変更） | **登録**（WP-4.1g、2026-08-08）。本番は鍵が無いと生成して `config.env` へ追記する（`radar/auth.py:155-199`）。第 2 のプロセスが同じことをすれば同ファイルを競合し、負けた側の鍵変更で**稼働中の全セッションが失効する**。鍵 ID を分けたことで v1 トークンは v3 で検証されず、逆も成立しない（v3 は `iss` を要求し v1 トークンは持たない）。**解消条件**: なし（意図的差分・恒久） |
 | 101 | L6 C13 役割の一次ソース（**WP-4.1g**、S1-SVC-011 / DP1） | **認可判定は access token の `role` クレームのみを読む**。本番は保護 endpoint ごとに DB を引き直し、その読み取り中の例外をすべて 401 に潰す。v3 は認証基盤の障害（401）と権限不足（403）を分離する | 中立。ただし本番が DB 都度読みで買っていた「役割変更の即時反映」は、**`access_not_before` を役割変更時に進める**ことで買い直している（発行済み access token は即失効、refresh は生存し次回更新で新しい役割が載る） | **登録**（WP-4.1g、2026-08-08）。S1-SVC-011 の v3 規範をそのまま実装。**解消条件**: なし（規範どおり） |
 | 102 | L6 C13 失効の粒度（**WP-4.1g**、S1-SVC-006 / ACCIDENTAL A2） | **JTI 失効台帳を持たない**。失効は利用者単位の床（`sessions_not_before` / `access_not_before`）で表現し、ログアウト・パスワード変更・無効化は access と refresh の**両方**を殺す | **sensitive**（本番より多く失効する）。本番のログアウトは提示された access token の JTI だけを台帳に載せ、httpOnly cookie 内の refresh token は読めないため失効させられず、cookie を事前に持ち出されていれば 24h 生存する | **登録**（WP-4.1g、2026-08-08）。台帳を持たない代わりに床が 2 本ある。他端末のセッションが一緒に落ちる点は本番と異なるが、方向は安全側 |
-| 103 | L6 C13 refresh token の輸送（**WP-4.1g**、S1-SVC-004 / S2-API-010） | **refresh token を応答本文で返す。httpOnly + SameSite=Strict cookie も、対になる CSRF cookie / `X-CSRF-TOKEN` ヘッダも持たない** | **insensitive（セキュリティ軸）**。本番は本文に載せることを MUST NOT とし、XSS による refresh token 窃取を構造的に塞いでいる（S1-UI-002 は CORE 判定） | **登録 + cutover 阻害**（WP-4.1g、2026-08-08）。阻害は設計判断ではなく**輸送層の不在**: v3 の面は `ApiRequest(method, path, params, body, principal, client_ip)` でありクッキーの概念が無い。**cutover 前に必ず解消すること**。解消条件: `v3/api/binding.py` に cookie 面（set/clear + CSRF ペア）が着地し、C13login/refresh がそれを使うこと |
+| 103 | L6 C13 refresh token の輸送（**WP-4.1g**、S1-SVC-004 / S2-API-010） | **refresh token を応答本文で返す。httpOnly + SameSite=Strict cookie も、対になる CSRF cookie / `X-CSRF-TOKEN` ヘッダも持たない** | **insensitive（セキュリティ軸）**。本番は本文に載せることを MUST NOT とし、XSS による refresh token 窃取を構造的に塞いでいる（S1-UI-002 は CORE 判定） | **登録 + cutover 阻害**（WP-4.1g、2026-08-08）。阻害は設計判断ではなく**輸送層の不在**: v3 の面は `ApiRequest(method, path, params, body, principal, client_ip)` でありクッキーの概念が無い。**cutover 前に必ず解消すること**。解消条件: `v3/api/binding.py` に cookie 面（set/clear + CSRF ペア）が着地し、C13login/refresh がそれを使うこと | **【RETIRED — WP-4.3、2026-08-08】解消条件を満たした。cutover 阻害はこれでゼロ**。本文は access token / user_id / role / 各寿命のみを運び、refresh token は `SetCookie(REFRESH_COOKIE, ...)` で出る。`v3/auth/session.py::Minted` は **payload に `refresh_token` が入っている状態を構築時に拒否する**ので、漏洩は「規律」ではなく「綴りが無い」。掃引テストは全 auth 応答本文を token 本体・claims 断片・signature 断片・キー名で走査し、`Minted` を寛容な代替に差し替える mutation が掃引を発火させることまで示す。CSRF は 2 層: ディスパッチャがルート宣言に従って header と companion cookie の一致を要求し（401、ハンドラ到達前）、`session.refresh` が **token 自身の `csrf` クレーム**との一致を要求する（cookie を書ける攻撃者が対を偽造できない = 本番 flask-jwt-extended と同じ束縛）。証跡: `tests/test_api_cookies.py`（34 件） |
 | 104 | L6 C3 `override` 動詞の不在（**WP-4.1g**、P7 C3） | **インテル裁定は confirm / reject / revert の 3 動詞**。本番の 4 番目 `override`（抽出結果の訂正）は出さない | **insensitive**（アナリストが LLM の誤抽出を訂正できない。訂正できないものは reject するしかない） | **登録**（WP-4.1g、2026-08-08）。理由は読み手ゼロ: v3 の L1 は追記専用で、override は「訂正済み観測を新規に書く」以外に効果を持てず、それは指令面から観測台帳へ書く別スライス（provenance の問い「この行のセンサーは誰か」を伴う）。訂正を記録して誰も読まない形は G-15。**解消条件**: 指令由来観測の provenance 規範が定まったとき |
-| 105 | L6 C3 裁定と採点の関係（**WP-4.1g**、O-17 / S1-INTEL-020） | **未裁定（pending）のインテルも採点される**。本番は confirmed / auto_confirmed のみが収斂に入る。v3 では `reject` が唯一の採点レバーで、`v3/runtime/scoring.py::observations_at` が当該行を落とす | **sensitive**（v3 の方が多く採点する = 大きく出る方向）。ただし WP-2.7 の O-17 着地時点で既に成立していた性質で、本項はその**明示登録**と、初めて付いた減算レバー（reject）の登録 | **登録**（WP-4.1g、2026-08-08）。裁定待ちを採点しない設計に戻すことは可能だが、それは L2 の入力規則の変更であり API 面のスライスではない。**解消条件**: なし（意図的差分。反転するなら L2 スライスで） |
+| 105 | L6 C3 裁定と採点の関係（**WP-4.1g**、O-17 / S1-INTEL-020） | **未裁定（pending）のインテルも採点される**。本番は confirmed / auto_confirmed のみが収斂に入る。v3 では `reject` が唯一の採点レバーで、`v3/runtime/scoring.py::observations_at` が当該行を落とす | **sensitive**（v3 の方が多く採点する = 大きく出る方向）。ただし WP-2.7 の O-17 着地時点で既に成立していた性質で、本項はその**明示登録**と、初めて付いた減算レバー（reject）の登録 | **登録**（WP-4.1g、2026-08-08）。裁定待ちを採点しない設計に戻すことは可能だが、それは L2 の入力規則の変更であり API 面のスライスではない。**解消条件**: なし（意図的差分。反転するなら L2 スライスで） | **【範囲縮小 — WP-4.3、2026-08-08、裁定要求 13 のオーナー裁定】登録内容は反転した。未裁定（pending）インテルは採点されない**。述語は「明示的に reject されたか」ではなく「本番が採点する状態か」に変わった（`v3/intel/adjudication.py::scoreable_rows`）。本番の実測値（AST）は `get_active_rationale` の `db.intel_list(status=...)` 2 本 = `{auto_confirmed, confirmed}` で、`pending` / `rejected` / `overridden` / `review_needed` は WHERE 節で落ちる。**残る差分は方向が逆転した**: v3 は `auto_confirmed` 段を持たない（本番の自動確認は信頼度モデル・情報生態系ゲート・裏付け件数を読む `_resolve_auto_confirm_status` で、v3 にはどれも無い。信頼度だけの模倣は対応物の無い新しい魔法数であり、これは選択肢 (c) を退けた理由そのもの）ため、**v3 は `confirmed` のみを容れる = 本番より少なく採点する（insensitive）**。述語は live ティックと parity 両ドライバ（v2 側も含む）が同じ関数を呼ぶ — 片側だけが容れれば一致率はハーネスが作った不一致で汚れる（#38 の教訓の第 2 適用）。**解消条件**: v3 に自動裁定の一次情報（信頼度＋生態系＋裏付け）が着地したとき。証跡: `TestOnlyAdjudicatedIntelIsScored`（8 件、うち mutation 2 本 = 「全状態を容れる」と「intel 行と観測行を区別しない」）/ `TestTheAdmittedSetIsProductions`（4 件、本番側は AST 実測） |
 | 106 | L6 R7 `ops_health` の供給範囲（**WP-4.1g**、#94 の後継） | **4 監視のうち 2 件しか答えられない**: `backup`（v3 台帳用のマーカーが存在すれば）と `capacity`（台帳ファイル × 保持期間目標）は実測、`l5_checks` と `llm_health` は **v3 に L5 検証層と LLM 健全性ロールアップが存在しない**ため `UNSUPPLIED`。ブロックは 4 件すべてを判定つきで返し、fold は最悪値 | 中立（本番 HUD Row 3 は合成値を持たないため比較対象が無い）。表示は本番より悲観側 | **登録**（WP-4.1g、2026-08-08）。#94 を retire した後継。**答えられない 2 件を畳んで trusted を出さない**のが本項の要点で、これは #94 と同じ規律の 1 階層下への適用。`capacity` は本番の日次サンプル線形外挿ではなく**保持期間目標に対する比**（v3 に容量サンプル系列が無いため）で、`early_estimate` でその旨を明示する。**解消条件**: L5 スライスが着地して 4/4 になったとき |
 | 107 | L6 C13 argon2 への遅延再ハッシュの不在（**WP-4.1g**、S1-SVC-001） | **ログイン時に PBKDF2 ハッシュを argon2 へ張り替えない**。本番は成功ログインのたびに再生成して保存する | 中立（v3 は新規ストアで、argon2 が使える環境では最初から argon2） | **登録**（WP-4.1g、2026-08-08）。理由は構造: v3 の login は台帳に 1 行も書かない射影（`ReadContext` を持つ）であり、そこで書けば読み取り経路からの書込 = A-01 の形。代わりに `credential_upgradable` を利用者射影に出し、運用者がパスワード再設定で上げる。**解消条件**: なし（意図的差分） |
 | 108 | L6 C13 ログインガードの発信元判定（**WP-4.1g**、S1-SVC-003 / ACCIDENTAL A1） | **`X-Forwarded-For` を一切信頼しない**（本番は `TRUST_PROXY_XFF` 設定時に先頭要素を採用）。5 回 / 300 秒 / 追跡 1000 件と退避規則は本番どおり転写 | 中立〜**sensitive**（プロキシ配下では全要求が同一アドレスに見え、ガードが厳しく効きすぎる可能性） | **登録**（WP-4.1g、2026-08-08）。v3 の前段にプロキシがまだ無く、既定で信頼するヘッダは攻撃者が打ち直せるガードである。**解消条件**: 配備形態が確定し、信頼境界を宣言できたとき |
+| 109 | L6 refresh cookie の名前とパス（**WP-4.3**、S1-SVC-004） | **cookie 名は v3 独自** (`noroshi_v3_refresh` / `noroshi_v3_csrf_refresh`)、**refresh cookie のパスは v3 の refresh ルート自身** (`/api/v3/auth/refresh`)。本番は `radar_refresh_jwt` / `csrf_refresh_token` を `/api/auth/refresh` に置く | 中立（姿勢は同一 — httpOnly / SameSite=Strict / Secure 既定 on / session cookie / CSRF cookie は `/` かつ非 httpOnly。差分は識別子とプレフィックスだけ） | **登録**（WP-4.3、2026-08-08）。v1 と v3 は同一ホストに並走する（ADR-V3-009）。同名 cookie が 2 本あると、どちらがどちらか**ブラウザの側でも人の側でも見分けられない**。鍵 ID を分けた #100 と同じ理由の輸送層版。**解消条件**: なし（意図的差分・恒久）。証跡: `TestThePostureIsProductions`（6 件、本番側は `radar/auth.py` と導入済 `flask_jwt_extended` の AST 実測） |
+| 110 | L6 CSRF トークンの生成（**WP-4.3**、S1-SVC-004 / NP6） | **署名鍵からの決定論的導出** (`hmac(key, "csrf\x1f" + jti)` の先頭 32 桁)。本番 flask-jwt-extended は `secrets.token_hex(16)` の乱数 | 中立（強度は同じ — 攻撃者が持たない鍵の HMAC。値は本番と同じく**署名済トークンの内側**にも入るため、cookie を書ける攻撃者は対を偽造できない） | **登録**（WP-4.3、2026-08-08）。`jti` を決定論にしたのと同じ理由: `issue` が引数の関数であることで、判断履歴の再生が同じセッション識別子を再構築する（NP6）。乱数はこの性質を 1 か所だけ壊す。**解消条件**: なし（意図的差分）。証跡: `test_the_csrf_value_is_derived_from_the_signing_key` / `test_an_access_token_carries_no_csrf_claim` |
+| 111 | L7 access token の保持場所（**WP-4.3**、S1-UI-002） | **access token はメモリのみ。`localStorage` に書かない**。本番 SPA は `localStorage` に保存する（`app.js` の旧 `noroshi.v3.token` 読み取りは**誰も書かないキー**だった） | 中立〜**sensitive（セキュリティ軸）**（v3 の方が強い。永続化された bearer token は、ブラウザが生きている限りページが実行する任意のスクリプトから読める） | **登録**（WP-4.3、2026-08-08）。再読込を越えて生き残るのは httpOnly refresh cookie の方であり、それは JS から読めない — つまり「セッションが再読込を生き延びる」(S1-UI-004) は**サーバに訊く**ことで満たせる。#103 が refresh token について閉じた窃取経路を、access token についても縮める。**解消条件**: なし（意図的差分）。証跡: `test_no_bearer_token_is_ever_written_to_localStorage` |
 
 ---
 
 ## 8. 裁定要求
 
-以下 13 件は本書の権限を超える。**各件に推奨を付す**。（1〜4 は 2026-08-07、5〜8 は WP-2.6 remediation で追加、9・10 は WP-2.7 実装中に追加、11 は WP-3.3 で追加、いずれも 2026-08-08。**9・10・11 は裁定済み**。11 はオーナー裁定により**推奨 (a) を採らず保存**、稼働系への修正は cutover 後 — D2 に 1 件を owe している）
+以下 13 件は本書の権限を超える。**各件に推奨を付す**。（1〜4 は 2026-08-07、5〜8 は WP-2.6 remediation で追加、9・10 は WP-2.7 実装中に追加、11 は WP-3.3 で追加、いずれも 2026-08-08。**9・10・11・12・13 は裁定済み**。11 はオーナー裁定により**推奨 (a) を採らず保存**、稼働系への修正は cutover 後 — D2 に 1 件を owe している）
 
 ### 裁定要求 1 — LLM インテルの時間減衰をどこに置くか（O-17 との整合）
 
@@ -1373,7 +1394,7 @@ Defer の意味が「30 日後にもう一度見る」になり、UI の語と�
 > （裁定要求 8 の誤帰属ハザードと同じ扱い）。cutover 後に本番側で `emitted_at` を復活時刻へ
 > 進める修正を行い、その時点で本項を retire する。**修正は cutover 後であり、パリティ窓の内側では行わない。**
 
-### 裁定要求 12 — refresh token の輸送（§7-2 #103、**cutover 阻害**、CRITICAL）
+### 裁定要求 12 — refresh token の輸送（§7-2 #103、**cutover 阻害**、CRITICAL） 〔**裁定済み 2026-08-08 — 推奨 (a) 採択・実装完了。§7-2 #103 は RETIRED、cutover 阻害はゼロ**〕
 
 **事実**: v3 の C13 は refresh token を応答本文で返す。本番 (S1-SVC-004 / S2-API-010 / S1-UI-002) は
 本文に載せることを **MUST NOT** とし、httpOnly + SameSite=Strict + `/api/auth/refresh` へパス限定した
@@ -1396,7 +1417,7 @@ refresh を拒否する。S1-UI-002 はこれを **CORE**（XSS による refres
 
 **推奨**: (a)。**cutover 前に必須**。着地までは v3 UI を本番相当のネットワークに出さないこと。
 
-### 裁定要求 13 — 未裁定インテルを採点するか（§7-2 #105、HIGH）
+### 裁定要求 13 — 未裁定インテルを採点するか（§7-2 #105、HIGH） 〔**裁定済み 2026-08-08 — オーナー裁定により推奨 (a) を退け (b) を採択。§10 の裁定 7 が正**〕
 
 **事実**: WP-2.7 の O-17 着地により、v3 では LLM インテルが L1 の通常観測として落ち、
 **裁定を待たずに採点される**。本番は `auto_confirmed` / `confirmed` のみが収斂に入り、
@@ -1415,6 +1436,18 @@ refresh を拒否する。S1-UI-002 はこれを **CORE**（XSS による refres
 - (c) pending を減衰つきで採点（半分の重み等）。新しい魔法数を 1 つ増やす。
 
 **推奨**: (a)。ただし本項が**登録済みの sensitive 差分**であることを parity 窓で明示的に読むこと。
+
+> **オーナー裁定（2026-08-08）**: **(a) を退け (b) を採る**。理由は 3 つ。
+> (1) キューの状態は「未裁定の LLM 出力はまだ証拠ではない」という理由で存在しており、
+> それを採点することは**仮説を所見として発表する**ことに等しく、NP6 の規律を反転させる。
+> (2) NP1 上は安全側であっても、v3 側だけの追加行は**一致率を汚し**、parity 窓で
+> 見るべき本当の差分を見えにくくする。
+> (3) 機構は既にある — C3 の `reject` は `observations_at` に読み手を持っているので、
+> 必要なのは**述語の変更**（本番が採点する状態だけを採点する）であって新しい機構ではない。
+> **実装は §10 の裁定 7**。なお (b) の全部は取れない: v3 に `auto_confirmed` 段は無く、
+> それを作ることは選択肢 (c) が退けられたのと同じ「新しい魔法数」になる。
+> よって v3 は `confirmed` のみを容れ、**残差（本番より少なく採点する insensitive 方向）を
+> §7-2 #105 の範囲縮小として登録する**。
 
 
 ## 9-0. オーナー承認（2026-08-08）
@@ -1449,3 +1482,6 @@ refresh を拒否する。S1-UI-002 はこれを **CORE**（XSS による refres
 | 5 | **推奨 (c) を採択 — `hacktivist_intel` / `ground_osint` は WP-4.1 へ繰延**。入力が別アダプタの出力であり、宣言モデルに語彙が無い。無理に通せば barrier 1 か barrier 2/4 が壊れ、それは §2-4 の教訓の反復である。§7-2 #11（reduction）・#35（suppression）と同一機構で一括して解く。WP-2.7 の対象は 12 → **10 行**（build されるのは 9 基）。総和は **34 declared / 33 buildable / 2 deferred / 31 built** | 裁定要求 9。詳細と導出は §3-5 H-3 の裁定ブロック。実装は `catalog.DEFERRED_WP41` |
 | 6 | **§7-2 #38 は登録で終わらせず、本 WP で v2 ドライバを修正する**。`v3/parity/_v2_subprocess.py` は intel 行に**本番の減衰**を適用する。式の再実装は S5-VERIF-031 が禁じるので、`rationale_to_signal` と同じく**本番の関数 `radar.intel_queue._age_weight` を呼ぶ**。齢を含むパリティフィクスチャで両系一致を証明すること | 裁定要求なし（オーナー発意のエスカレーション）。実施済 — #38 は RETIRED、証跡は `TestIntelRowsAreAgedOnBothSides` / `TestTheDriverUsesProductionsOwnDecay` |
 | 7 | **裁定要求 10 — 推奨 (c) を採択**。4 スロットの上限は**振る舞い**に対するもので、宣言データを禁じない。`IntelProfile` に応答処分表（`dispositions`）・signal キー名（`signal_field` / `signal_absent_reason`）・複数答えキー（`response_items_key`）を**データとして**持たせ、評価は `build_item` 1 本のまま。表に callable が入れば `DomainError`。守る不変条件は「抽出実装が 1 本であること」であり、スイートは callable 集合を pin する | 裁定要求 10。実装と不変条件は §4-1-1。残差分は §7-2 #48（drop reason 名のみ） |
+| 8 | **裁定要求 12 — 推奨 (a) を採択し、本 WP で実装した**。cookie 面は束縛／ディスパッチャ層に置く（ハンドラは型付き要求から型付き応答への関数のまま — それがサーバ無しで試験できる性質そのもの）。CSRF の対は**ルート宣言で構造的に強制**し、ハンドラの検査には落とさない: `CookiePolicy` は `presents` を持ちながら `csrf=False` である状態を構築時に拒否する。姿勢は条項からの転記ではなく `radar/auth.py` と `flask_jwt_extended` の **AST 実測**で一致させ、差分（名前・パス・CSRF の導出）は #109 / #110 に登録した | 裁定要求 12。**§7-2 #103 RETIRED — 本プログラムの cutover 阻害はゼロになった**。証跡: `tests/test_api_cookies.py`（34 件、うち mutation 1 本） |
+| 9 | **裁定要求 13 — オーナー裁定により推奨 (a) を退け (b) を採択**。採点は**裁定状態**でゲートする（明示的 reject だけではない）。本番が容れる状態は AST で実測して一致させる = `{auto_confirmed, confirmed}`。v3 は `auto_confirmed` 段を持たないため `confirmed` のみを容れ、**残差は insensitive 方向として §7-2 #105 に登録**する。述語は 1 本（`scoreable_rows`）で、live ティックと parity の**両ドライバ**が呼ぶ | 裁定要求 13。理由は §8 の裁定ブロック。証跡: `TestOnlyAdjudicatedIntelIsScored`（mutation 2 本）/ `TestTheAdmittedSetIsProductions` |
+| 10 | **§7-2 #99 の残り（L7 ログインゲート）を実装した**。未認証は空のダッシュボードではなくゲートを見る。再読込を越えて生き残るのは httpOnly refresh cookie であり、access token は**メモリのみ**（#111）。セッション中の 401 は 1 回だけ再試行し、修復不能なら**理由を画面に出して**施錠する（黙って白紙化する G-10 型の否定） | 裁定要求なし（#99 の解消条件の履行）。**§7-2 #99 RETIRED**。証跡: `tests/ui_v3/test_auth.js`（29 件、状態機械）/ `test_gate.js`（13 件、表示の決定は純関数）/ `test_app_smoke.js` のゲート 9 件。表示の決定は `v3/ui/gate.js` に分離し、`app.js` は要素書き込みだけを持つ（DOM を書くファイルは 2 本になったので `TestTheWiringResolves` は両方を走査する） |

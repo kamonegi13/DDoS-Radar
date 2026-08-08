@@ -90,6 +90,7 @@
      * @param {object} options
      * @param {function} options.transport  (url, init) -> Promise<{status, json}>
      * @param {function} [options.tokenProvider] () -> string|null
+     * @param {function} [options.onUnauthorized] () -> Promise<boolean>
      * @param {function} [options.now]       () -> seconds
      */
     function createClient(options) {
@@ -99,6 +100,13 @@
             throw new Error('createClient needs a transport');
         }
         var tokenProvider = options.tokenProvider || function () { return null; };
+        //: What to do when the surface says 401 mid-session. The POLICY is
+        //: not here — `v3/ui/auth.js` owns "refresh once, then lock with a
+        //: reason" — because a policy inside the fetch helper is a policy
+        //: nothing can test without a fetch. Absent, a 401 is an ordinary
+        //: error and the held payload stays on screen with the failure
+        //: announced, which is the pre-gate behaviour.
+        var onUnauthorized = options.onUnauthorized || null;
         var now = options.now || function () { return Date.now() / 1000; };
 
         //: Last successful body per resource key. S1-UI-008's "keep the
@@ -139,29 +147,63 @@
             };
         }
 
+        function _send(method, url, body) {
+            var init = {
+                method: method,
+                headers: _headers(body !== undefined),
+                // The refresh cookie is same-origin and httpOnly; saying so
+                // explicitly keeps the transport's behaviour a property of
+                // this file rather than of the browser's default.
+                credentials: 'same-origin',
+            };
+            if (body !== undefined) init.body = JSON.stringify(body);
+            return transport(url, init);
+        }
+
+        /**
+         * One request, with EXACTLY one 401 retry.
+         *
+         * Once, not "until it works": a token still refused after a
+         * successful refresh is a revoked session or a lost privilege, and
+         * repeating that is a spinner in place of an answer. `retried`
+         * makes the bound structural rather than a convention.
+         */
         function _request(key, method, path, params, body) {
             var url = API_PREFIX + path + _query(params);
-            var init = { method: method, headers: _headers(body !== undefined) };
-            if (body !== undefined) init.body = JSON.stringify(body);
-            return Promise.resolve()
-                .then(function () { return transport(url, init); })
-                .then(function (response) {
-                    var status = response ? response.status : null;
-                    var payload = response ? response.json : null;
-                    if (status >= 200 && status < 300) {
-                        return _result(key, true, payload, null);
-                    }
-                    return _result(key, false, null, _errorOf(payload, status));
-                })
-                .catch(function (err) {
-                    // A thrown transport error is a network failure, which is
-                    // a different thing from a 4xx and must read differently.
-                    return _result(key, false, null, {
-                        code: 'api.transport', status: null,
-                        message: err && err.message ? err.message : String(err),
-                        detail: null, known: false,
+
+            function attempt(retried) {
+                return Promise.resolve()
+                    .then(function () { return _send(method, url, body); })
+                    .then(function (response) {
+                        var status = response ? response.status : null;
+                        var payload = response ? response.json : null;
+                        if (status >= 200 && status < 300) {
+                            return _result(key, true, payload, null);
+                        }
+                        if (status === 401 && onUnauthorized && !retried) {
+                            return Promise.resolve(onUnauthorized())
+                                .then(function (mayRetry) {
+                                    if (!mayRetry) {
+                                        return _result(key, false, null,
+                                                       _errorOf(payload, status));
+                                    }
+                                    return attempt(true);
+                                });
+                        }
+                        return _result(key, false, null,
+                                       _errorOf(payload, status));
                     });
+            }
+
+            return attempt(false).catch(function (err) {
+                // A thrown transport error is a network failure, which is
+                // a different thing from a 4xx and must read differently.
+                return _result(key, false, null, {
+                    code: 'api.transport', status: null,
+                    message: err && err.message ? err.message : String(err),
+                    detail: null, known: false,
                 });
+            });
         }
 
         function get(key, path, params) {
@@ -309,6 +351,11 @@
      * Listed so the shell can say "not available yet" instead of showing an
      * empty panel or reading a 404 as "there is nothing here". The two are
      * different answers and only one of them is true.
+     *
+     * C13 is NOT here any more: WP-4.1g landed the auth family and this
+     * layer now implements the gate (`v3/ui/auth.js`), so listing it would
+     * be the opposite defect — a surface declaring itself absent while it
+     * is on the screen.
      */
     var DEFERRED = {
         R11: 'ui.deferred.intel_read',
@@ -317,7 +364,6 @@
         C10: 'ui.deferred.human_anchor',
         C11: 'ui.deferred.scenario_admin',
         C12: 'ui.deferred.llm_ops',
-        C13: 'ui.deferred.auth',
     };
 
     return {

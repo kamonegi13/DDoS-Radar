@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from v3.api.authorization import Access
+from v3.api.cookies import (CSRF_COOKIE, REFRESH_COOKIE, CookiePolicy,
+                            NO_COOKIES)
 from v3.api.handlers import attention as H_attention
 from v3.api.handlers import auth as H_auth
 from v3.api.handlers import commands as H_commands
@@ -68,6 +70,15 @@ _SELF_SERVICE = ("自分自身のセッション／資格情報に対する操�
 _ANALYST_WRITE = ("指令。較正系の入力または採点予算の配分を動かすため "
                   "analyst 以上（G-01 の恒久化: 認可はルート宣言であり "
                   "ハンドラ本体の呼び出しではない）")
+#: §7-2 #103. The refresh token never appears in a body: it rides an
+#: httpOnly + SameSite=Strict cookie scoped to the refresh path, paired
+#: with a readable companion the SPA echoes into `X-CSRF-TOKEN`. Declaring
+#: it here rather than checking it in `H_auth.refresh` is the G-01 lesson —
+#: a gate written in a handler is a gate the next handler can be written
+#: without.
+_REFRESH_TRANSPORT = ("refresh token の輸送。本文に載せることを S1-SVC-004 / "
+                      "S2-API-010 が MUST NOT とし、S1-UI-002 は cookie 化を "
+                      "CORE と判定している（XSS による窃取の構造的封鎖）")
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +93,14 @@ class Route:
     serves: tuple[str, ...]
     side_effect: bool = False
     note: str = ""
+    #: What this route does with cookies (§7-2 #103). Defaulted, and that
+    #: is safe rather than sloppy: the two forgettable mistakes have no
+    #: spelling. `CookiePolicy` refuses `presents` without `csrf`, so a
+    #: cookie-borne credential cannot be admitted without the companion,
+    #: and the dispatcher refuses a response emitting a cookie the policy
+    #: did not name. What is left to default is "this route has nothing to
+    #: do with cookies", which is true of every route but three.
+    cookies: CookiePolicy = NO_COOKIES
 
     def __post_init__(self) -> None:
         if self.method not in METHODS:
@@ -97,6 +116,11 @@ class Route:
                 f"GET /api/threat_data ran the scoring tick, so polling "
                 f"could not be stopped and a scoring failure flagged by one "
                 f"GET was cleared by the next.")
+        if not isinstance(self.cookies, CookiePolicy):
+            raise DomainError(
+                f"route {self.route_id} declares cookies as "
+                f"{type(self.cookies).__name__}; it is a CookiePolicy, which "
+                f"is where the CSRF pairing is enforced")
         object.__setattr__(self, "serves", tuple(self.serves))
 
     @property
@@ -120,7 +144,7 @@ def _read(route_id: str, path: str, handler: Callable, serves: tuple,
 
 def _command(route_id: str, path: str, handler: Callable, serves: tuple,
              *, method: str = POST, access: Optional[Access] = None,
-             note: str = "") -> Route:
+             cookies: CookiePolicy = NO_COOKIES, note: str = "") -> Route:
     """A command route. `side_effect=True` is not optional here.
 
     Declared rather than inferred, and the two directions are enforced in
@@ -133,7 +157,8 @@ def _command(route_id: str, path: str, handler: Callable, serves: tuple,
     return Route(route_id=route_id, method=method, path=path,
                  access=access or Access.at_least(ROLE_ANALYST,
                                                   reason=_ANALYST_WRITE),
-                 handler=handler, serves=serves, side_effect=True, note=note)
+                 handler=handler, serves=serves, side_effect=True, note=note,
+                 cookies=cookies)
 
 
 #: A POST that changes nothing. The set is CLOSED and each member states
@@ -186,15 +211,22 @@ SELF_SERVICE_ROUTES: dict = {
 
 
 def _session(route_id: str, path: str, handler: Callable, serves: tuple,
-             *, note: str = "") -> Route:
-    """A public POST with a body and no ledger write. Must be declared."""
+             *, cookies: CookiePolicy, note: str = "") -> Route:
+    """A public POST with a body and no ledger write. Must be declared.
+
+    `cookies` has NO default here, unlike on the ordinary constructors.
+    The session routes are the two that carry the refresh token, and a
+    session route composed without a cookie decision is the exact state
+    §7-2 #103 recorded: a token with nowhere to ride but the body.
+    """
     if route_id not in SESSION_ROUTES:
         raise DomainError(
             f"route {route_id} is a public unsafe method declaring no side "
             f"effect and is not in SESSION_ROUTES.")
     return Route(route_id=route_id, method=POST, path=path,
                  access=Access.public_route(reason=_SESSION_PUBLIC),
-                 handler=handler, serves=serves, side_effect=False, note=note)
+                 handler=handler, serves=serves, side_effect=False, note=note,
+                 cookies=cookies)
 
 
 def _dry_run(route_id: str, path: str, handler: Callable, serves: tuple,
@@ -314,13 +346,23 @@ ROUTES: tuple[Route, ...] = (
                   "POST だが side_effect=False — ReadContext が構造的に保証"),
     # ── WP-4.1g / P7 C13 — the auth family ──────────────────────────────
     _session("C13login", f"{API_PREFIX}/auth/login", H_auth.login, ("I-2",),
-             note="資格情報の検証とトークン対の発行。台帳へは書かない"),
+             cookies=CookiePolicy(emits=(REFRESH_COOKIE, CSRF_COOKIE),
+                                  reason=_REFRESH_TRANSPORT),
+             note="資格情報の検証とトークン対の発行。台帳へは書かない。"
+                  "refresh token は本文ではなく httpOnly cookie で出す"),
     _session("C13refresh", f"{API_PREFIX}/auth/refresh", H_auth.refresh,
-             ("I-2",), note="役割は fold から再解決する（S1-SVC-005）"),
+             ("I-2",),
+             cookies=CookiePolicy(presents=(REFRESH_COOKIE,), csrf=True,
+                                  reason=_REFRESH_TRANSPORT),
+             note="役割は fold から再解決する（S1-SVC-005）。cookie と "
+                  "X-CSRF-TOKEN の対が揃わなければハンドラに到達しない"),
     _command("C13logout", f"{API_PREFIX}/auth/logout", H_auth.logout,
              ("I-2",),
              access=Access.at_least(ROLE_VIEWER, reason=_SELF_SERVICE),
-             note="失効の床を動かす指令。読み手は principal_for"),
+             cookies=CookiePolicy(emits=(REFRESH_COOKIE, CSRF_COOKIE),
+                                  reason=_REFRESH_TRANSPORT),
+             note="失効の床を動かす指令。読み手は principal_for。"
+                  "同時に refresh cookie 対を消す（本番 unset_jwt_cookies）"),
     _command("C13password", f"{API_PREFIX}/auth/password",
              H_auth.change_password, ("I-2",),
              access=Access.at_least(ROLE_VIEWER, reason=_SELF_SERVICE),

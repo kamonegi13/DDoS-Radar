@@ -21,8 +21,9 @@ carries the resolved state and the resolved state is where the hash is.
 """
 from __future__ import annotations
 
+from v3.api import cookies as C
 from v3.api import errors as E
-from v3.api.envelope import ApiResponse, tool_response
+from v3.api.envelope import ApiResponse, tool_response, with_cookies
 from v3.auth import password as P
 from v3.auth import session as SESSION
 from v3.auth import store as US
@@ -71,20 +72,39 @@ def login(context) -> ApiResponse:
     nothing.
     """
     provider = _provider(context)
-    session = _guarded(lambda: SESSION.login(
+    minted = _guarded(lambda: SESSION.login(
         context.ledger, provider,
         user_id=context.body.get("user_id"),
         password=context.body.get("password"),
         now=context.now, client_ip=context.client_ip))
-    return tool_response(observed_at=context.now, session=session)
+    # The two halves part here: the body gets the access token, the
+    # transport gets the refresh token and its readable companion. Which
+    # cookies this route MAY emit is the route table's decision (§7-2
+    # #103); the dispatcher refuses anything it did not declare.
+    return with_cookies(
+        tool_response(observed_at=context.now, session=minted.payload),
+        C.SetCookie(C.REFRESH_COOKIE, minted.refresh_token),
+        C.SetCookie(C.CSRF_COOKIE, minted.csrf_token))
 
 
 def refresh(context) -> ApiResponse:
-    """C13 — a new access token at the CURRENT standing (S1-SVC-005)."""
+    """C13 — a new access token at the CURRENT standing (S1-SVC-005).
+
+    The token comes from the cookie the route declared, never from the
+    body. A body that still carries one is refused rather than ignored:
+    silently accepting the old transport is how a client keeps posting a
+    secret for months without anybody noticing (§7-2 #103).
+    """
     provider = _provider(context)
+    if "refresh_token" in context.body:
+        raise E.bad_request(
+            "refresh token は本文では受け付けません。httpOnly cookie "
+            f"{C.REFRESH_COOKIE.name} と {C.CSRF_HEADER} ヘッダの対で"
+            "送出してください", field="refresh_token")
+    presented = context.cookies.value(C.REFRESH_COOKIE)
     session = _guarded(lambda: SESSION.refresh(
-        context.ledger, provider,
-        refresh_token=context.body.get("refresh_token"), now=context.now))
+        context.ledger, provider, refresh_token=presented,
+        csrf_token=context.cookies.csrf_token, now=context.now))
     return tool_response(observed_at=context.now, session=session)
 
 
@@ -98,10 +118,17 @@ def logout(context) -> ApiResponse:
     committed = context.commit(Change(
         action=US.USER_SESSIONS_REVOKE, target=_target(context.actor_id),
         payload={}, reason=_reason(context)))
-    return tool_response(
-        observed_at=context.now, user=US.public_view(committed.effective),
-        command=committed.record.as_dict()["command_id"],
-        note="このセッションは失効しました。以後は再ログインが必要です")
+    # The floor is what revokes; clearing the cookie is what stops the
+    # browser presenting a credential it can no longer use. Production
+    # does the same (`unset_jwt_cookies`, `radar/auth.py:537`), and it
+    # matters here for the same reason: an httpOnly cookie is one the SPA
+    # cannot delete for itself.
+    return with_cookies(
+        tool_response(
+            observed_at=context.now, user=US.public_view(committed.effective),
+            command=committed.record.as_dict()["command_id"],
+            note="このセッションは失効しました。以後は再ログインが必要です"),
+        C.ClearCookie(C.REFRESH_COOKIE), C.ClearCookie(C.CSRF_COOKIE))
 
 
 def register(context) -> ApiResponse:

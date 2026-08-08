@@ -26,6 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
+from v3.api.cookies import DIRECTIVES
 from v3.api.errors import ApiError, ApiFailure
 from v3.api.vocabulary import FORBIDDEN_RESPONSE_KEYS, TOOL_SCOPE
 from v3.conclusions import Conclusion, ConclusionEnvelope
@@ -57,10 +58,16 @@ def _check_vocabulary(payload: Any, *, path: str = "$") -> None:
 
 @dataclass(frozen=True, slots=True)
 class ApiResponse:
-    """A status and THE envelope. Deliberately not a second envelope."""
+    """A status, THE envelope, and any cookie directives.
+
+    The directives are deliberately NOT part of `as_dict()`: a cookie is
+    transport, and the whole point of §7-2 #103 is that the refresh token
+    stops being payload. `v3/api/binding.py` is the only reader.
+    """
 
     status: int
     envelope: ConclusionEnvelope
+    cookies: tuple = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.envelope, ConclusionEnvelope):
@@ -68,6 +75,12 @@ class ApiResponse:
                 f"a response carries a ConclusionEnvelope, got "
                 f"{type(self.envelope).__name__}: a hand-built dict is the "
                 f"path by which the NP7 sentence went missing (G-13)")
+        object.__setattr__(self, "cookies", tuple(self.cookies))
+        for directive in self.cookies:
+            if not isinstance(directive, DIRECTIVES):
+                raise DomainError(
+                    f"a response's cookie directives are SetCookie or "
+                    f"ClearCookie, got {type(directive).__name__}")
         _check_vocabulary(self.envelope.as_dict())
 
     def as_dict(self) -> dict:
@@ -170,8 +183,26 @@ def with_freshness(response: ApiResponse, now: float) -> ApiResponse:
         scenario_id=envelope.scenario_id, conclusions=envelope.conclusions,
         observed_at=observed_at, at=envelope.at, error=envelope.error,
         extra={**envelope.extra, FRESHNESS_KEY: age, "served_at": float(now)})
-    return ApiResponse(status=response.status, envelope=stamped)
+    # The directives are carried through. A rebuild that dropped them would
+    # lose the login cookie with nothing failing — which is the whole class
+    # of defect this layer exists to make impossible.
+    return ApiResponse(status=response.status, envelope=stamped,
+                       cookies=response.cookies)
+
+
+def with_cookies(response: ApiResponse, *directives) -> ApiResponse:
+    """Attach transport directives to a response. Returns a new one.
+
+    Whether the route was ALLOWED to emit them is decided by the route
+    table and checked by the dispatcher (`cookies.check_emissions`), not
+    here — a handler stating its intent is not a handler granting itself
+    permission.
+    """
+    if not isinstance(response, ApiResponse):
+        raise DomainError("with_cookies takes an ApiResponse")
+    return ApiResponse(status=response.status, envelope=response.envelope,
+                       cookies=tuple(response.cookies) + tuple(directives))
 
 
 __all__ = ["ApiResponse", "scenario_response", "tool_response",
-           "command_response", "failure_response", "OK"]
+           "command_response", "failure_response", "with_cookies", "OK"]

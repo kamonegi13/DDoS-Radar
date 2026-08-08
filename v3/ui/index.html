@@ -39,7 +39,42 @@
 
 <div id="toast-rail" class="toast-rail" aria-live="polite"></div>
 
-<main>
+<!--
+  The login gate (S1-UI-001..005, §7-2 #99).
+
+  It sits ABOVE <main> in the document and <main> carries `hidden` until the
+  session opens, so an unauthenticated analyst sees the gate rather than a
+  dashboard whose panels answer 401 one at a time. The NP7 banner stays
+  visible behind it: the disclaimer is never conditional (S1-UI-024a), and
+  a gate that hid it would be the one screen where the sentence is absent.
+-->
+<div id="auth-gate" class="auth-gate" role="dialog" aria-modal="true"
+     aria-labelledby="auth-gate-title" hidden>
+  <form id="auth-form" class="auth-card">
+    <h1 id="auth-gate-title" data-i18n="ui.auth.title"></h1>
+    <p class="auth-lede" data-i18n="ui.auth.lede"></p>
+    <p id="auth-reason" class="auth-reason" role="status"></p>
+    <label class="auth-field" for="auth-user">
+      <span data-i18n="ui.auth.user"></span>
+      <input id="auth-user" type="text" autocomplete="username"
+             autocapitalize="off" spellcheck="false" aria-label="利用者 ID">
+    </label>
+    <label class="auth-field" for="auth-password">
+      <span data-i18n="ui.auth.password"></span>
+      <input id="auth-password" type="password"
+             autocomplete="current-password" aria-label="パスワード">
+    </label>
+    <button type="submit" id="auth-submit" data-i18n="ui.auth.submit"></button>
+    <p id="auth-detail" class="auth-detail" role="alert" hidden></p>
+  </form>
+</div>
+
+<p id="auth-bar" class="auth-bar" hidden>
+  <span id="auth-identity"></span>
+  <button type="button" id="auth-signout" data-i18n="ui.auth.signout"></button>
+</p>
+
+<main id="app-main" hidden>
 
   <!-- ── 1. 状況確認 ─────────────────────────────────────────────── -->
   <section id="stage-1" class="stage" aria-labelledby="stage-1-title">
@@ -174,7 +209,6 @@
     <p class="deferred" data-deferred="C8"></p>
     <p class="deferred" data-deferred="C11"></p>
     <p class="deferred" data-deferred="C12"></p>
-    <p class="deferred" data-deferred="C13"></p>
     <p class="deferred" data-deferred="C3"></p>
   </section>
 
@@ -187,6 +221,8 @@
 <script src="board.js"></script>
 <script src="lane.js"></script>
 <script src="conclusions.js"></script>
+<script src="auth.js"></script>
+<script src="gate.js"></script>
 <script src="client.js"></script>
 <script src="render.js"></script>
 <script src="app.js"></script>

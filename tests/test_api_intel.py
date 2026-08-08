@@ -176,40 +176,90 @@ class TestTheAdjudicationIsTheFold:
             A.INTEL_REJECT]
 
 
-class TestRejectActuallyStopsTheScoring:
-    """The reader. Without it, `reject` is a label an analyst believes."""
+class TestOnlyAdjudicatedIntelIsScored:
+    """Owner ruling on 裁定要求 13: the predicate is the STATE.
 
-    def test_a_rejected_row_leaves_the_kernel_input(self, store):
-        before = SCORING.observations_at(store, now=NOW)
+    Before this, an LLM extraction reached the threat level the moment it
+    was written and `reject` was the only subtraction — a hypothesis
+    published as a finding, which inverts what the queue's states are for.
+    Production never did that: `get_active_rationale` selects
+    `auto_confirmed` and `confirmed` and nothing else.
+
+    The fixture has two intel rows and one sensor row, so every count below
+    distinguishes "intel stopped scoring" from "everything stopped".
+    """
+
+    SENSOR_ROWS = 1
+
+    def test_an_unadjudicated_item_does_not_score(self, store):
+        observations = SCORING.observations_at(store, now=NOW)
+        assert len(observations) == self.SENSOR_ROWS
+        assert all(obs.signal_source != A.INTEL_SIGNAL_SOURCE
+                   for obs in observations)
+
+    def test_confirming_is_what_admits_it(self, store):
+        item_id = _item_ids(store)[0]
+        _verb(store, item_id, "confirm")
+        observations = SCORING.observations_at(store, now=NOW + 1)
+        assert len(observations) == self.SENSOR_ROWS + 1
+        assert any(obs.signal_source == A.INTEL_SIGNAL_SOURCE
+                   for obs in observations)
+
+    def test_rejecting_keeps_it_out(self, store):
         item_id = _item_ids(store)[0]
         _verb(store, item_id, "reject")
-        after = SCORING.observations_at(store, now=NOW + 1)
-        assert len(after) == len(before) - 1
+        assert len(SCORING.observations_at(store, now=NOW + 1)) == \
+            self.SENSOR_ROWS
 
-    def test_reverting_puts_it_back(self, store):
-        baseline = len(SCORING.observations_at(store, now=NOW))
+    def test_reverting_a_confirmation_takes_it_back_out(self, store):
         item_id = _item_ids(store)[0]
-        _verb(store, item_id, "reject", now=NOW + 1)
-        assert len(SCORING.observations_at(store, now=NOW + 2)) == baseline - 1
+        _verb(store, item_id, "confirm", now=NOW + 1)
+        assert len(SCORING.observations_at(store, now=NOW + 2)) == \
+            self.SENSOR_ROWS + 1
         _verb(store, item_id, "revert", now=NOW + 3)
-        assert len(SCORING.observations_at(store, now=NOW + 4)) == baseline
+        assert len(SCORING.observations_at(store, now=NOW + 4)) == \
+            self.SENSOR_ROWS
 
-    def test_the_edge_is_load_bearing(self, store, monkeypatch):
-        """Mutation: blind the reader and the assertion above must fail.
+    def test_a_sensor_reading_is_never_asked_for_an_adjudication(self, store):
+        """The scope of the predicate, which is the load-bearing half.
 
-        Otherwise "rejected intel does not score" would be a coincidence of
-        the fixture rather than a property of the wiring.
+        Default-deny applied to every row rather than to intel rows would
+        empty the ledger, and it would do it silently — the tick would
+        simply conclude nothing.
         """
-        item_id = _item_ids(store)[0]
-        _verb(store, item_id, "reject")
-        monkeypatch.setattr(A, "rejected_ids",
-                            lambda ledger, until=None: frozenset())
-        # With the reader blinded the rejected row comes back, which is
-        # exactly what the un-blinded case must not do.
-        blinded = SCORING.observations_at(store, now=NOW + 1)
+        rows = list(store.signals_between(NOW - 3600, NOW))
+        kept = A.scoreable_rows(store, rows, until=NOW)
+        assert [row["signal_source"] for row in kept] == ["ripe_bgp"]
+
+    def test_the_predicate_is_load_bearing(self, store, monkeypatch):
+        """Mutation: admit every state, and the unadjudicated rows return."""
+        monkeypatch.setattr(A, "SCORED_STATES", frozenset(A.STATES))
+        blinded = SCORING.observations_at(store, now=NOW)
         monkeypatch.undo()
-        assert len(blinded) == len(
-            SCORING.observations_at(store, now=NOW + 1)) + 1
+        assert len(blinded) == self.SENSOR_ROWS + 2
+        assert len(SCORING.observations_at(store, now=NOW)) == self.SENSOR_ROWS
+
+    def test_the_scope_is_load_bearing(self, store, monkeypatch):
+        """Mutation: stop distinguishing intel rows and everything falls."""
+        monkeypatch.setattr(A, "is_intel_row", lambda row: True)
+        blinded = SCORING.observations_at(store, now=NOW)
+        monkeypatch.undo()
+        assert blinded == (), (
+            "with the scope removed the sensor rows are asked for an "
+            "adjudication they can never have — so the passing cases above "
+            "depend on the scope being there")
+
+    def test_the_parity_driver_applies_the_same_predicate(self, store):
+        """One predicate, two callers (§7-2 #105)."""
+        import ast
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parent.parent / "v3" / "parity"
+                  / "driver_v3.py").read_text()
+        called = {getattr(node.func, "attr", None)
+                  for node in ast.walk(ast.parse(source))
+                  if isinstance(node, ast.Call)}
+        assert "scoreable_rows" in called
 
     def test_the_row_is_not_deleted(self, store):
         item_id = _item_ids(store)[0]
@@ -221,6 +271,55 @@ class TestRejectActuallyStopsTheScoring:
             "L1 is append-only and R11 must still show what was rejected — "
             "a row that vanishes makes 'I judged it' and 'I never saw it' "
             "look identical")
+
+
+class TestTheAdmittedSetIsProductions:
+    """AST against `radar/intel_queue.py`, not a memory of it."""
+
+    def _admitted_in_production(self) -> set:
+        import ast
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parent.parent / "radar"
+                  / "intel_queue.py").read_text()
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.FunctionDef)
+                    and node.name == "get_active_rationale"):
+                continue
+            statuses = set()
+            for call in ast.walk(node):
+                if not (isinstance(call, ast.Call)
+                        and getattr(call.func, "attr", None) == "intel_list"):
+                    continue
+                for keyword in call.keywords:
+                    if keyword.arg == "status":
+                        statuses.add(ast.literal_eval(keyword.value))
+            return statuses
+        raise AssertionError("get_active_rationale was not found")
+
+    def test_production_admits_exactly_two_states(self):
+        assert self._admitted_in_production() == set(
+            A.PRODUCTION_SCORING_STATES)
+
+    def test_v3_admits_a_subset_and_pending_is_in_neither(self):
+        assert A.SCORED_STATES <= set(A.PRODUCTION_SCORING_STATES)
+        assert A.STATE_PENDING not in A.SCORED_STATES
+        assert A.STATE_PENDING not in A.PRODUCTION_SCORING_STATES
+        assert A.STATE_REJECTED not in A.PRODUCTION_SCORING_STATES
+
+    def test_the_residual_difference_is_the_missing_auto_confirm_tier(self):
+        """v3 has no auto-confirm, so it admits less. Registered as #105."""
+        missing = set(A.PRODUCTION_SCORING_STATES) - A.SCORED_STATES
+        assert missing == {"auto_confirmed"}
+        assert "auto_confirmed" not in A.STATES
+
+    def test_the_registered_entry_still_exists(self):
+        from pathlib import Path
+
+        design = (Path(__file__).resolve().parent.parent / "docs" / "design"
+                  / "v3" / "wp25-l0-adapter-design.md").read_text()
+        assert "#105" in design
 
 
 class TestTheSurfaceLedgerAgrees:

@@ -32,6 +32,7 @@
     var Conc = window.NoroshiConclusions;
     var ClientLib = window.NoroshiClient;
     var Render = window.NoroshiRender;
+    var Gate = window.NoroshiGate;
 
     var _t = S.t;
     var esc = Fmt.escHtml;
@@ -85,6 +86,8 @@
         openConclusionId: null,
         feedback: {},           // conclusionId -> {label, reason, ...}
         replayAt: null,
+        gate: null,
+        session: null,
     };
 
     // ── DOM helpers ─────────────────────────────────────────────────────
@@ -498,6 +501,12 @@
     }
 
     function cycle(reason) {
+        // Nothing is fetched while the gate is closed. A locked screen that
+        // kept polling would answer 401 into an overlay nobody can see
+        // past, and would rearm the timer on every failure.
+        if (state.session && !state.session.isOpen()) {
+            return Promise.resolve();
+        }
         return refresh(reason).catch(function (err) {
             toast('error', 'ui.toast.refresh_failed', {
                 why: (err && err.message) || _t('ui.error.unknown'),
@@ -730,21 +739,43 @@
         });
     }
 
+    function transport(url, init) {
+        return window.fetch(url, init).then(function (response) {
+            return response.json()
+                .catch(function () { return null; })
+                .then(function (json) {
+                    return { status: response.status, json: json };
+                });
+        });
+    }
+
     function boot() {
         S.applyStatic(document);
-        state.client = ClientLib.createClient({
-            transport: function (url, init) {
-                return window.fetch(url, init).then(function (response) {
-                    return response.json()
-                        .catch(function () { return null; })
-                        .then(function (json) {
-                            return { status: response.status, json: json };
-                        });
-                });
+        // The session comes first: it decides whether anything else runs.
+        // Its access token lives in memory, never in `localStorage` — what
+        // survives a reload is the httpOnly refresh cookie (§7-2 #103).
+        state.gate = Gate.createGateUi({
+            doc: document,
+            transport: transport,
+            onOpen: function () { cycle('signed_in'); },
+            // A locked screen stops polling: otherwise it keeps answering
+            // 401 behind an overlay nobody can see past.
+            onLock: function () {
+                if (state.timer) {
+                    window.clearTimeout(state.timer);
+                    state.timer = null;
+                }
             },
-            tokenProvider: function () {
-                try { return window.localStorage.getItem('noroshi.v3.token'); }
-                catch (err) { return null; }
+            onRefused: function (key) { toast('error', key); },
+        });
+        state.session = state.gate.session;
+        state.client = ClientLib.createClient({
+            transport: transport,
+            tokenProvider: function () { return state.session.token(); },
+            // A 401 mid-session refreshes once and then locks the gate with
+            // the reason on screen. Never a panel that silently stops.
+            onUnauthorized: function () {
+                return state.session.onUnauthorized();
             },
         });
         // Every deferred surface says "not served yet" rather than showing
@@ -754,9 +785,15 @@
             if (node) node.textContent = _t(ClientLib.DEFERRED[id]);
         });
         bind();
+        state.gate.bind();
         renderWhatIf({ present: false, scenarios: [],
                        emptyKey: 'ui.whatif.empty.not_run' });
-        cycle('boot');
+        // `begin()` asks the server whether this browser still holds a
+        // session, and `onOpen` starts the loop if it does. Nothing fetches
+        // before that answer — a dashboard drawn first and gated afterwards
+        // is a dashboard that leaked one frame.
+        state.gate.render();
+        return state.gate.begin();
     }
 
     if (document.readyState === 'loading') {

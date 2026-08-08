@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
+from v3.api import cookies as C
 from v3.api.dispatch import handle
 from v3.api.request import ANONYMOUS, ApiRequest, Principal, ReadContext
 from v3.api.routes import ROUTES
@@ -47,6 +48,7 @@ def _flask_rule(path: str) -> str:
 def create_blueprint(context_factory: Callable[[], ReadContext], *,
                      principal_factory: Optional[Callable] = None,
                      write_context_factory: Optional[Callable] = None,
+                     cookie_secure: bool = True,
                      name: str = "v3_api"):
     """Build a Flask blueprint over the route table.
 
@@ -73,14 +75,47 @@ def create_blueprint(context_factory: Callable[[], ReadContext], *,
     (WP-4.1g): `v3/runtime/auth.py` builds the resolver, and a composition
     root that imported Flask to read a header would have moved the web
     boundary without moving the comment that describes it.
+
+    `cookie_secure` is the ONE deployment fact this file takes, and it is
+    the same knob production has (`JWT_COOKIE_SECURE`, `radar/auth.py:233`,
+    default on with an env opt-out for local http). It defaults to `True`
+    so a deployment that says nothing gets the safe posture; a deployment
+    that turns it off has written that down where a reviewer can see it.
     """
-    from flask import Blueprint, jsonify, request as flask_request
+    from flask import Blueprint, jsonify, make_response, \
+        request as flask_request
 
     blueprint = Blueprint(name, __name__)
 
     def _authorization():
         headers = getattr(flask_request, "headers", None)
         return None if headers is None else headers.get("Authorization")
+
+    def _csrf_header():
+        headers = getattr(flask_request, "headers", None)
+        return None if headers is None else headers.get(C.CSRF_HEADER)
+
+    def _cookies():
+        return dict(getattr(flask_request, "cookies", None) or {})
+
+    def _apply(flask_response, directive) -> None:
+        """The one place a directive becomes a `Set-Cookie` header.
+
+        A cleared cookie is set to an empty value with `expires=0` rather
+        than deleted by name, which is what `unset_refresh_cookies` does —
+        the browser only drops a cookie when the replacement matches on
+        path and the attributes agree.
+        """
+        spec = directive.spec
+        common = {"path": spec.path, "secure": bool(spec.secure)
+                  and bool(cookie_secure), "httponly": spec.http_only,
+                  "samesite": spec.same_site}
+        if isinstance(directive, C.ClearCookie):
+            flask_response.set_cookie(spec.name, value="", expires=0,
+                                      **common)
+            return
+        flask_response.set_cookie(spec.name, value=directive.value,
+                                  max_age=spec.max_age, **common)
 
     def _client_ip():
         """The source address, from the connection.
@@ -123,9 +158,14 @@ def create_blueprint(context_factory: Callable[[], ReadContext], *,
                 path=flask_request.path,
                 params=dict(flask_request.args),
                 body=(flask_request.get_json(silent=True) or {}),
-                principal=principal, client_ip=_client_ip())
+                principal=principal, client_ip=_client_ip(),
+                cookies=_cookies(), csrf_header=_csrf_header())
             response = handle(api_request, context)
-            return jsonify(response.as_dict()), response.status
+            flask_response = make_response(jsonify(response.as_dict()),
+                                           response.status)
+            for directive in response.cookies:
+                _apply(flask_response, directive)
+            return flask_response
 
         view.__name__ = f"v3_{route.route_id}"
         return view

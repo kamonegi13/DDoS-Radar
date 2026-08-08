@@ -60,6 +60,33 @@ def _observation(tick_index, sensor, domain, score, country="TW", *,
         suppressed=suppressed)
 
 
+def _confirm_intel(store, *, at):
+    """Adjudicate every LLM intel row in the store as `confirmed`.
+
+    Through the ordinary command seam rather than by writing a row, so the
+    fixture exercises the same fold the scoring predicate reads.
+    """
+    from v3.api.readonly import ReadOnlyLedger
+    from v3.api.request import Principal, ReadContext
+    from v3.api.write import Change, WriteContext
+    from v3.api.writeonly import CommandLedger
+    from v3.commands import spec as SPEC
+    from v3.intel import adjudication as INTEL
+
+    reader = ReadOnlyLedger(store)
+    context = WriteContext(
+        read=ReadContext(ledger=reader, now=at), ledger=CommandLedger(store),
+        principal=Principal(user_id="parity-fixture", role="analyst"))
+    for row in store.signals_between(at - HORIZON, at):
+        if not INTEL.is_intel_row(row):
+            continue
+        context.commit(Change(
+            action=INTEL.INTEL_CONFIRM,
+            target=SPEC.Target(kind=INTEL.TARGET_INTEL, id=str(row["id"])),
+            payload={}, reason="parity fixture: adjudicated so both systems "
+                               "admit the row"))
+
+
 @pytest.fixture
 def seeded(tmp_path):
     """A ledger with a rising then falling signal series."""
@@ -973,6 +1000,12 @@ class TestIntelRowsAreAgedOnBothSides:
                 freshness_horizon_sec=self.HORIZON_SEC, source="llm_intel"),
             status="FIRED", raw_score=self.SCORE, confidence=1.0),
             now=observed)
+        # The item is CONFIRMED, because neither system scores an
+        # unadjudicated one (§7-2 #105): production selects
+        # `auto_confirmed`/`confirmed` and v3 admits `confirmed`. A pending
+        # fixture row would be a window in which both sides correctly
+        # conclude nothing, which is not what this test is measuring.
+        _confirm_intel(store, at=observed)
         return store
 
     def test_an_aged_intel_row_reads_the_same_on_both_sides(self, tmp_path,

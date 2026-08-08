@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Optional, Sequence
 
+from v3.intel import adjudication as INTEL
 from v3.ledger import LedgerStore
 from v3.parity.adapter import LedgerInputAdapter, to_v3_observations
 from v3.parity.compare import THREAT_LEVEL, Contributor, Reading, TickKey
@@ -63,7 +64,13 @@ def replay(store: LedgerStore, scenarios: Sequence[Scenario], *,
     prior = initial_prior or PriorState()
 
     for tick in adapter.ticks(start, end):
-        observations = to_v3_observations(tick.rows)
+        # The SAME predicate the live tick applies (§7-2 #105): intel
+        # scores only in an adjudicated state. A parity run that admitted
+        # rows the tick would not would be measuring agreement for a system
+        # nobody runs, and the extra rows would sit in the disagreement
+        # column making the differences that matter harder to see.
+        observations = to_v3_observations(
+            INTEL.scoreable_rows(store, tick.rows, until=tick.tick_ts))
         result = score_tick(ScoringInputs(
             now=tick.tick_ts,
             observations=observations,

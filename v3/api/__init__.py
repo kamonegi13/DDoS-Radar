@@ -42,9 +42,11 @@ what makes the whole surface testable without a server, which the legacy
 surface never was (reaching an endpoint meant booting radar/__init__.py
 and its ~40 threads).
 """
+from v3.api.cookies import (ClearCookie, CookiePolicy, CookieSpec,
+                            PresentedCookies, SetCookie)
 from v3.api.dispatch import handle
 from v3.api.envelope import (ApiResponse, command_response, failure_response,
-                             scenario_response, tool_response)
+                             scenario_response, tool_response, with_cookies)
 from v3.api.errors import ApiError, ApiFailure
 from v3.api.readonly import ReadOnlyLedger
 from v3.api.request import ANONYMOUS, ApiRequest, Principal, ReadContext, \
@@ -75,4 +77,10 @@ __all__ = [
     "tool_response",
     "command_response",
     "failure_response",
+    "with_cookies",
+    "CookieSpec",
+    "CookiePolicy",
+    "PresentedCookies",
+    "SetCookie",
+    "ClearCookie",
 ]

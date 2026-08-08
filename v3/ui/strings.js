@@ -294,7 +294,27 @@
         'ui.deferred.human_anchor': '人間アンカー: 指令 API (C10) が未実装です。',
         'ui.deferred.scenario_admin': 'シナリオ管理: 指令 API (C11) が未実装です。',
         'ui.deferred.llm_ops': 'LLM 運用: 指令 API (C12) が未実装です。',
-        'ui.deferred.auth': '認証: 指令 API (C13) が未実装のため、ログインゲートは未接続です。',
+
+        // ── login gate (S1-UI-001〜005) ─────────────────────────────────
+        'ui.auth.title': 'Noroshi v3 — サインイン',
+        'ui.auth.lede': 'このツールの結論は最終判断ではありません。閲覧には認証が必要です。',
+        'ui.auth.user': '利用者 ID',
+        'ui.auth.password': 'パスワード',
+        'ui.auth.submit': 'サインイン',
+        'ui.auth.submitting': '確認中…',
+        'ui.auth.checking': 'セッションを確認しています…',
+        'ui.auth.signout': 'サインアウト',
+        'ui.auth.identity': '{user}（{role}）',
+        'ui.auth.required': '入力が不足しているため送信しませんでした。',
+        'ui.auth.detail': 'サーバの応答: {why}',
+        'ui.auth.reason.never': 'サインインしてください。',
+        'ui.auth.reason.expired': 'セッションの有効期限が切れました。再度サインインしてください。',
+        'ui.auth.reason.revoked': 'セッションが失効しました（ログアウト・パスワード変更・権限変更のいずれか）。再度サインインしてください。',
+        'ui.auth.reason.signed_out': 'サインアウトしました。',
+        'ui.auth.reason.refused': '利用者 ID またはパスワードが正しくありません。',
+        'ui.auth.reason.throttled': 'ログイン試行が多すぎます。しばらく待って再試行してください。',
+        'ui.auth.reason.unavailable': 'この配備は認証機構なしで構成されています。運用者に連絡してください。',
+        'ui.auth.reason.transport': 'サーバに到達できませんでした。ネットワークを確認してください。',
 
         // ── misc ────────────────────────────────────────────────────────
         'ui.yes': 'はい',

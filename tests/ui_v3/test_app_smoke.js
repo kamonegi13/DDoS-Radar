@@ -102,6 +102,11 @@ function makeDocument() {
     return {
         readyState: 'complete',
         hidden: false,
+        // The readable half of the refresh pair. `auth.js` reads it here
+        // and echoes it into `X-CSRF-TOKEN`; the refresh token itself is
+        // httpOnly and is deliberately absent from this string, exactly as
+        // it is absent from a real `document.cookie` (§7-2 #103).
+        cookie: 'noroshi_v3_csrf_refresh=' + 'c'.repeat(32),
         _byId: byId,
         _all: all,
         getElementById(id) { return byId[id] || null; },
@@ -253,6 +258,16 @@ const PAYLOADS = {
             bob: { label: 'FALSE_POSITIVE', reason: '誤警報', at: NOW - 500 },
         },
     }),
+    // The login gate's silent boot (§7-2 #99): a browser holding the
+    // httpOnly refresh cookie exchanges it for an access token before any
+    // projection is fetched.
+    '/api/v3/auth/refresh': envelope('__tool__', {
+        session: { user_id: 'kamo', role: 'analyst',
+                   access_token: 'access-token-value',
+                   access_expires_sec: 3600, issued_at: NOW },
+    }),
+    '/api/v3/auth/logout': envelope('__tool__', { command: 'cmd-1' }),
+
     '/api/v3/proposals': envelope('__tool__', {
         proposals: [{ proposal_id: 'p-1', proposal_type: 'weight_too_low',
                       scenario_id: 'taiwan_contingency', target_country: 'JP',
@@ -328,6 +343,17 @@ function makeTransport() {
             });
         }
         const base = url.split('?')[0];
+        if (base === '/api/v3/auth/refresh' && t.refreshStatus) {
+            t.seen.push(base);
+            return Promise.resolve({
+                status: t.refreshStatus,
+                json: () => Promise.resolve({
+                    error: 'api.unauthenticated',
+                    error_detail: { code: 'api.unauthenticated',
+                                    message: 'このセッションは失効しています' },
+                }),
+            });
+        }
         const body = base.indexOf('/conclusions') !== -1
             ? conclusionsPayload() : PAYLOADS[base];
         if (!body) {
@@ -339,14 +365,33 @@ function makeTransport() {
         return Promise.resolve({ status: 200, json: () => Promise.resolve(body) });
     };
     t.failing = false;
+    t.refreshStatus = null;
     t.seen = [];
     return t;
 }
 
-/** Boot the app in a fresh fake environment and let its promises settle. */
-function boot() {
+/** Let a chain of promises settle. The gate adds ticks before any fetch. */
+function settle(times) {
+    let chain = Promise.resolve();
+    for (let i = 0; i < (times || 8); i += 1) {
+        chain = chain.then(() => new Promise(r => setImmediate(r)));
+    }
+    return chain;
+}
+
+/**
+ * Boot the app in a fresh fake environment and let its promises settle.
+ *
+ * `options.signedIn === false` removes the CSRF companion cookie, which is
+ * what an analyst who has never signed in (or who signed out) actually
+ * has: no readable half, so the gate locks without a round trip.
+ */
+function boot(options) {
+    options = options || {};
     const doc = makeDocument();
     const transport = makeTransport();
+    if (options.signedIn === false) doc.cookie = '';
+    if (options.refreshStatus) transport.refreshStatus = options.refreshStatus;
     const win = makeWindow(doc, transport);
 
     global.window = win;
@@ -355,15 +400,12 @@ function boot() {
         if (k.indexOf(path.join('v3', 'ui')) !== -1) delete require.cache[k];
     });
     ['strings', 'format', 'freshness', 'trust', 'board', 'lane',
-     'conclusions', 'client', 'render'].forEach(name => {
+     'conclusions', 'auth', 'gate', 'client', 'render'].forEach(name => {
         require(path.join(UI_DIR, name + '.js'));
     });
     require(path.join(UI_DIR, 'app.js'));
 
-    // Let the boot chain's promises resolve.
-    return new Promise(resolve => setImmediate(() => setImmediate(() => setImmediate(
-        () => resolve({ doc, win, transport })))))
-        .then(env => env);
+    return settle().then(() => ({ doc, win, transport }));
 }
 
 function html(doc, id) {
@@ -513,9 +555,75 @@ test('the what-if table says "not run" rather than starting blank', async () => 
 
 test('deferred surfaces announce themselves instead of showing nothing', async () => {
     const { doc } = await boot();
-    const node = doc.querySelector('[data-deferred="C13"]');
-    assert.ok(node && /ログインゲートは未接続/.test(node.textContent),
+    const node = doc.querySelector('[data-deferred="C12"]');
+    assert.ok(node && /未実装/.test(node.textContent),
         `got: ${node && node.textContent}`);
+});
+
+// ── the login gate (S1-UI-001..005, §7-2 #99) ────────────────────────────
+
+test('a browser with a live refresh cookie never sees the gate', async () => {
+    const { doc } = await boot();
+    assert.strictEqual(doc.getElementById('auth-gate').hidden, true);
+    assert.strictEqual(doc.getElementById('app-main').hidden, false);
+    assert.strictEqual(doc.getElementById('auth-bar').hidden, false);
+});
+
+test('the signed-in strip names who is looking', async () => {
+    const { doc } = await boot();
+    assert.ok(/kamo/.test(doc.getElementById('auth-identity').textContent),
+        doc.getElementById('auth-identity').textContent);
+});
+
+test('an unauthenticated visitor sees the gate, not an empty dashboard',
+     async () => {
+    const { doc } = await boot({ signedIn: false });
+    assert.strictEqual(doc.getElementById('auth-gate').hidden, false);
+    assert.strictEqual(doc.getElementById('app-main').hidden, true);
+    assert.strictEqual(doc.getElementById('auth-bar').hidden, true);
+});
+
+test('an unauthenticated visitor fetches no projection at all', async () => {
+    const { transport } = await boot({ signedIn: false });
+    assert.deepStrictEqual(transport.seen, [],
+        `a locked screen must not poll: ${transport.seen}`);
+});
+
+test('the gate states WHY it is closed rather than showing a bare form',
+     async () => {
+    const { doc } = await boot({ signedIn: false });
+    assert.ok(/サインインしてください/.test(
+        doc.getElementById('auth-reason').textContent),
+        doc.getElementById('auth-reason').textContent);
+});
+
+test('an expired session says "expired", not "wrong password"', async () => {
+    const { doc } = await boot({ refreshStatus: 401 });
+    assert.strictEqual(doc.getElementById('auth-gate').hidden, false);
+    assert.ok(/有効期限/.test(doc.getElementById('auth-reason').textContent),
+        doc.getElementById('auth-reason').textContent);
+});
+
+test("the server's own sentence is shown, not swallowed", async () => {
+    const { doc } = await boot({ refreshStatus: 401 });
+    const detail = doc.getElementById('auth-detail');
+    assert.strictEqual(detail.hidden, false);
+    assert.ok(/失効しています/.test(detail.textContent), detail.textContent);
+});
+
+test('the NP7 banner is present even on the gate', async () => {
+    // The disclaimer is never conditional (S1-UI-024a), and the gate is the
+    // one screen a visitor might see without ever reaching the dashboard.
+    const { doc } = await boot({ signedIn: false });
+    const span = doc.querySelector('[data-i18n="ui.np7.banner"]');
+    assert.ok(span && /最終判断ではありません/.test(span.textContent));
+});
+
+test('no bearer token is ever written to localStorage', async () => {
+    const { win } = await boot();
+    // The access token lives in memory; the httpOnly refresh cookie is
+    // what survives a reload (§7-2 #103 / S1-UI-002).
+    assert.strictEqual(win.localStorage.getItem('noroshi.v3.token'), null);
 });
 
 test('the freshness badge reads fresh on a good fetch', async () => {
@@ -544,15 +652,22 @@ test('a failing fetch keeps the cards and switches the badge to failed (DP2)', a
 
 test('no render path throws on an entirely empty server', async () => {
     const doc = makeDocument();
-    const empty = function () {
+    const empty = function (url) {
+        const body = {
+            api_version: '3.0', scenario_id: '__tool__',
+            observed_at: null,
+            final_judgment_disclaimer: DISCLAIMER,
+            conclusions: [], data_freshness_sec: null, served_at: NOW,
+        };
+        // The gate still has to open, or nothing renders at all — which
+        // would make this test pass for the wrong reason.
+        if (url.indexOf('/auth/refresh') !== -1) {
+            body.session = { user_id: 'kamo', role: 'analyst',
+                             access_token: 'access-token-value',
+                             access_expires_sec: 3600 };
+        }
         return Promise.resolve({
-            status: 200,
-            json: () => Promise.resolve({
-                api_version: '3.0', scenario_id: '__tool__',
-                observed_at: null,
-                final_judgment_disclaimer: DISCLAIMER,
-                conclusions: [], data_freshness_sec: null, served_at: NOW,
-            }),
+            status: 200, json: () => Promise.resolve(body),
         });
     };
     const win = makeWindow(doc, empty);
@@ -562,9 +677,10 @@ test('no render path throws on an entirely empty server', async () => {
         if (k.indexOf(path.join('v3', 'ui')) !== -1) delete require.cache[k];
     });
     ['strings', 'format', 'freshness', 'trust', 'board', 'lane',
-     'conclusions', 'client', 'render'].forEach(n => require(path.join(UI_DIR, n + '.js')));
+     'conclusions', 'auth', 'gate', 'client', 'render'].forEach(
+        n => require(path.join(UI_DIR, n + '.js')));
     require(path.join(UI_DIR, 'app.js'));
-    await new Promise(r => setImmediate(() => setImmediate(() => setImmediate(r))));
+    await settle();
 
     // Empty everywhere, but every empty says why (S1-UI-008: no blank screens).
     assert.ok(/登録されたシナリオがありません/.test(html(doc, 'board-cards')),

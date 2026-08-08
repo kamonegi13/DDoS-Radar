@@ -222,10 +222,75 @@ test('effectOf on a failed command is null, never an assumed success', async () 
 // ── deferred surfaces are declared ───────────────────────────────────────
 
 test('unserved P7 entries are named so the shell can say "not yet"', () => {
-    ['R11', 'C3', 'C8', 'C10', 'C11', 'C12', 'C13'].forEach(id => {
+    ['R11', 'C3', 'C8', 'C10', 'C11', 'C12'].forEach(id => {
         assert.ok(Client.DEFERRED[id], `${id} must be declared deferred`);
         assert.ok(/^ui\.deferred\./.test(Client.DEFERRED[id]));
     });
+});
+
+test('C13 is NOT deferred any more — the gate is on the screen', () => {
+    // §7-2 #99 retired. A surface that declares itself absent while it is
+    // being rendered is the same defect the deferred list exists to
+    // prevent, pointing the other way.
+    assert.strictEqual(Client.DEFERRED.C13, undefined);
+});
+
+// ── the 401 policy (S1-UI-003, §7-2 #99) ─────────────────────────────────
+
+test('a 401 asks the session what to do and retries once when told to',
+     async () => {
+    const transport = stubTransport([
+        { status: 401, json: { error: 'api.unauthenticated' } },
+        { status: 200, json: envelope() },
+    ]);
+    let asked = 0;
+    const c = client(transport, {
+        onUnauthorized: () => { asked += 1; return Promise.resolve(true); },
+    });
+    const result = await c.reads.scenarios();
+    assert.strictEqual(asked, 1);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(transport.calls.length, 2);
+});
+
+test('a 401 the session cannot repair is reported, not retried', async () => {
+    const transport = stubTransport([
+        { status: 401, json: { error: 'api.unauthenticated' } }]);
+    const c = client(transport, {
+        onUnauthorized: () => Promise.resolve(false) });
+    const result = await c.reads.scenarios();
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.error.code, 'api.unauthenticated');
+    assert.strictEqual(transport.calls.length, 1);
+});
+
+test('the retry is ONCE: a second 401 is an answer, not another attempt',
+     async () => {
+    const transport = stubTransport([
+        { status: 401, json: { error: 'api.unauthenticated' } }]);
+    let asked = 0;
+    const c = client(transport, {
+        onUnauthorized: () => { asked += 1; return Promise.resolve(true); },
+    });
+    const result = await c.reads.scenarios();
+    assert.strictEqual(asked, 1);
+    assert.strictEqual(transport.calls.length, 2);
+    assert.strictEqual(result.ok, false);
+});
+
+test('without a session hook a 401 is an ordinary error', async () => {
+    const transport = stubTransport([
+        { status: 401, json: { error: 'api.unauthenticated' } }]);
+    const result = await client(transport).reads.scenarios();
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(transport.calls.length, 1);
+});
+
+test('every request carries same-origin credentials so the cookie rides',
+     async () => {
+    const transport = stubTransport([{ status: 200, json: envelope() }]);
+    await client(transport).reads.scenarios();
+    assert.strictEqual(transport.calls[0].init.credentials, 'same-origin');
 });
 
 test('createClient refuses to exist without a transport', () => {

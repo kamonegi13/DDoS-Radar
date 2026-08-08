@@ -31,26 +31,31 @@ from typing import Iterable
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CODEMAP_DIR = REPO_ROOT / "docs" / "CODEMAPS"
 
+def _v3_ui_targets() -> tuple[str, ...]:
+    """Every v3 UI module, DISCOVERED rather than listed.
+
+    WP-4.2 listed them by hand with the comment "included so the freshness
+    gate notices when a module is added". A hand-written list cannot do
+    that: `v3/ui/auth.js` and `v3/ui/gate.js` landed in WP-4.3 and would
+    have stayed un-mapped in silence, which is exactly the budget failure
+    CLAUDE.md §5.5 exists to stop. Discovery makes the claim true.
+    """
+    ui_dir = REPO_ROOT / "v3" / "ui"
+    if not ui_dir.is_dir():
+        return ()
+    return tuple(sorted(f"v3/ui/{path.name}"
+                        for path in ui_dir.iterdir()
+                        if path.suffix in (".js", ".css")))
+
+
 DEFAULT_TARGETS: tuple[str, ...] = (
     "radar.js",
     "tradecraft.js",
     "radar.css",
-    # WP-4.2 — the v3 presentation layer. Small by design (pure-core + thin
-    # DOM, P1 §11), but included so the freshness gate notices when a module
-    # is added, split or removed: an un-mapped module is one a future session
-    # full-reads, which is the budget failure CLAUDE.md §5.5 exists to stop.
-    "v3/ui/app.js",
-    "v3/ui/board.js",
-    "v3/ui/client.js",
-    "v3/ui/conclusions.js",
-    "v3/ui/format.js",
-    "v3/ui/freshness.js",
-    "v3/ui/lane.js",
-    "v3/ui/render.js",
-    "v3/ui/strings.js",
-    "v3/ui/trust.js",
-    "v3/ui/v3.css",
-)
+    # The v3 presentation layer. Small by design (pure-core + thin DOM,
+    # P1 §11) and enumerated from the directory, so a module added, split
+    # or removed moves the gate on its own.
+) + _v3_ui_targets()
 
 # Allow leading whitespace because radar.js wraps everything in an IIFE
 # (4-space indent) but tradecraft.js does the same with its own IIFE.

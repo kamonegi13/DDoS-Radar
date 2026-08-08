@@ -562,14 +562,34 @@ class TestTheWiringResolves:
         html = (UI_DIR / "index.html").read_text(encoding="utf-8")
         return set(re.findall(r'\bid="([^"]+)"', html))
 
-    def test_every_id_the_app_touches_is_declared_in_the_shell(self):
-        app = (UI_DIR / "app.js").read_text(encoding="utf-8")
-        used = set(re.findall(r"\$\('([^']+)'\)", app))
-        used |= set(re.findall(r"setHtml\('([^']+)'", app))
-        missing = sorted(used - self._declared_ids())
-        assert not missing, (
-            f"app.js addresses element ids that index.html does not declare: "
-            f"{missing}. Each one renders as silence.")
+    #: Every file that writes the document. `gate.js` joined `app.js` when
+    #: the login gate landed (§7-2 #99): the gate is a feature with its own
+    #: elements, and one 900-line DOM file for both would be the panel
+    #: accumulation P8 §7 retired wearing a different spelling. The check
+    #: follows the DOM rather than following one filename.
+    DOM_FILES = ("app.js", "gate.js")
+
+    def test_every_id_the_dom_layer_touches_is_declared_in_the_shell(self):
+        declared = self._declared_ids()
+        offences = []
+        for name in self.DOM_FILES:
+            source = (UI_DIR / name).read_text(encoding="utf-8")
+            used = set(re.findall(r"\$\('([^']+)'\)", source))
+            used |= set(re.findall(r"setHtml\('([^']+)'", source))
+            used |= set(re.findall(r"setHidden\('([^']+)'", source))
+            used |= set(re.findall(r"setText\('([^']+)'", source))
+            offences += [f"{name}: {missing}"
+                         for missing in sorted(used - declared)]
+        assert not offences, (
+            f"the DOM layer addresses element ids that index.html does not "
+            f"declare: {offences}. Each one renders as silence.")
+
+    def test_every_dom_file_is_listed_in_the_shell(self):
+        """A DOM file nobody loads is a feature that silently does not run."""
+        html = (UI_DIR / "index.html").read_text(encoding="utf-8")
+        loaded = set(re.findall(r'<script src="([^"]+)"', html))
+        missing = sorted(set(self.DOM_FILES) - loaded)
+        assert not missing, missing
 
     def test_every_deferred_surface_has_a_slot_in_the_shell(self):
         html = (UI_DIR / "index.html").read_text(encoding="utf-8")
