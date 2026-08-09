@@ -16,7 +16,9 @@ Five obligations, each traceable to a defect the diagnosis found:
   latest-row-at-T    the one read primitive replay uses (S5-VERIF-017).
 """
 import sqlite3
+import threading
 
+import gevent
 import pytest
 
 from v3.kernel import Evidence, ThreatLevel, Window
@@ -617,3 +619,163 @@ class TestRecordValidation:
             RetentionPolicy(table="signal_observation",
                             time_column="observed_at; DROP TABLE x",
                             retention_days=1, rationale="probe")
+
+
+class TestTheReadConnectionIsThreadLocal:
+    """A single cached `_read_conn` raised
+
+        sqlite3.ProgrammingError: SQLite objects created in a thread can
+        only be used in that same thread.
+
+    the moment a second thread reached it — sqlite3 defaults to
+    `check_same_thread=True`, and v3's composition root runs a tick
+    thread alongside HTTP request threads, so this was not hypothetical:
+    it fired on the first request after the tick thread had opened the
+    read connection first (or vice versa). Every test in this class
+    raises that ProgrammingError against the single-shared-handle
+    implementation and passes once each thread gets its own handle.
+
+    Every cross-thread test here spawns on `gevent.get_hub().threadpool`
+    rather than `threading.Thread`, and that is load-bearing, not a
+    style choice. This repo's root `conftest.py` runs
+    `gevent.monkey.patch_all()` for the whole pytest session (legacy v1
+    compatibility). That patches `threading.Thread` to spawn a
+    cooperative GREENLET, not a real OS thread — every greenlet shares
+    the ONE real OS thread the interpreter started with, so
+    `threading.get_ident()` differs per greenlet while the identity
+    SQLite's `check_same_thread` actually compares
+    (`PyThread_get_thread_ident()`, a C-level call the monkey-patch does
+    not touch) does not. A version of these tests written with plain
+    `threading.Thread` was tried first and PASSED both before and after
+    the fix in this test process — proving nothing, exactly the "not
+    evidence" trap the task called out. v3's real deployment does not
+    monkey-patch gevent at all (`Dockerfile.v3` runs plain gunicorn `-k
+    gthread`), so its tick thread (`v3/runtime/loop.py`) and its HTTP
+    worker threads ARE genuine, distinct OS threads, which is why the
+    defect fired there. `gevent.get_hub().threadpool` is gevent's own
+    supported escape hatch for running Python code on a real OS thread
+    despite the monkey-patch, so spawning on it is what makes these
+    tests faithful to the PRODUCTION concurrency shape rather than to
+    pytest's.
+
+    Only reads cross threads in these tests, never writes: the write
+    connection's thread-affinity is a separate, pre-existing property
+    this task explicitly does not touch (confirmed separately that a
+    write from another thread raises the same ProgrammingError, for an
+    unrelated reason — the ledger's writer is not thread-local and was
+    never asked to be).
+    """
+
+    @staticmethod
+    def _run_on_a_real_os_thread(target):
+        """Run `target` on a real OS thread via gevent's thread pool.
+
+        `ThreadPool.spawn` returns a gevent `AsyncResult`-like handle;
+        `.get()` blocks the calling greenlet until the task finishes and
+        re-raises whatever the task raised, so a failure inside `target`
+        surfaces as a normal test failure rather than being swallowed.
+        """
+        return gevent.get_hub().threadpool.spawn(target).get(timeout=10)
+
+    def test_a_read_from_another_thread_returns_the_same_rows(self, store):
+        # THE regression test for the defect. Confirmed by running this
+        # exact test (with the store fix reverted via `git stash`)
+        # before writing the fix: it raised sqlite3.ProgrammingError.
+        # With the fix, `_read_connection()` hands each thread its own
+        # handle and this passes.
+        store.append_signal(_signal(), now=NOW)
+        main_thread_row = store.latest_signal_at(
+            NOW, sensor="gps_jamming", country="TW")
+        assert main_thread_row is not None
+
+        other_thread_row = self._run_on_a_real_os_thread(
+            lambda: store.latest_signal_at(NOW, sensor="gps_jamming",
+                                           country="TW"))
+
+        assert other_thread_row == main_thread_row
+
+    def test_the_main_thread_can_still_read_after_a_worker_thread_read_first(
+            self, store):
+        # Order matters for the single-shared-connection bug: whichever
+        # thread calls `_read_connection()` FIRST "owns" the cached
+        # handle, and it is the OTHER thread that then raises. The test
+        # above has the main thread go first; this one reverses it, so
+        # both orderings of the race are covered.
+        store.append_signal(_signal(), now=NOW)
+
+        worker_row = self._run_on_a_real_os_thread(
+            lambda: store.latest_signal_at(NOW, sensor="gps_jamming",
+                                           country="TW"))
+        assert worker_row is not None
+
+        main_thread_row = store.latest_signal_at(
+            NOW, sensor="gps_jamming", country="TW")
+        assert main_thread_row == worker_row
+
+    def test_two_threads_reading_concurrently_both_get_correct_results(
+            self, store):
+        # `check_same_thread=False` would have "fixed" the
+        # ProgrammingError by handing every thread the SAME connection
+        # object with no serialisation between them — a silent data
+        # race instead of a loud error. This proves the actual fix (one
+        # connection per thread) instead: two REAL OS threads hammering
+        # different countries at the same time each see only their own
+        # country's row, never a mix-up or a crash. The barrier forces
+        # both tasks onto the thread pool at once, rather than letting
+        # the pool serialise them onto one reused worker thread and
+        # accidentally hide the race.
+        for index, country in enumerate(("TW", "US")):
+            store.append_signal(
+                _signal(tick_id=f"concurrent-{index}", country=country),
+                now=NOW)
+
+        pool = gevent.get_hub().threadpool
+        barrier = threading.Barrier(2, timeout=10)
+
+        def _hammer(country):
+            barrier.wait()
+            mismatches = []
+            for _ in range(200):
+                row = store.latest_signal_at(
+                    NOW, sensor="gps_jamming", country=country)
+                if row is None or row["country"] != country:
+                    mismatches.append((country, row))
+            return mismatches
+
+        first = pool.spawn(_hammer, "TW")
+        second = pool.spawn(_hammer, "US")
+        tw_mismatches = first.get(timeout=15)
+        us_mismatches = second.get(timeout=15)
+
+        assert not tw_mismatches, tw_mismatches
+        assert not us_mismatches, us_mismatches
+
+    def test_close_still_works_after_a_read_from_another_thread(
+            self, tmp_path):
+        # `close()` used to close ONE cached connection. With one handle
+        # per thread, it must still close cleanly: the calling thread's
+        # own handle directly, and the other thread's handle by dropping
+        # this store's reference to it (see the docstring on `close()`
+        # for why that is the honest option rather than a leak or a
+        # lie). Either way, `close()` itself must not raise, and the
+        # underlying file must not be left locked for the next open.
+        path = str(tmp_path / "v3.db")
+        instance = LedgerStore(path)
+        instance.append_signal(_signal(), now=NOW)
+
+        def _read_from_other_thread():
+            return instance.latest_signal_at(NOW, sensor="gps_jamming",
+                                             country="TW")
+
+        assert self._run_on_a_real_os_thread(_read_from_other_thread) \
+            is not None
+
+        instance.close()  # must not raise
+
+        # The file must not be left locked by an un-closed handle from
+        # the other thread.
+        reopened = LedgerStore(path)
+        try:
+            assert reopened.count_signals() == 1
+        finally:
+            reopened.close()

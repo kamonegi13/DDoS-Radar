@@ -146,7 +146,8 @@ class LedgerStore(AttentionLedgerMixin, CalibrationLedgerMixin,
             # for an append-only observation ledger costs one tick, not
             # integrity. FULL would make the 1M-row migration fsync-bound.
             self._conn.execute("PRAGMA synchronous=NORMAL")
-            self._read_conn: Optional[sqlite3.Connection] = None
+            self._read_conns: dict[int, sqlite3.Connection] = {}  # per-thread
+            self._read_conns_lock = threading.Lock()
             # Writes are serialised in-process: sqlite allows one writer,
             # and the fold job is a read-modify-write that must not
             # interleave. Multi-greenlet-safe by this lock; single process.
@@ -226,9 +227,14 @@ class LedgerStore(AttentionLedgerMixin, CalibrationLedgerMixin,
         return int(row["value"]) if row else 0
 
     def close(self) -> None:
-        if self._read_conn is not None:
-            self._read_conn.close()
-            self._read_conn = None
+        """Close the write connection and the CALLER's own read handle;
+        other threads' handles get dereferenced instead — sqlite3's
+        deallocator closes those for real once unreferenced."""
+        with self._read_conns_lock:
+            own = self._read_conns.pop(threading.get_ident(), None)
+            self._read_conns.clear()
+        if own is not None:
+            own.close()
         self._conn.close()
 
     def _connection(self) -> sqlite3.Connection:
@@ -236,17 +242,22 @@ class LedgerStore(AttentionLedgerMixin, CalibrationLedgerMixin,
         return self._conn
 
     def _read_connection(self) -> sqlite3.Connection:
-        """A read-only handle: a query path cannot write even by mistake."""
-        if self._read_conn is None:
-            # quote(): an unquoted '#' or '?' truncates the URI, so the
-            # read connection silently opens a DIFFERENT (empty) database
-            # while writes keep succeeding — every read returns nothing and
-            # nothing reports why. Third occurrence of this lesson here.
-            uri = f"file:{urllib.parse.quote(self._path)}?mode=ro"
-            self._read_conn = sqlite3.connect(uri, uri=True)
-            self._read_conn.row_factory = sqlite3.Row
-            self._read_conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
-        return self._read_conn
+        """One read-only handle per thread (see `__init__`); lazy, cached."""
+        ident = threading.get_ident()
+        with self._read_conns_lock:
+            if ident in self._read_conns:
+                return self._read_conns[ident]
+        # quote(): an unquoted '#' or '?' truncates the URI, so the
+        # read connection silently opens a DIFFERENT (empty) database
+        # while writes keep succeeding — every read returns nothing and
+        # nothing reports why. Third occurrence of this lesson here.
+        uri = f"file:{urllib.parse.quote(self._path)}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True)
+        conn.row_factory = sqlite3.Row
+        conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+        with self._read_conns_lock:   # different threads -> different keys
+            self._read_conns[ident] = conn
+        return conn
 
     @contextmanager
     def _maybe_transaction(self, connection=None):

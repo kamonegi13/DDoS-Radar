@@ -1,4 +1,8 @@
 config.env
+# Docker Compose reads this for ${VAR} substitution. The v3 shadow's key
+# material lives here (NOROSHI_V3_JWT_SECRET / _BOOTSTRAP_PASSWORD) —
+# ignored BEFORE the file is created, so it can never appear in a diff.
+.env
 .claude/
 CLAUDE.md
 .DS_Store
