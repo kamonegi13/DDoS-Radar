@@ -53,11 +53,17 @@ STORE_CLASS = "LedgerStore"
 #: are what the read seam's call-graph fixpoint propagates through — a
 #: hidden `_entity_rows` would reclassify its public callers as writers by
 #: omission, which shrinks the read surface without a word.
-METHOD_FLOOR = 67
+#: Raised 67 -> 68 on 2026-08-09 for `baseline_series_values` (§7-2 #135,
+#: the cold-baseline warm-up read). The floor is meant to be raised by
+#: hand exactly like this: the method was added and committed without a
+#: READ_METHODS entry, and the audit refused the build rather than
+#: silently classifying it as neither — which is the G-01 shape and the
+#: reason this gate exists.
+METHOD_FLOOR = 68
 #: The public half of the same count. Named separately because the two
 #: seams partition PUBLIC methods (`READ_METHODS` / `WRITE_METHODS`), and
 #: a public method that stopped being seen is the one an analyst notices.
-PUBLIC_METHOD_FLOOR = 57
+PUBLIC_METHOD_FLOOR = 58
 
 
 def _bindings(tree: ast.Module) -> dict:

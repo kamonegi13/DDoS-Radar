@@ -60,6 +60,9 @@ READ_METHODS: frozenset = frozenset({
     "attention_snapshot",
     "baseline_bucket_count",
     "baseline_phase_values",
+    # The phase-less twin of the line above: same rows, hour-of-day
+    # predicate lifted, for the cold-baseline warm-up verdict (§7-2 #135).
+    "baseline_series_values",
     "baseline_value_rows",
     "checkpoint",
     "command_records",
