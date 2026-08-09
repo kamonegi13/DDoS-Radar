@@ -12,7 +12,7 @@ import sqlite3
 import pytest
 
 from v3.etl import migrate, reconcile
-from v3.etl.reconcile import BLOCKED, FAIL, PASS
+from v3.etl.reconcile import BLOCKED, FAIL, PASS, SAMPLE_SIZE
 from v3.ledger import LedgerStore
 
 from tests.test_etl_migrate import (V1_SCHEMA, _conclusion_rows,
@@ -20,6 +20,14 @@ from tests.test_etl_migrate import (V1_SCHEMA, _conclusion_rows,
 
 NOW = 1_786_000_000.0
 DAY = 86400.0
+
+
+def _write_schema(v1_path, statement):
+    """Add a table the snapshot has and the registries have not heard of."""
+    connection = sqlite3.connect(v1_path)
+    connection.execute(statement)
+    connection.commit()
+    connection.close()
 
 
 @pytest.fixture
@@ -167,6 +175,207 @@ class TestCriterion2CrossSideComparability:
             == PASS
 
 
+def _seed_history_covering_both_windows(v1_path):
+    """History old enough that criterion 4's two RUNNABLE sub-checks pass.
+
+    Without this the criterion has a genuine failure to report, and after
+    the verdict fix that is a FAIL — so a test about BLOCKED has to supply
+    the history it is claiming to have.
+    """
+    import time
+    now = time.time()
+    _write(v1_path,
+           "INSERT INTO conclusions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+           [("old", "taiwan", "threat_level", "ACTIVE", 0.9,
+             now - 400 * DAY, "S1-X", "T1", '["https://example.test"]',
+             None, "calibrated", None, "{}")])
+    _write(v1_path, "INSERT INTO scenario_tl_observation "
+                    "(scenario_id, observed_at, score, tl) VALUES (?,?,?,?)",
+           [("taiwan", now - 60 * DAY, 1.0, 3)])
+
+
+class TestCriterion1SourceTableAccounting:
+    """A table nobody classified is a table nobody counts (R1).
+
+    The completeness test compares the registries against S3's transcribed
+    list, so it can only see tables someone already wrote down. Production
+    grew five tables after S3 was written — L5 verification state and
+    sensor-flag first-observation timestamps — and every registry-vs-list
+    check in the suite stayed green while they went unmigrated.
+    """
+
+    def test_a_table_in_no_registry_fails_the_accounting(self, v1, target):
+        _write_schema(v1, "CREATE TABLE sensor_flag_state (sensor TEXT, "
+                          "flag_id TEXT, first_observed_at REAL)")
+        migrate(v1, target)
+        criterion = reconcile(v1, target).criteria["1_row_counts"]
+        assert criterion["verdict"] == FAIL
+        assert "sensor_flag_state" in criterion["unaccounted_source_tables"]
+
+    def test_the_unaccounted_table_is_named_with_its_row_count(self, v1,
+                                                               target):
+        _write_schema(v1, "CREATE TABLE l5_check_result (id INTEGER, ts REAL)")
+        _write(v1, "INSERT INTO l5_check_result VALUES (?,?)",
+               [(1, NOW), (2, NOW)])
+        migrate(v1, target)
+        criterion = reconcile(v1, target).criteria["1_row_counts"]
+        assert criterion["unaccounted_row_counts"]["l5_check_result"] == 2
+
+    def test_a_fully_classified_snapshot_still_passes(self, v1, target):
+        _seed_conclusions(v1)
+        migrate(v1, target)
+        criterion = reconcile(v1, target).criteria["1_row_counts"]
+        assert criterion["unaccounted_source_tables"] == []
+        assert criterion["verdict"] == PASS
+
+    def test_sqlite_internal_tables_are_not_unaccounted(self, v1, target):
+        # sqlite_sequence appears because a table uses AUTOINCREMENT, not
+        # because anyone decided anything; flagging it would train the
+        # reader to ignore this list.
+        _seed_tl(v1)
+        migrate(v1, target)
+        criterion = reconcile(v1, target).criteria["1_row_counts"]
+        assert criterion["unaccounted_source_tables"] == []
+
+    def test_a_discarded_table_is_accounted_not_unaccounted(self, v1, target):
+        _write_schema(v1,
+                      "CREATE TABLE focus_switch_log (id INTEGER, ts REAL)")
+        migrate(v1, target)
+        criterion = reconcile(v1, target).criteria["1_row_counts"]
+        assert criterion["unaccounted_source_tables"] == []
+        assert criterion["source_table_accounting"]["discarded"] == 1
+
+
+class TestCriterion4VerdictHonesty:
+    """A sub-check that RAN and was violated is a FAIL.
+
+    Criterion 4 computed a `failures` list and then reported BLOCKED
+    regardless — so a calibration window that demonstrably did not survive
+    was indistinguishable from one nobody could measure. Harmless only
+    while criteria 3 and 5 are also BLOCKED; the moment L3 lands, this is
+    the only thing between a truncated history and cutover.
+    """
+
+    def test_a_violated_window_is_a_failure_not_a_block(self, v1, target):
+        _seed_tl(v1)           # seconds old: the 42-day window is not covered
+        migrate(v1, target)
+        criterion = reconcile(v1, target).criteria["4_calibration_window"]
+        assert criterion["verdict"] == FAIL
+        assert "tl_history_covers_window" in criterion["failures"]
+
+    def test_it_blocks_only_when_every_runnable_check_passed(self, v1, target):
+        _seed_history_covering_both_windows(v1)
+        migrate(v1, target)
+        criterion = reconcile(v1, target).criteria["4_calibration_window"]
+        assert criterion["failures"] == []
+        assert criterion["verdict"] == BLOCKED
+        assert criterion["checks"]["continuity_run_length_monotonic"][
+            "blocked_by"] == "inconclusive_continuity_log"
+
+    def test_the_source_side_travels_with_the_verdict(self, v1, target):
+        # "the window is short" has two causes and only one is the ETL's.
+        _seed_tl(v1)
+        migrate(v1, target)
+        check = reconcile(v1, target).criteria["4_calibration_window"][
+            "checks"]["tl_history_covers_window"]
+        assert check["source_oldest_observed_at"] == \
+            check["oldest_observed_at"], \
+            "a faithful copy must show the same oldest row on both sides"
+        assert check["window_days"] == 42
+
+    def test_a_migration_that_truncated_history_is_named_as_such(self, v1,
+                                                                 target):
+        # The realistic way a window shortens: the OLDEST row is the one
+        # that fails validation, so quarantine eats the far end of the
+        # history and every surviving row still hashes perfectly.
+        import time
+        now = time.time()
+        _write(v1, "INSERT INTO scenario_tl_observation "
+                   "(scenario_id, observed_at, score, tl) VALUES (?,?,?,?)",
+               [("taiwan", now - 60 * DAY, 1.0, 9),      # tl=9: quarantined
+                ("taiwan", now - 10 * DAY, 1.0, 3)])
+        report = migrate(v1, target)
+        assert report.quarantined_count == 1
+        criterion = reconcile(v1, target).criteria["4_calibration_window"]
+        check = criterion["checks"]["tl_history_covers_window"]
+        assert check["truncated_by_migration"] is True
+        assert check["source_oldest_observed_at"] < check["oldest_observed_at"]
+        assert "tl_history_covers_window:truncated_by_migration" in \
+            criterion["failures"]
+        assert criterion["verdict"] == FAIL
+
+    def test_a_source_limited_window_is_not_blamed_on_the_migration(self, v1,
+                                                                    target):
+        # v1 prunes conclusions at 90d, so ADR-V3-005's 365d window cannot
+        # be satisfied out of any v1 snapshot. That is still a FAIL — the
+        # ledger really does not hold the window — but not a lost row.
+        _seed_conclusions(v1)
+        migrate(v1, target)
+        check = reconcile(v1, target).criteria["4_calibration_window"][
+            "checks"]["conclusion_history_covers_retention"]
+        assert check["ok"] is False
+        assert check["truncated_by_migration"] is False
+
+
+class TestSampleFetchIsOnePass:
+    """The verifier must not cost more than the migration it verifies.
+
+    Neither side indexes the reconciliation's ordering columns, so
+    `ORDER BY … LIMIT 1 OFFSET n` sorts the whole table once per sample
+    row. Against production's 1,047,286 conclusions that measured 1.7 s
+    per offset — a 60-second migration followed by a 17-minute check,
+    inside the write-stop window S3-DATA-031 budgets at "a few minutes".
+    """
+
+    def test_it_returns_exactly_what_per_offset_queries_returned(self, v1):
+        import sqlite3 as _sqlite3
+
+        from v3.etl.reconcile import _fetch_offsets
+        _seed_conclusions(v1, _conclusion_rows(count=40))
+        connection = _sqlite3.connect(v1)
+        connection.row_factory = _sqlite3.Row
+        offsets = [0, 3, 7, 39, 40, 99]
+        walked = _fetch_offsets(connection, "conclusions",
+                                ("observed_at", "id"), offsets)
+        naive = []
+        for offset in offsets:
+            row = connection.execute(
+                'SELECT * FROM conclusions ORDER BY "observed_at" ASC, '
+                '"id" ASC LIMIT 1 OFFSET ?', (offset,)).fetchone()
+            if row is not None:
+                naive.append(row)
+        connection.close()
+        assert [tuple(row) for row in walked] == [tuple(r) for r in naive]
+
+    def test_offsets_past_the_end_are_dropped_not_faked(self, v1):
+        import sqlite3 as _sqlite3
+
+        from v3.etl.reconcile import _fetch_offsets
+        _seed_conclusions(v1, _conclusion_rows(count=2))
+        connection = _sqlite3.connect(v1)
+        connection.row_factory = _sqlite3.Row
+        rows = _fetch_offsets(connection, "conclusions",
+                              ("observed_at", "id"), [0, 1, 2, 500])
+        connection.close()
+        assert len(rows) == 2
+
+    def test_rows_come_back_in_the_order_the_offsets_were_asked_for(self):
+        from v3.ledger.store_migration import take_offsets
+        assert take_offsets(iter("abcdef"), [4, 1, 0]) == ["e", "b", "a"]
+
+    def test_the_hash_still_passes_on_a_table_past_the_sample_threshold(
+            self, v1, target):
+        # 3*SAMPLE_SIZE is where _sample_offsets stops returning every row
+        # and starts taking head/middle/tail, which is where a one-pass
+        # walk could diverge from a per-offset query.
+        _seed_conclusions(v1, _conclusion_rows(count=SAMPLE_SIZE * 3 + 50))
+        migrate(v1, target)
+        entry = reconcile(v1, target).criteria["2_sample_hashes"][
+            "hashes"]["conclusions"]
+        assert entry["sampled"] == SAMPLE_SIZE * 3
+        assert entry["source"] == entry["target"]
+
+
 class TestBlockedCriteria:
     """PASS would be a lie; BLOCKED with a named cause is the truth."""
 
@@ -194,6 +403,10 @@ class TestBlockedCriteria:
         assert criterion["conclusions_with_prompt_ref"] == 1
 
     def test_calibration_window_is_blocked_on_continuity(self, v1, target):
+        # Seeded history: with the windows unmet the criterion has a real
+        # failure to report, and after the verdict fix that is a FAIL.
+        _seed_history_covering_both_windows(v1)
+        migrate(v1, target)
         criterion = reconcile(v1, target).criteria["4_calibration_window"]
         assert criterion["verdict"] == BLOCKED
         assert criterion["checks"]["continuity_run_length_monotonic"][
@@ -227,7 +440,7 @@ class TestOverallVerdict:
         assert reconcile(v1, target).verdict == FAIL
 
     def test_blocked_dominates_pass(self, v1, target):
-        _seed_conclusions(v1)
+        _seed_history_covering_both_windows(v1)
         migrate(v1, target)
         # Criteria 3/4/5 are BLOCKED, so the run is not a green light.
         assert reconcile(v1, target).verdict == BLOCKED

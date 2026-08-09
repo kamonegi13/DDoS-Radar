@@ -268,6 +268,48 @@ class TestDirtyData:
         assert any("theater" in entry["reason"]
                    for entry in report.quarantined)
 
+    def test_a_nested_theater_key_is_caught_too(self, v1, target):
+        # Depth 0 was the whole check. Real metadata averages 484 bytes of
+        # nested structure, so "not at the top" was never evidence of "not
+        # there" — S3-DATA-022 says the key must not SURVIVE.
+        rows = _conclusion_rows(count=1)
+        rows[0] = rows[0][:12] + ('{"detail": {"scope": {"theater": "TW"}}}',)
+        _seed_conclusions(v1, rows)
+        report = migrate(v1, target)
+        assert report.quarantined_count == 1
+        assert "theater" in report.quarantined[0]["reason"]
+
+    def test_a_theater_key_inside_a_json_array_is_caught(self, v1, target):
+        # source_urls and active_countries are JSON ARRAYS, so the old
+        # dict-only test could never fire on either of them.
+        rows = _conclusion_rows(count=1)
+        rows[0] = rows[0][:8] + ('[{"theater": "TW"}]',) + rows[0][9:]
+        _seed_conclusions(v1, rows)
+        report = migrate(v1, target)
+        assert report.quarantined_count == 1
+        assert "source_urls" in report.quarantined[0]["reason"]
+
+    def test_calibration_status_is_scanned_as_the_json_payload_it_is(
+            self, v1, target):
+        # S3-DATA-010 documents it as a status; production stores a JSON
+        # object in every row, so it needs the same scan as `metadata`.
+        rows = _conclusion_rows(count=1)
+        rows[0] = rows[0][:10] + ('{"theater": "TW"}',) + rows[0][11:]
+        _seed_conclusions(v1, rows)
+        report = migrate(v1, target)
+        assert report.quarantined_count == 1
+        assert "calibration_status" in report.quarantined[0]["reason"]
+
+    def test_the_word_theater_in_ordinary_text_is_not_a_key(self, v1, target):
+        # The guard keys on structure, not on the substring; quarantining
+        # prose would cost real rows for nothing (NP1: losses are worse).
+        rows = _conclusion_rows(count=1)
+        rows[0] = rows[0][:12] + ('{"note": "theater of operations"}',)
+        _seed_conclusions(v1, rows)
+        report = migrate(v1, target)
+        assert report.quarantined_count == 0
+        assert target.count_conclusions() == 1
+
     def test_an_empty_identifier_is_quarantined(self, v1, target):
         rows = _conclusion_rows(count=1)
         rows[0] = (rows[0][0], "", *rows[0][2:])
@@ -550,3 +592,68 @@ class TestRegistryCompleteness:
         # S3-DATA-061 discards outright.
         assert len(REGENERATE_ONLY) == 30
         assert "focus_switch_log" not in REGENERATE_ONLY
+
+    def test_the_discard_registry_matches_s3s_list_not_its_headline(self):
+        from v3.etl.mapping import DISCARDED
+        # S3 §2.5 says "tradecraft 9 tables" and lists 10, "13 discarded"
+        # and totals 14. The lists are authoritative.
+        assert len(DISCARDED) == 14
+        assert "decision_ledger" in DISCARDED      # the 10th tradecraft table
+        assert "focus_switch_log" in DISCARDED
+
+    def test_the_four_registries_are_mutually_exclusive(self):
+        from v3.etl.mapping import DISCARDED, REGENERATE_ONLY
+        registries = [set(MIGRATABLE), set(NOT_YET_MIGRATABLE),
+                      set(REGENERATE_ONLY), set(DISCARDED)]
+        for i, first in enumerate(registries):
+            for second in registries[i + 1:]:
+                assert first & second == set()
+
+
+class TestSourceSchemaAccounting:
+    """The registries have to meet the DATABASE, not just the document.
+
+    `S3_MIGRATE_35` is a transcription, so the completeness tests above can
+    only catch tables someone already wrote down. Production grew five
+    after S3 was written (L5 verification state, sensor-flag first
+    observations, config read stats) and no test could see them.
+    """
+
+    def test_an_unknown_production_table_is_reported_as_unaccounted(self):
+        from v3.etl.mapping import classify_source_tables
+        verdict = classify_source_tables(["conclusions", "sensor_flag_state"])
+        assert verdict["unaccounted"] == ["sensor_flag_state"]
+        assert verdict["migratable"] == ["conclusions"]
+
+    def test_each_registry_gets_its_own_bucket(self):
+        from v3.etl.mapping import classify_source_tables
+        verdict = classify_source_tables(
+            ["conclusions", "analyst_feedback", "time_series",
+             "focus_switch_log"])
+        assert verdict["migratable"] == ["conclusions"]
+        assert verdict["not_yet_migratable"] == ["analyst_feedback"]
+        assert verdict["regenerate_only"] == ["time_series"]
+        assert verdict["discarded"] == ["focus_switch_log"]
+        assert verdict["unaccounted"] == []
+
+    def test_sqlite_bookkeeping_is_not_an_unclassified_asset(self):
+        from v3.etl.mapping import classify_source_tables
+        verdict = classify_source_tables(
+            ["conclusions", "sqlite_sequence", "sqlite_stat1"])
+        assert verdict["unaccounted"] == []
+
+    def test_a_registry_table_missing_from_the_source_is_reported(self):
+        from v3.etl.mapping import classify_source_tables
+        verdict = classify_source_tables(["conclusions"])
+        assert "analyst_feedback" in verdict["absent_from_source"]
+        assert "sqlite_sequence" not in verdict["absent_from_source"]
+
+    def test_the_source_lists_its_own_tables(self, v1):
+        from v3.etl.source import V1Source
+        source = V1Source(v1)
+        try:
+            names = source.table_names()
+        finally:
+            source.close()
+        assert "conclusions" in names
+        assert names == sorted(names), "a stable order keeps diffs readable"

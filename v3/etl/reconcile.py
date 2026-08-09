@@ -29,8 +29,10 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-from v3.etl.mapping import MIGRATABLE, NOT_YET_MIGRATABLE
+from v3.etl.mapping import (MIGRATABLE, NOT_YET_MIGRATABLE,
+                            classify_source_tables)
 from v3.etl.source import V1Source
+from v3.ledger.store_migration import take_offsets
 
 class _DictRow(dict):
     """A plain mapping with sqlite3.Row's keys() interface."""
@@ -141,22 +143,34 @@ def _sample_offsets(total: int, table: str) -> list[int]:
 
 def _fetch_offsets(connection, table: str, order_columns: tuple[str, ...],
                    offsets: list[int]) -> list:
-    """Rows at the given offsets, in the declared value order."""
+    """Rows at the given offsets, in the declared value order.
+
+    ONE ordered cursor walked once, not one query per offset. The ordering
+    columns carry no index on either side, so `ORDER BY … LIMIT 1 OFFSET n`
+    sorts the whole table every time it is asked: measured against
+    production's 1,047,286 conclusions that is 1.7 s per offset, and the
+    300-offset sample turns a 90-second migration into a 20-minute
+    verification — inside the write-stop window S3-DATA-031 budgets at
+    "a few minutes".
+    """
     if not offsets:
         return []
     ordering = ", ".join(f'"{column}" ASC' for column in order_columns)
-    rows = []
-    for offset in offsets:
-        row = connection.execute(
-            f'SELECT * FROM "{table}" ORDER BY {ordering} '  # noqa: S608
-            f"LIMIT 1 OFFSET ?", (offset,)).fetchone()
-        if row is not None:
-            rows.append(row)
-    return rows
+    cursor = connection.execute(
+        f'SELECT * FROM "{table}" ORDER BY {ordering}')  # noqa: S608
+    return take_offsets(cursor, offsets)
 
 
 def _criterion_row_counts(source: V1Source, store, report) -> None:
-    """S3-DATA-025 ① — every migratable table's COUNT(*) matches."""
+    """S3-DATA-025 ① — every migratable table's COUNT(*) matches.
+
+    Also the accounting criterion: a table nobody classified is a table
+    whose row count nobody compares, which is the same failure as a
+    mismatch and is invisible to a count-by-count check. The registries
+    are therefore held against the SNAPSHOT'S OWN schema, not against
+    S3's transcribed list — production grows tables after specifications
+    are written, and R1 has no room for a silently skipped one.
+    """
     mismatches, matched = {}, {}
     for name in sorted(MIGRATABLE):
         expected = source.count(name)
@@ -164,10 +178,18 @@ def _criterion_row_counts(source: V1Source, store, report) -> None:
         matched[name] = {"source": expected, "target": actual}
         if expected != actual:
             mismatches[name] = matched[name]
+    accounting = classify_source_tables(source.table_names())
+    unaccounted = accounting["unaccounted"]
     detail = {"tables": matched, "mismatches": mismatches,
-              "not_yet_migratable": sorted(NOT_YET_MIGRATABLE)}
+              "not_yet_migratable": sorted(NOT_YET_MIGRATABLE),
+              "unaccounted_source_tables": unaccounted,
+              "unaccounted_row_counts": {name: source.count(name)
+                                         for name in unaccounted},
+              "source_table_accounting":
+                  {key: len(value) for key, value in accounting.items()}}
     report.record("1_row_counts",
-                  verdict=FAIL if mismatches else PASS, detail=detail)
+                  verdict=FAIL if (mismatches or unaccounted) else PASS,
+                  detail=detail)
 
 
 def _criterion_sample_hashes(source: V1Source, store, report) -> None:
@@ -230,32 +252,55 @@ def _criterion_recall(source: V1Source, store, report) -> None:
         "series_required": ["human_only", "all_rows"]})
 
 
+def _oldest_source_observed_at(source: V1Source, table: str):
+    if not source.has_table(table):
+        return None
+    row = source.connection().execute(
+        f'SELECT MIN(observed_at) FROM "{table}"').fetchone()  # noqa: S608
+    return None if row[0] is None else float(row[0])
+
+
 def _criterion_calibration_window(source: V1Source, store, report) -> None:
-    """S3-DATA-028 ④ — calibration windows survive the migration."""
+    """S3-DATA-028 ④ — calibration windows survive the migration.
+
+    Each sub-check carries the SOURCE's oldest timestamp beside the
+    target's, because "the window is short" has two very different causes
+    and only one of them is a migration defect: the ETL dropped the old
+    rows, or the source never had them (v1 prunes conclusions at 90d, so
+    ADR-V3-005's 365d window cannot be satisfied out of a v1 snapshot no
+    matter how perfect the copy is). `truncated_by_migration` separates
+    them, and it is the one this harness can hold the ETL responsible for.
+    """
     now = time.time()
     checks, failures = {}, []
 
-    # Named for what it holds — a timestamp. `oldest_tl` would read like a
-    # threat level, which is the ambiguity the kernel exists to remove.
-    oldest_stream_at = store.oldest_observed_at("tl_observation")
-    tl_ok = oldest_stream_at is not None and \
-        oldest_stream_at <= now - TL_CALIBRATION_WINDOW_DAYS * DAY_SEC
-    checks["tl_history_covers_window"] = {
-        "oldest_observed_at": oldest_stream_at,
-        "required_before": now - TL_CALIBRATION_WINDOW_DAYS * DAY_SEC,
-        "ok": tl_ok}
-    if not tl_ok:
-        failures.append("tl_history_covers_window")
+    def _window(name, ledger_table, source_table, days):
+        # Named for what it holds — a timestamp. `oldest_tl` would read
+        # like a threat level, the ambiguity the kernel exists to remove.
+        oldest_target_at = store.oldest_observed_at(ledger_table)
+        oldest_source_at = _oldest_source_observed_at(source, source_table)
+        required_before = now - days * DAY_SEC
+        covered = (oldest_target_at is not None
+                   and oldest_target_at <= required_before)
+        truncated = (oldest_source_at is not None
+                     and (oldest_target_at is None
+                          or oldest_target_at > oldest_source_at))
+        checks[name] = {
+            "oldest_observed_at": oldest_target_at,
+            "source_oldest_observed_at": oldest_source_at,
+            "required_before": required_before,
+            "window_days": days,
+            "truncated_by_migration": truncated,
+            "ok": covered}
+        if not covered:
+            failures.append(name)
+        if truncated:
+            failures.append(f"{name}:truncated_by_migration")
 
-    oldest_conclusion_at = store.oldest_observed_at("conclusion")
-    conclusion_ok = oldest_conclusion_at is not None and \
-        oldest_conclusion_at <= now - CONCLUSION_RETENTION_DAYS * DAY_SEC
-    checks["conclusion_history_covers_retention"] = {
-        "oldest_observed_at": oldest_conclusion_at,
-        "required_before": now - CONCLUSION_RETENTION_DAYS * DAY_SEC,
-        "ok": conclusion_ok}
-    if not conclusion_ok:
-        failures.append("conclusion_history_covers_retention")
+    _window("tl_history_covers_window", "tl_observation",
+            "scenario_tl_observation", TL_CALIBRATION_WINDOW_DAYS)
+    _window("conclusion_history_covers_retention", "conclusion",
+            "conclusions", CONCLUSION_RETENTION_DAYS)
 
     checks["continuity_run_length_monotonic"] = {
         "blocked_by": "inconclusive_continuity_log",
@@ -264,7 +309,14 @@ def _criterion_calibration_window(source: V1Source, store, report) -> None:
         "reason": "P6 O-16 makes continuity a derived view over the TL "
                   "stream rather than a migrated table, so this sub-check "
                   "runs against the view once L3 defines it."}
-    report.record("4_calibration_window", verdict=BLOCKED,
+    # A sub-check that RAN and was violated is a FAIL, not a BLOCKED: the
+    # third sub-check being unrunnable says nothing about the two that ran.
+    # Reporting the whole criterion as "cannot be checked yet" while
+    # `failures` is non-empty is the false green S5-VERIF-006 forbids, and
+    # it becomes load-bearing the moment L3 unblocks criteria 3 and 5 and
+    # this one is the only thing standing between a bad copy and cutover.
+    report.record("4_calibration_window",
+                  verdict=FAIL if failures else BLOCKED,
                   detail={"checks": checks, "failures": failures})
 
 

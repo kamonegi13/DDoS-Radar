@@ -187,15 +187,70 @@ S3_MIGRATE_35: frozenset = frozenset({
     "sequence_events", "threshold_history", "user_settings", "users",
 })
 
+# S3-DATA-060/061: deliberately not carried into v3, data included. Named
+# rather than inferred, because "we chose to drop it" and "nobody looked at
+# it" are the two states this whole registry exists to keep apart.
+#
+# Counts differ from S3's prose: §2.5 says 9 tradecraft tables and lists 10,
+# and says 13 discarded totalling 14. The list is authoritative, the
+# headline numbers are the errata (already recorded against WP-2.3).
+DISCARDED: frozenset = frozenset({
+    # S3-DATA-060 — tradecraft, every row a test artefact
+    "ach_matrices", "ach_hypotheses", "ach_evidence", "ach_scores",
+    "disconfirming_evidence", "key_assumptions", "key_assumption_change_log",
+    "dissenting_views", "premortem_entries", "decision_ledger",
+    # S3-DATA-061 — migration scaffolding and relics
+    "shadow_sampler_state", "schema_version", "sqlite_sequence",
+    "focus_switch_log",
+})
+
+# SQLite's own bookkeeping tables (`sqlite_sequence`, `sqlite_stat1`, …).
+# They appear and disappear with ANALYZE and AUTOINCREMENT rather than with
+# anyone's decision, so they are not evidence of an unclassified asset.
+_SQLITE_INTERNAL_PREFIX = "sqlite_"
+
+
+def classify_source_tables(table_names) -> dict:
+    """Split a REAL source schema across the four registries.
+
+    The completeness test compares the registries against `S3_MIGRATE_35`,
+    which is a transcription of a document — so it can only catch tables
+    that someone already wrote down. A table created in production after
+    S3 was written is invisible to it, and silence is exactly what R1
+    (data continuity) cannot afford: `unaccounted` is the set nobody has
+    ruled on, and it must never be read as "nothing to migrate".
+    """
+    names = {name for name in table_names
+             if not name.startswith(_SQLITE_INTERNAL_PREFIX)}
+    known = (set(MIGRATABLE) | set(NOT_YET_MIGRATABLE)
+             | set(REGENERATE_ONLY) | set(DISCARDED))
+    return {
+        "migratable": sorted(names & set(MIGRATABLE)),
+        "not_yet_migratable": sorted(names & set(NOT_YET_MIGRATABLE)),
+        "regenerate_only": sorted(names & set(REGENERATE_ONLY)),
+        "discarded": sorted(names & set(DISCARDED)),
+        "unaccounted": sorted(names - known),
+        "absent_from_source": sorted(known - names
+                                     - {n for n in DISCARDED
+                                        if n.startswith(
+                                            _SQLITE_INTERNAL_PREFIX)}),
+    }
+
+
 # JSON payload columns that S3-DATA-022 requires be free of the old
 # vocabulary after migration.
+# `calibration_status` is named like an enum and S3-DATA-010 documents it as
+# one, but production stores a JSON object in all 1,047,286 rows (3,484
+# distinct payloads carrying drift metrics). A payload column that nobody
+# declared as one is a payload column nobody scans.
 JSON_PAYLOAD_COLUMNS: dict[str, tuple[str, ...]] = {
-    "conclusions": ("metadata", "source_urls"),
+    "conclusions": ("metadata", "source_urls", "calibration_status"),
     "scenario_tl_observation": ("active_countries",),
 }
 FORBIDDEN_JSON_KEY = "theater"
 
 __all__ = ["TableMapping", "MIGRATABLE", "NOT_YET_MIGRATABLE",
-           "REGENERATE_ONLY", "S3_MIGRATE_35",
+           "REGENERATE_ONLY", "DISCARDED", "S3_MIGRATE_35",
+           "classify_source_tables",
            "JSON_PAYLOAD_COLUMNS", "FORBIDDEN_JSON_KEY",
            "COUNTRY_SOURCE_COLUMN"]

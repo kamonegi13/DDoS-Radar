@@ -15,6 +15,34 @@ import time
 from typing import Optional
 
 
+def take_offsets(cursor, offsets: list) -> list:
+    """Rows at the given offsets of an ALREADY ORDERED cursor, one pass.
+
+    The alternative — one `ORDER BY … LIMIT 1 OFFSET n` per offset —
+    sorts the whole table once per sample row, because neither side indexes
+    reconciliation's ordering columns. On production's 1,047,286
+    conclusions that is 1.7 s each, and the 300-offset sample costs 20
+    minutes per table per side against a 60-second migration.
+
+    Rows come back in the order the OFFSETS were asked for, not in cursor
+    order, so the acceptance hash is unchanged for any offset list.
+    Offsets past the end are dropped, exactly as a per-offset query
+    returning None did.
+    """
+    if not offsets:
+        return []
+    wanted = sorted(set(offsets))
+    found: dict = {}
+    index = 0
+    for position, row in enumerate(cursor):
+        if index >= len(wanted):
+            break
+        if position == wanted[index]:
+            found[position] = row
+            index += 1
+    return [found[offset] for offset in offsets if offset in found]
+
+
 class MigrationSupportMixin:
     """`LedgerStore`'s WP-2.3 migration and reconciliation half."""
 
@@ -104,27 +132,19 @@ class MigrationSupportMixin:
         if table not in ("conclusion", "tl_observation", "signal_observation"):
             raise ValueError(f"unknown ledger table {table!r}")
         ordering = ", ".join(f'"{column}" ASC' for column in order_columns)
-        rows = []
-        for offset in offsets:
-            row = self._read_connection().execute(
-                f'SELECT * FROM "{table}" ORDER BY {ordering} '  # noqa: S608
-                f"LIMIT 1 OFFSET ?", (offset,)).fetchone()
-            if row is not None:
-                rows.append(row)
-        return rows
+        cursor = self._read_connection().execute(
+            f'SELECT * FROM "{table}" ORDER BY {ordering}')  # noqa: S608
+        return take_offsets(cursor, offsets)
 
     def baseline_value_rows(self, baseline_id: str, *, offsets: list) -> list:
         """(country, bucket, value) triples for a migrated baseline."""
-        rows = []
-        for offset in offsets:
-            row = self._read_connection().execute(
-                "SELECT country, bucket, mean AS value FROM baseline_stat "
-                "WHERE baseline_id = ? ORDER BY country ASC, bucket ASC "
-                "LIMIT 1 OFFSET ?", (baseline_id, offset)).fetchone()
-            if row is not None:
-                rows.append({"country": row["country"],
-                             "bucket": row["bucket"], "value": row["value"]})
-        return rows
+        cursor = self._read_connection().execute(
+            "SELECT country, bucket, mean AS value FROM baseline_stat "
+            "WHERE baseline_id = ? ORDER BY country ASC, bucket ASC",
+            (baseline_id,))
+        return [{"country": row["country"], "bucket": row["bucket"],
+                 "value": row["value"]}
+                for row in take_offsets(cursor, offsets)]
 
     def oldest_observed_at(self, table: str) -> Optional[float]:
         if table not in ("conclusion", "tl_observation", "signal_observation"):
@@ -153,4 +173,4 @@ class MigrationSupportMixin:
         return emptied
 
 
-__all__ = ["MigrationSupportMixin"]
+__all__ = ["MigrationSupportMixin", "take_offsets"]

@@ -69,18 +69,31 @@ from v3.server import settings as SETTINGS
 MODE_SHADOW = "shadow"
 MODE_HEADER = "X-Noroshi-Mode"
 
-#: Why the socket channel is not mounted. `v3/api/ws_publish.py` exists and
-#: three of the four events have publishers, but `v3/ui/` contains no
-#: socket client at all — the page polls. Mounting a server nobody connects
-#: to would add a second concurrency surface to a shadow run for no reader,
-#: and the transport's own contract already says which event has no
-#: publisher. Registered as an absence with a reason (§7-2 #112).
+#: Why the socket channel is not mounted.
+#:
+#: **The original reason expired in WP-4.3.** It read "there is no socket
+#: client in `v3/ui/`", and that was true until `v3/ui/live.js` landed —
+#: which was §7-2 #112's own stated release condition. Leaving the sentence
+#: as it was would be the thing this project keeps finding: a recorded
+#: reason that stopped being true and went on being served. It is served
+#: literally, too, in `app_config`, and the page prints it in the connection
+#: chip's tooltip — so a stale sentence here is a stale sentence an analyst
+#: reads.
+#:
+#: What remains is not the reader. It is the mount, and the mount is two
+#: decisions this module does not get to make on its own: `flask-socketio`
+#: is deliberately absent from `requirements-v3.txt`, and
+#: `tests/test_v3_server.py::TestDeliberateAbsences` asserts the channel is
+#: NOT mounted. Both are reviewable declarations rather than oversights, so
+#: the absence stays registered — with the reason it actually has now.
 WEBSOCKET_ABSENT = (
-    "socket チャネルは合成しない。v3/ui/ に socket クライアントが 1 つも"
-    "無く（ページはポーリング）、読み手ゼロの並行面を shadow 稼働に足す"
-    "ことになるため。イベント語彙と発行者の有無は "
-    "v3/api/ws_publish.py の PUBLISHED_EVENTS / UNPUBLISHED_EVENTS が"
-    "そのまま正（§7-2 #112）")
+    "socket チャネルは合成していない。読み手は WP-4.3 で着地した"
+    "（v3/ui/live.js が購読・focus 不一致の破棄・接続 3 値 + 未マウントを"
+    "実装する）ため、繰延の理由は「読み手がいない」ではなく「合成の判断が"
+    "未了」である: flask-socketio は requirements-v3.txt から意図的に外して"
+    "あり、影稼働に並行面を足す判断は parity 側の裁定に属する。"
+    "イベント語彙と発行者の有無は v3/api/ws_publish.py の "
+    "PUBLISHED_EVENTS / UNPUBLISHED_EVENTS がそのまま正（§7-2 #112）")
 
 
 def key_names(registry) -> tuple[str, ...]:

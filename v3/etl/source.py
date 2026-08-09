@@ -51,6 +51,17 @@ class V1Source:
     def connection(self) -> sqlite3.Connection:
         return self._conn
 
+    def table_names(self) -> list[str]:
+        """Every table the snapshot actually has.
+
+        The registries are checked against this rather than against S3's
+        transcribed list, so a table created in production after the
+        specification was written cannot escape classification.
+        """
+        return [row[0] for row in self._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "ORDER BY name")]
+
     def has_table(self, table: str) -> bool:
         return self._conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?",

@@ -97,19 +97,39 @@ def _identity(row, mapping: TableMapping) -> dict:
             if column in row.keys()}
 
 
+def _carries_forbidden_key(node) -> bool:
+    """Is the retired key anywhere in this payload, at any depth?
+
+    Depth-0-and-dict-only was the original test, which made the guard inert
+    for every list-valued payload column (`source_urls`, `active_countries`
+    are JSON arrays, so `isinstance(payload, dict)` was never true for
+    them) and blind to `{"detail": {"theater": "TW"}}`. S3-DATA-022 says
+    the key must not SURVIVE, not that it must not be at the top.
+    """
+    if isinstance(node, dict):
+        return (FORBIDDEN_JSON_KEY in node
+                or any(_carries_forbidden_key(value)
+                       for value in node.values()))
+    if isinstance(node, list):
+        return any(_carries_forbidden_key(item) for item in node)
+    return False
+
+
 def _reject_stale_vocabulary(table: str, row) -> Optional[str]:
     """S3-DATA-022 (追加): the old key must not survive inside JSON."""
     for column in JSON_PAYLOAD_COLUMNS.get(table, ()):
         if column not in row.keys():
             continue
         raw = row[column]
+        # The substring test comes first and does the work: production has
+        # zero rows containing the literal, so nothing is ever parsed.
         if not isinstance(raw, str) or FORBIDDEN_JSON_KEY not in raw:
             continue
         try:
             payload = json.loads(raw)
         except ValueError:
             continue
-        if isinstance(payload, dict) and FORBIDDEN_JSON_KEY in payload:
+        if _carries_forbidden_key(payload):
             return (f"{column} still carries the retired "
                     f"{FORBIDDEN_JSON_KEY!r} key; the v3 vocabulary is "
                     f"'country' (S3-DATA-022)")
