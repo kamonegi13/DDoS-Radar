@@ -364,9 +364,171 @@
             + '<td>' + esc(Fmt.signed(s.score.delta, 2)) + '</td></tr>';
     }
 
+    // ── the geographic face (P8 §6) ─────────────────────────────────────
+
+    /**
+     * One country marker. The role is the first visual dimension
+     * (S1-UI-060) and the coupling weight is the second.
+     *
+     * The suppressed rows are listed with their reasons rather than folded
+     * into a count: E-17's whole point is that "excluded" and "quiet" are
+     * different observations, and a marker that showed only a number would
+     * be back to reporting both as the same colour.
+     */
+    function geoMarkerHtml(marker) {
+        var suppressed = marker.suppressed.map(function (s) {
+            return '<li class="geo-suppressed-row">'
+                + esc(_t('ui.geo.suppressed_row', {
+                    sensor: s.sensor || Fmt.ABSENT,
+                    domain: s.domain ? _t('ui.domain.' + s.domain) : Fmt.ABSENT,
+                    reason: s.reason || Fmt.ABSENT,
+                })) + '</li>';
+        }).join('');
+        var fired = marker.fired.map(function (f) {
+            return '<li class="geo-fired-row">'
+                + esc(_t('ui.geo.fired_row', {
+                    sensor: f.sensor || Fmt.ABSENT,
+                    domain: f.domain ? _t('ui.domain.' + f.domain) : Fmt.ABSENT,
+                    score: Fmt.num(f.rawScore, 2),
+                    confidence: Fmt.num(f.confidence, 2),
+                })) + '</li>';
+        }).join('');
+        return '<li class="geo-marker geo-role-' + esc(marker.roleClass) + '" '
+            + 'data-country="' + esc(marker.country) + '">'
+            + '<span class="geo-country">' + esc(marker.country) + '</span>'
+            + '<span class="geo-role">'
+            + esc(marker.role ? _t('ui.geo.role.' + marker.role)
+                : _t('ui.geo.role.unlisted'))
+            + (marker.roleKnown ? ''
+                : ' <em>' + esc(_t('ui.geo.role.unmapped')) + '</em>')
+            + '</span>'
+            + '<span class="geo-weight">' + esc(_t('ui.geo.weight', {
+                weight: Fmt.num(marker.weight, 2) })) + '</span>'
+            + (marker.isChainCountry
+                ? '<span class="chip chip-chain">' + esc(_t('ui.geo.chain')) + '</span>' : '')
+            + (marker.isAdversary
+                ? '<span class="chip chip-adversary">'
+                  + esc(_t('ui.geo.adversary')) + '</span>' : '')
+            + '<span class="geo-state">' + esc(_t(marker.stateKey, {
+                fired: marker.firedCount, suppressed: marker.suppressedCount,
+                observations: marker.observations })) + '</span>'
+            + (fired ? '<ul class="geo-fired">' + fired + '</ul>' : '')
+            + (suppressed ? '<ul class="geo-suppressed">' + suppressed + '</ul>' : '')
+            + '</li>';
+    }
+
+    /** One layer toggle. An unserved layer says what it is waiting for. */
+    function geoLayerHtml(layer, on) {
+        if (!layer.available) {
+            return '<li class="geo-layer geo-layer-unserved">'
+                + '<span>' + esc(_t('ui.geo.layer.' + layer.id)) + '</span>'
+                + '<em>' + esc(_t(layer.unavailableKey)) + '</em></li>';
+        }
+        return '<li class="geo-layer"><label>'
+            + '<input type="checkbox" data-geo-layer="' + esc(layer.id) + '"'
+            + (on ? ' checked' : '') + '>'
+            + '<span>' + esc(_t('ui.geo.layer.' + layer.id)) + '</span>'
+            + '</label></li>';
+    }
+
+    // ── SETTINGS (S1-UI-067〜070) ───────────────────────────────────────
+
+    /**
+     * One registry key.
+     *
+     * Four badge systems, each filled from something R14 states: which
+     * layer won, whether the environment holds the key at all, who reads
+     * it, and that it is variable. Nothing here is inferred — a badge the
+     * server did not supply is not drawn (see `settings.js` on the retired
+     * TIMING and IMPACT badges).
+     */
+    function settingsRowHtml(row) {
+        var input = row.widget.kind === 'toggle'
+            ? '<input type="checkbox" data-setting-key="' + esc(row.key) + '"'
+              + (row.value === true ? ' checked' : '') + '>'
+            : '<input type="number" data-setting-key="' + esc(row.key) + '" '
+              + 'value="' + esc(row.valueText === null ? '' : row.valueText) + '"'
+              + (row.widget.integerOnly ? ' step="1"' : '') + '>';
+        return '<tr class="setting setting-' + esc(row.source || 'unknown') + '" '
+            + 'data-setting-row="' + esc(row.key) + '">'
+            + '<td class="setting-key"><code>' + esc(row.key) + '</code>'
+            + '<p class="setting-why">' + esc(row.why || Fmt.ABSENT) + '</p></td>'
+            + '<td class="setting-badges">'
+            + '<span class="badge badge-source">' + esc(_t(row.sourceKey)) + '</span>'
+            + '<span class="badge badge-env">' + esc(_t(row.envKey)) + '</span>'
+            + '<span class="badge badge-consumer" title="'
+            + esc(_t('ui.settings.consumer_tip')) + '">'
+            + esc(row.consumer || Fmt.ABSENT) + '</span>'
+            + '<span class="badge badge-writable">'
+            + esc(_t('ui.settings.writable')) + '</span></td>'
+            + '<td class="setting-value">' + input
+            + '<span class="setting-unit">' + esc(row.unit || Fmt.ABSENT) + '</span></td>'
+            + '<td class="setting-default">' + esc(row.defaultText === null
+                ? Fmt.ABSENT : row.defaultText) + '</td>'
+            + '<td class="setting-override">' + esc(row.override
+                ? _t('ui.settings.override_by', {
+                    actor: row.overrideActor || Fmt.ABSENT,
+                    reason: row.overrideReason || Fmt.ABSENT,
+                    at: Fmt.utcStamp(row.overrideAt) })
+                : _t('ui.settings.no_override')) + '</td>'
+            + '<td class="setting-actions">'
+            + '<button type="button" data-setting-save="' + esc(row.key) + '">'
+            + esc(_t('ui.settings.save')) + '</button>'
+            + '<button type="button" data-setting-clear="' + esc(row.key) + '"'
+            + (row.source === 'override' ? '' : ' disabled') + '>'
+            + esc(_t('ui.settings.clear')) + '</button>'
+            + '<span class="setting-result" data-setting-result="'
+            + esc(row.key) + '"></span></td></tr>';
+    }
+
+    /** One ground-truth assertion (C9g). Read-only: C9p is not on this screen. */
+    function groundTruthRowHtml(entry) {
+        var row = entry.entry || {};
+        return '<tr><td>' + esc(entry.scenarioId) + '</td>'
+            + '<td>' + esc(Fmt.utcStamp(row.observed_at)) + '</td>'
+            + '<td>' + esc(row.label || Fmt.ABSENT) + '</td>'
+            + '<td>' + esc(row.actor_id || Fmt.ABSENT) + '</td>'
+            + '<td>' + esc(row.source_url || row.reason || Fmt.ABSENT) + '</td></tr>';
+    }
+
+    // ── live channel and presentation state ─────────────────────────────
+
+    /**
+     * The connection chip (S1-UI-011), with one state more than the clause.
+     *
+     * `unmounted` is not `disconnected`. Saying "disconnected" about a
+     * deployment that declares no channel is a false alarm, and a chip that
+     * cries wolf is a chip an analyst stops reading — which costs the two
+     * states that matter.
+     */
+    function liveChipHtml(live) {
+        var detail = live.serverReason
+            ? _t('ui.live.server_reason', { why: live.serverReason }) : '';
+        return '<span class="live-chip live-' + esc(live.connection) + '" '
+            + 'title="' + esc(_t(live.reasonKey) + (detail ? '\n' + detail : '')
+                + '\n' + _t('ui.live.polling_continues')) + '">'
+            + esc(_t('ui.live.state.' + live.connection))
+            + (live.subscribed
+                ? ' · ' + esc(live.subscribed) : '')
+            + '</span>';
+    }
+
+    /** The display-mode chip. Its reason is always on it (NP6, S1-UI-030). */
+    function modeChipHtml(decision) {
+        return '<span class="mode-chip mode-' + esc(decision.mode) + '" '
+            + 'title="' + esc(_t(decision.reasonKey, decision.reasonVars)) + '">'
+            + esc(_t('ui.mode.' + decision.mode)) + '</span>';
+    }
+
     return {
         freshnessBadge: freshnessBadge,
         trustChipHtml: trustChipHtml,
+        geoMarkerHtml: geoMarkerHtml,
+        geoLayerHtml: geoLayerHtml,
+        settingsRowHtml: settingsRowHtml,
+        groundTruthRowHtml: groundTruthRowHtml,
+        liveChipHtml: liveChipHtml,
+        modeChipHtml: modeChipHtml,
         cardHtml: cardHtml,
         laneRowHtml: laneRowHtml,
         calibrationHtml: calibrationHtml,

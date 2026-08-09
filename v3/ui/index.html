@@ -37,7 +37,25 @@
 
 <p id="replay-badge" class="replay-badge" role="status" hidden></p>
 
+<!--
+  The critical banner (S1-UI-030/031). An explicit critical marker from the
+  server puts it here, above everything, and no acknowledgement, snooze or
+  dismissal can take it down (S1-UI-032) — a TL1 escalation has no mute.
+-->
+<p id="critical-banner" class="critical-banner" role="alert" hidden></p>
+
 <div id="toast-rail" class="toast-rail" aria-live="polite"></div>
+
+<!--
+  The focus-change mask (S1-UI-048/049). It covers the geographic face while
+  the conclusions leg is in flight, and if that leg overruns it KEEPS the
+  mask and says so rather than lifting to reveal the previous scenario's
+  numbers under the new scenario's name. Any key releases it.
+-->
+<div id="dim-overlay" class="dim-overlay" role="status" hidden>
+  <p id="dim-message"></p>
+  <button type="button" id="dim-retry" data-dim-retry data-i18n="ui.dim.retry" hidden></button>
+</div>
 
 <!--
   The login gate (S1-UI-001..005, §7-2 #99).
@@ -85,6 +103,7 @@
       <div class="stage-tools">
         <span id="board-freshness" class="freshness-slot"></span>
         <span id="trust-slot"></span>
+        <span id="live-slot"></span>
         <button type="button" id="refresh-btn" data-i18n="ui.action.refresh"></button>
       </div>
     </div>
@@ -99,6 +118,7 @@
       <p class="stage-question" data-i18n="ui.stage.triage_q"></p>
       <div class="stage-tools">
         <span id="lane-freshness" class="freshness-slot"></span>
+        <span id="mode-slot"></span>
         <button type="button" id="lane-more"></button>
       </div>
     </div>
@@ -123,6 +143,24 @@
     </div>
     <p id="face-unreadable" class="warn"></p>
     <div id="face-sections" class="face"></div>
+
+    <!--
+      The geographic face (P8 §6). Tier 1, four layers, and no cartographic
+      projection: nothing on the wire carries a coordinate, so the surface
+      is drawn at the granularity the server actually serves — the country —
+      and the layer that would need pixels says what it is waiting for
+      rather than looking switched off.
+    -->
+    <h3 data-i18n="ui.geo.title"></h3>
+    <div class="geo-tools">
+      <span id="geo-freshness" class="freshness-slot"></span>
+      <ul id="geo-layers" class="geo-layers"></ul>
+    </div>
+    <p id="geo-summary" class="geo-summary"></p>
+    <div id="geo-empty"></div>
+    <ul id="geo-markers" class="geo-markers"></ul>
+    <h4 id="geo-offroster-head" data-i18n="ui.geo.offroster" hidden></h4>
+    <ul id="geo-offroster" class="geo-markers"></ul>
   </section>
 
   <!-- ── 4. フィードバック ───────────────────────────────────────── -->
@@ -206,6 +244,43 @@
       <tbody id="whatif-body"></tbody>
     </table>
 
+    <!--
+      SETTINGS (S1-UI-067〜070). The list is short on purpose and says so:
+      only the keys that pass the registry's three-stage test appear, which
+      is nine today. G-15 was ninety-eight keys of which ninety-five were
+      read by nothing, so a fuller-looking form here would be the defect
+      re-created rather than the defect fixed.
+    -->
+    <h3 data-i18n="ui.settings.title"></h3>
+    <p class="hint" data-i18n="ui.settings.lede"></p>
+    <div class="stage-tools">
+      <span id="settings-freshness" class="freshness-slot"></span>
+    </div>
+    <p id="settings-summary" class="settings-summary"></p>
+    <table class="grid">
+      <thead><tr>
+        <th data-i18n="ui.settings.col.key"></th>
+        <th data-i18n="ui.settings.col.badges"></th>
+        <th data-i18n="ui.settings.col.value"></th>
+        <th data-i18n="ui.settings.col.default"></th>
+        <th data-i18n="ui.settings.col.override"></th>
+        <th data-i18n="ui.settings.col.actions"></th>
+      </tr></thead>
+      <tbody id="settings-rows"></tbody>
+    </table>
+
+    <h4 data-i18n="ui.settings.gt_title"></h4>
+    <table class="grid">
+      <thead><tr>
+        <th data-i18n="ui.settings.gt.scenario"></th>
+        <th data-i18n="ui.settings.gt.observed_at"></th>
+        <th data-i18n="ui.settings.gt.label"></th>
+        <th data-i18n="ui.settings.gt.actor"></th>
+        <th data-i18n="ui.settings.gt.source"></th>
+      </tr></thead>
+      <tbody id="groundtruth-rows"></tbody>
+    </table>
+
     <p class="deferred" data-deferred="C8"></p>
     <p class="deferred" data-deferred="C11"></p>
     <p class="deferred" data-deferred="C12"></p>
@@ -225,6 +300,12 @@
 <script src="gate.js"></script>
 <script src="client.js"></script>
 <script src="render.js"></script>
+<script src="geo.js"></script>
+<script src="settings.js"></script>
+<script src="display_mode.js"></script>
+<script src="dim.js"></script>
+<script src="live.js"></script>
+<script src="surfaces.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

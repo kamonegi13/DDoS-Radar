@@ -566,8 +566,10 @@ class TestTheWiringResolves:
     #: the login gate landed (§7-2 #99): the gate is a feature with its own
     #: elements, and one 900-line DOM file for both would be the panel
     #: accumulation P8 §7 retired wearing a different spelling. The check
-    #: follows the DOM rather than following one filename.
-    DOM_FILES = ("app.js", "gate.js")
+    #: follows the DOM rather than following one filename — `surfaces.js`
+    #: joined on the same argument in WP-4.3 (the map, SETTINGS, the two
+    #: presentation state machines and the live chip).
+    DOM_FILES = ("app.js", "gate.js", "surfaces.js")
 
     def test_every_id_the_dom_layer_touches_is_declared_in_the_shell(self):
         declared = self._declared_ids()

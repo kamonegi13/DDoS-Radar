@@ -140,6 +140,12 @@ function makeWindow(doc, transport) {
         },
         setTimeout() { return 0; },       // no polling inside the test
         clearTimeout() {},
+        // The dim's own clock (S1-UI-049's timeout). Inert here for the
+        // same reason as the poll timer: the machine is driven explicitly
+        // in `test_dim.js`, where the transitions are assertions rather
+        // than something the suite has to wait for.
+        setInterval() { return 0; },
+        clearInterval() {},
         fetch: transport,
         prompt() { return 'テスト理由'; },
         confirm() { return true; },
@@ -278,6 +284,77 @@ const PAYLOADS = {
                       state: 'pending', is_terminal: false, adjudications: [] }],
         pending: 1, states: [], kinds: [], vocabulary: {}, window_sec: 7776000,
     }),
+
+    // ── WP-4.3 ──────────────────────────────────────────────────────────
+    // R14: two of the nine registry keys, one resolved from each of the
+    // layers a settings screen has to be able to tell apart.
+    '/api/v3/config': envelope('__tool__', {
+        config: [
+            { key: 'SEQUENCE_WINDOW', value: 86400.0, source: 'default',
+              unit: 's', default: 86400.0,
+              why: 'how long an escalation chain stays live',
+              consumer: 'v3.scoring.settings:resolve_settings',
+              override: null, env_present: false },
+            { key: 'GLOBAL_SIGNAL_WEIGHT', value: 0.7, source: 'override',
+              unit: 'ratio', default: 0.5,
+              why: 'scales the separate global-threat envelope',
+              consumer: 'v3.scoring.settings:resolve_settings',
+              override: { value: 0.7, actor_id: 'kamo', reason: '演習',
+                          at: NOW - 7200 },
+              env_present: true },
+        ],
+        variable_keys: ['GLOBAL_SIGNAL_WEIGHT', 'SEQUENCE_WINDOW'],
+        layers: ['override', 'env', 'default'],
+        environment_layer_keys: ['GLOBAL_SIGNAL_WEIGHT'],
+        pinned_note: 'O-18 群 (b) の定数は R10 が開示します',
+    }),
+    '/api/v3/ground_truth': envelope('__tool__', {
+        ground_truth: { taiwan_contingency: [
+            { label: 'ESCALATION', observed_at: NOW - 86400, actor_id: 'kamo',
+              source_url: 'https://gt.test/1', reason: '演習' }] },
+        entry_count: 1, required_fields: ['label', 'observed_at'],
+    }),
+    // R15c. `mounted: false` is what the shipped composition root actually
+    // reports, and the chip must render that as "unmounted" rather than as
+    // a connection that failed.
+    '/api/v3/app_config': envelope('__tool__', {
+        app_config: {
+            mode: 'shadow', authoritative: false, ledger: 'radar.db',
+            tick_interval_sec: 900, scenario_ids: ['taiwan_contingency'],
+            adapters_enabled: 21, session_surface: {},
+            websocket: { mounted: false,
+                         reason: 'socket チャネルは合成しない',
+                         unpublished: { notification_result: '発行者が存在しない' } },
+        },
+    }),
+    '/api/v3/scenarios/taiwan_contingency/evidence': envelope(
+        'taiwan_contingency', {
+            evidence: {
+                at: NOW, window_sec: 86400,
+                countries: ['GLOBAL', 'TW', 'US'],
+                filters: { domain: null, sensor: null },
+                matrix: [
+                    { tick_id: 't1', sensor: 'ripe_bgp', signal_source: 'ripe_bgp',
+                      domain: 'cyber', country: 'TW', status: 'FIRED',
+                      raw_score: 3.2, confidence: 0.8, observed_at: NOW - 300,
+                      suppressed: false, suppress_reason: null,
+                      evidence_url: 'https://ev.test/1', flags: null },
+                    { tick_id: 't1', sensor: 'gdelt', signal_source: 'gdelt',
+                      domain: 'info', country: 'TW', status: 'FIRED',
+                      raw_score: 1.1, confidence: 0.5, observed_at: NOW - 400,
+                      suppressed: true, suppress_reason: 'noise_window',
+                      evidence_url: null, flags: null },
+                    { tick_id: 't1', sensor: 'space_weather',
+                      signal_source: 'space_weather', domain: 'physical',
+                      country: null, status: 'OK', raw_score: 0.0,
+                      confidence: 0.9, observed_at: NOW - 500,
+                      suppressed: false, suppress_reason: null,
+                      evidence_url: null, flags: null },
+                ],
+                fired: [], fired_count: 1, suppressed: [], suppressed_count: 1,
+                observation_count: 3,
+            },
+        }),
 };
 
 function conclusionsPayload() {
@@ -399,8 +476,12 @@ function boot(options) {
     Object.keys(require.cache).forEach(k => {
         if (k.indexOf(path.join('v3', 'ui')) !== -1) delete require.cache[k];
     });
+    // The same order index.html loads them in. `surfaces.js` must come
+    // after everything it composes and before `app.js`, which constructs it.
     ['strings', 'format', 'freshness', 'trust', 'board', 'lane',
-     'conclusions', 'auth', 'gate', 'client', 'render'].forEach(name => {
+     'conclusions', 'auth', 'gate', 'client', 'render',
+     'geo', 'settings', 'display_mode', 'dim', 'live',
+     'surfaces'].forEach(name => {
         require(path.join(UI_DIR, name + '.js'));
     });
     require(path.join(UI_DIR, 'app.js'));
@@ -677,7 +758,8 @@ test('no render path throws on an entirely empty server', async () => {
         if (k.indexOf(path.join('v3', 'ui')) !== -1) delete require.cache[k];
     });
     ['strings', 'format', 'freshness', 'trust', 'board', 'lane',
-     'conclusions', 'auth', 'gate', 'client', 'render'].forEach(
+     'conclusions', 'auth', 'gate', 'client', 'render',
+     'geo', 'settings', 'display_mode', 'dim', 'live', 'surfaces'].forEach(
         n => require(path.join(UI_DIR, n + '.js')));
     require(path.join(UI_DIR, 'app.js'));
     await settle();
@@ -687,6 +769,48 @@ test('no render path throws on an entirely empty server', async () => {
         html(doc, 'board-cards'));
     assert.ok(/順位付けの対象となる結論がありません/.test(html(doc, 'lane-rows')),
         html(doc, 'lane-rows'));
+    // The WP-4.3 surfaces obey the same rule. An empty settings table that
+    // said nothing would read as "there is nothing to configure", which is
+    // the claim G-15 made for months.
+    assert.ok(/設定をまだ取得していません|運用可変キーがありません/
+        .test(html(doc, 'settings-rows')), html(doc, 'settings-rows'));
+    assert.ok(/focus 中のシナリオがありません|観測（R5）をまだ取得していません/
+        .test(html(doc, 'geo-empty')), html(doc, 'geo-empty'));
+});
+
+// ── the four WP-4.3 surfaces, through the real wiring ────────────────────
+
+test('the new surfaces are fetched as part of the ordinary cycle', async () => {
+    const { transport } = await boot();
+    ['/api/v3/config', '/api/v3/ground_truth', '/api/v3/app_config']
+        .forEach(url => {
+            assert.ok(transport.seen.indexOf(url) !== -1, `never fetched ${url}`);
+        });
+    assert.ok(transport.seen.some(u => u.indexOf('/evidence') !== -1),
+              'the geographic face has no supply without R5');
+});
+
+test('the live chip reports the deployment rather than guessing', async () => {
+    const { doc } = await boot();
+    const chip = html(doc, 'live-slot');
+    assert.ok(chip && chip.indexOf('live-') !== -1, chip);
+    // Whatever the deployment said, the chip must never claim "connected"
+    // on a page that dialled nothing.
+    assert.strictEqual(chip.indexOf('live-connected'), -1, chip);
+});
+
+test('the display mode chip carries its reason', async () => {
+    const { doc } = await boot();
+    const chip = html(doc, 'mode-slot');
+    assert.ok(chip && /mode-(dormant|pin-dock|critical-banner)/.test(chip), chip);
+    assert.ok(chip.indexOf('title="') !== -1, 'the reason is the tooltip (NP6)');
+});
+
+test('the settings table names the short list and the pinned remainder', async () => {
+    const { doc } = await boot();
+    const summary = html(doc, 'settings-summary');
+    assert.ok(summary && /可変キー/.test(summary), summary);
+    assert.ok(/固定定数/.test(summary), summary);
 });
 
 // ── Report ───────────────────────────────────────────────────────────────

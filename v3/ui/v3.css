@@ -453,3 +453,126 @@ tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust);
     font: inherit;
     cursor: pointer;
 }
+
+/* ── WP-4.3: the four surfaces WP-4.2 deferred ───────────────────────── */
+
+/* The critical banner. Above everything, and nothing an analyst can press
+ * takes it down (S1-UI-032). */
+.critical-banner {
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 2px solid var(--color-critical);
+    background: var(--color-surface);
+    color: var(--color-critical);
+    font-weight: 700;
+}
+.critical-banner[hidden] { display: none; }
+
+/* The focus-change mask (S1-UI-048/049). It sits over the page rather than
+ * over one element because the numbers it must not let you misread are
+ * spread across the loop. */
+.dim-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    padding: var(--space-5);
+    background: var(--color-bg);
+    color: var(--color-text-dim);
+    text-align: center;
+}
+.dim-overlay[hidden] { display: none; }
+/* Phase 2 is a marker, not a mask: it must not block the page it annotates. */
+.dim-overlay[data-masked="false"] {
+    position: static;
+    display: block;
+    padding: var(--space-1) var(--space-4);
+    background: transparent;
+    text-align: left;
+    border-bottom: 1px solid var(--color-border);
+}
+.dim-overlay[data-phase="stale"] { color: var(--color-warning); }
+#dim-retry[hidden] { display: none; }
+
+/* Connection and mode chips. */
+.live-chip, .mode-chip {
+    display: inline-block;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-dim);
+    white-space: nowrap;
+}
+.live-connected { border-color: var(--color-ok); color: var(--color-ok); }
+.live-degraded { border-color: var(--color-warning); color: var(--color-warning); }
+.live-disconnected { border-color: var(--color-severe); color: var(--color-severe); }
+.live-unmounted, .live-connecting { color: var(--color-muted); }
+.mode-critical-banner { border-color: var(--color-critical); color: var(--color-critical); }
+.mode-pin-dock { border-color: var(--color-accent); color: var(--color-accent); }
+.mode-dormant { color: var(--color-muted); }
+
+/* ── the geographic face ─────────────────────────────────────────────── */
+.geo-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-2);
+}
+.geo-layers { display: flex; flex-wrap: wrap; gap: var(--space-3);
+              margin: 0; padding: 0; list-style: none; }
+.geo-layer label { display: inline-flex; align-items: center; gap: var(--space-1); }
+.geo-layer-unserved { color: var(--color-muted); max-width: 46ch; }
+.geo-layer-unserved em { display: block; font-style: normal; }
+.geo-summary { color: var(--color-text-dim); margin: 0 0 var(--space-2); }
+.geo-markers { margin: 0; padding: 0; list-style: none;
+               display: grid; gap: var(--space-2);
+               grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.geo-marker {
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border);
+    border-left-width: 4px;
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+}
+/* The role is the first visual dimension (S1-UI-060): five classes, and the
+ * left edge is the only place any of them claims a colour. */
+.geo-role-target { border-left-color: var(--color-critical); }
+.geo-role-adversary { border-left-color: var(--color-severe); }
+.geo-role-allied { border-left-color: var(--color-info); }
+.geo-role-unstable { border-left-color: var(--color-warning); }
+.geo-role-observer { border-left-color: var(--color-muted); }
+.geo-country { font-weight: 700; margin-right: var(--space-2); }
+.geo-role, .geo-weight, .geo-state { display: block; color: var(--color-text-dim); }
+.geo-fired, .geo-suppressed { margin: var(--space-1) 0 0; padding-left: var(--space-4); }
+.geo-fired-row { color: var(--color-warning); }
+.geo-suppressed-row { color: var(--color-muted); }
+.chip-chain, .chip-adversary {
+    display: inline-block;
+    margin-right: var(--space-1);
+    padding: 0 var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-accent);
+}
+
+/* ── SETTINGS ────────────────────────────────────────────────────────── */
+.settings-summary { color: var(--color-accent); margin: 0 0 var(--space-2); }
+.setting-why { margin: var(--space-1) 0 0; color: var(--color-text-dim); max-width: 52ch; }
+.setting-badges .badge {
+    display: inline-block;
+    margin: 0 var(--space-1) var(--space-1) 0;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-dim);
+}
+.setting-override .badge-source { color: var(--color-accent); }
+.setting-override { color: var(--color-text-dim); max-width: 32ch; }
+.setting-value input { width: 10ch; }
+.setting-unit { margin-left: var(--space-1); color: var(--color-muted); }
+.setting-result { display: block; margin-top: var(--space-1); color: var(--color-text-dim); }

@@ -33,6 +33,8 @@
     var ClientLib = window.NoroshiClient;
     var Render = window.NoroshiRender;
     var Gate = window.NoroshiGate;
+    var Surfaces = window.NoroshiSurfaces;
+    var Dim = window.NoroshiDim;
 
     var _t = S.t;
     var esc = Fmt.escHtml;
@@ -48,7 +50,12 @@
 
     // ── local persistence: one key, one shape, defined once (DP9) ───────
     var STORE_KEY = 'noroshi.v3.ui.v1';
-    var STORE_SHAPE = { focusedScenario: null, lastSeen: {}, tier: 0 };
+    //: `geoLayers` is here rather than in a second key because S1-UI-057's
+    //: defect was that the map's layer choice did NOT persist — one shape,
+    //: one key, and the choice survives a reload like every other piece of
+    //: interaction state.
+    var STORE_SHAPE = { focusedScenario: null, lastSeen: {}, tier: 0,
+                        geoLayers: null };
 
     function loadStore() {
         try {
@@ -88,6 +95,9 @@
         replayAt: null,
         gate: null,
         session: null,
+        surfaces: null,
+        lane: null,             // last lane view model, for the display mode
+        dimTimer: null,
     };
 
     // ── DOM helpers ─────────────────────────────────────────────────────
@@ -192,6 +202,11 @@
     function renderLane() {
         var result = state.results.R6;
         var lane = Lane.buildLane({ attention: result ? result.body : null });
+        // Kept whether or not the redraw proceeds: the display mode is a
+        // function of the CURRENT lane, and feeding it a stale one because
+        // the rows happened not to change is how a critical row raises no
+        // banner.
+        state.lane = lane;
         setHtml('lane-freshness', freshnessBadge(result));
         var showAll = state.store.tier >= 1;
         var decision = state.detector.shouldRender('lane', {
@@ -415,10 +430,20 @@
             state.client.reads.sensors().then(record),
             state.client.reads.decisions({ limit: 100 }).then(record),
             state.client.reads.proposals().then(record),
+            // SETTINGS reads: the resolved values, the pinned catalogue it
+            // is counted against, and the ground truth list P8 puts on the
+            // same screen.
+            state.client.reads.config().then(record),
+            state.client.reads.groundTruth().then(record),
+            // What the deployment says about its own socket channel. Asked
+            // rather than assumed — see `live.js`.
+            state.client.reads.appConfig().then(record),
         ];
         if (focused) {
             var params = state.replayAt ? { at: state.replayAt } : null;
             reads.push(state.client.reads.conclusions(focused, params).then(record));
+            // R5 is the geographic face's only supply (P8 §2).
+            reads.push(state.client.reads.evidence(focused, params).then(record));
         }
         // An open derivation is re-read with everything else. Leaving it on
         // the first response would make the one surface whose whole purpose
@@ -435,14 +460,28 @@
             var r1 = state.results.R1;
             if (r1 && r1.ok && r1.body && r1.body.focused_scenario
                     && r1.body.focused_scenario !== state.store.focusedScenario) {
+                var next = r1.body.focused_scenario;
                 state.store = Object.assign({}, state.store,
-                                            { focusedScenario: r1.body.focused_scenario });
+                                            { focusedScenario: next });
                 saveStore(state.store);
                 state.detector.invalidateAll('focus_changed');
-                return state.client.reads
-                    .conclusions(r1.body.focused_scenario,
-                                 state.replayAt ? { at: state.replayAt } : null)
-                    .then(record);
+                // S1-UI-048 phase 1 opens here and is released by the
+                // conclusions leg below; S1-UI-049 suppresses the whole
+                // machine during a replay.
+                if (state.surfaces) {
+                    state.surfaces.noteFocusChange(next, state.replayAt !== null);
+                }
+                var at = state.replayAt ? { at: state.replayAt } : null;
+                return Promise.all([
+                    state.client.reads.conclusions(next, at).then(record),
+                    state.client.reads.evidence(next, at).then(record),
+                ]).then(function () {
+                    if (state.surfaces) {
+                        state.surfaces.noteArrival(Dim.LEG_CONCLUSIONS);
+                        state.surfaces.noteArrival(Dim.LEG_LEDGER);
+                    }
+                    return null;
+                });
             }
             return null;
         }).then(function () {
@@ -468,6 +507,12 @@
             ['selfeval', renderSelfEval], ['decisions', renderDecisions],
             ['proposals', renderProposals], ['derivation', renderDerivation],
             ['feedback', renderFeedback],
+            // The four WP-4.3 surfaces render inside the same isolation, so
+            // a malformed evidence payload takes the map down and nothing
+            // else — and says so instead of freezing quietly.
+            ['surfaces', function () {
+                if (state.surfaces) state.surfaces.renderAll(state.lane);
+            }],
         ];
         sections.forEach(function (entry) {
             try {
@@ -784,7 +829,30 @@
             var node = document.querySelector('[data-deferred="' + id + '"]');
             if (node) node.textContent = _t(ClientLib.DEFERRED[id]);
         });
+        state.surfaces = Surfaces.createSurfaces({
+            doc: document,
+            client: state.client,
+            detector: state.detector,
+            toast: toast,
+            refresh: refresh,
+            results: function () { return state.results; },
+            focus: function () { return state.store.focusedScenario; },
+            layers: function () { return state.store.geoLayers; },
+            saveLayers: function (next) {
+                state.store = Object.assign({}, state.store, { geoLayers: next });
+                saveStore(state.store);
+            },
+            ask: askReason,
+            confirm: function (key, vars) { return window.confirm(_t(key, vars)); },
+        });
         bind();
+        state.surfaces.bind();
+        // The dim's timeouts are the only thing in this layer that needs a
+        // clock of its own: without it a stalled leg would sit under a mask
+        // that never grew a sentence (S1-UI-049).
+        state.dimTimer = window.setInterval(function () {
+            state.surfaces.tickDim();
+        }, 1000);
         state.gate.bind();
         renderWhatIf({ present: false, scenarios: [],
                        emptyKey: 'ui.whatif.empty.not_run' });

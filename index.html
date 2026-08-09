@@ -1685,6 +1685,15 @@
             </li>
         </ul>
 
+        <p><b>3.x v3 影画面での地図（Tier 1 への降格）</b></p>
+        <p>並走中の v3 影画面（別ポート・別配備）では、地図は<b>主役ではなく Tier 1 の補助面</b>である（P8 §6）。順方向導出で地図が答える問いは「異常はどこで起きているか」（O-4 の地理面）ひとつだけであり、「何か変わったか」は状況ボードが答えるため、起動時の中央には置かない。</p>
+        <ul>
+            <li><b>残したレイヤ</b>: participant マーカー（役割を第一次元とし、13 役割を 5 視覚クラスへ写像）、異常事象マーカー（R5 の発火行）、抑制行（理由つきで可視 — 「発火して除外された」と「発火しなかった」は別の事実）、シーケンス連鎖の起点国。</li>
+            <li><b>落としたレイヤ</b>: 脅威地形・連携リンク（較正が「信号を持たない」と判定）、センサー環・脅威ハロー（TL/寄与の重複表示）、DDoS 時代の全レイヤ。</li>
+            <li><b>静的参照（チョークポイント・海底ケーブル・ISR ホットスポット）は現時点で描画できない</b>。合成ルート（<span class="code-block">v3/runtime/geo.py</span>）は <span class="code-block">geo_data.json</span> の座標を読んでいるが、それを API 面に載せる経路が無い。ブラウザ側に座標表を持てば「配備データの第 2 の読み手」になり必ず乖離するため持たない。画面は当該レイヤを<b>「未供給のため描画不能」と明示</b>し、空のトグルとして見せることはしない。</li>
+            <li>座標が無いため、v3 の地理面は<b>国粒度</b>で描画される（緯度経度への投影は行わない）。レイヤ表示選択は永続する（v1 の非永続は S1-UI-057 の欠陥として修正済）。</li>
+        </ul>
+
         </div>
         </div><!-- /guide-ch-3 -->
         <div class="guide-chapter" id="guide-ch-4">
@@ -1998,6 +2007,15 @@
             <li><b>行展開:</b> 任意の行をクリックすると展開され、以下が表示されます: <span class="code-block">formula_trace</span>（正準的な計算式文字列 — P4 に基づく唯一の権威ある説明）、<span class="code-block">value_display</span>（人間可読の生値）、<span class="code-block">llm_reasoning</span>（LLMが国重み付けの理由として提示したもの）、<span class="code-block">observed_at</span>（UTCタイムスタンプ）、および証拠URL。</li>
             <li><b>What-if 再計算（フォーカス時のみ）:</b> 1つ以上の行でWhat-ifトグルをクリックすると、それらの寄与が除外されます。パネルヘッダには再計算されたドメインスコア、収斂ボーナス、合計スコア、導出TLが表示されます（サーバーエンジンと同じルール: TL1≥9+physical≥3, TL2≥6+active_domains≥2, TL3≥4, TL4≥2, TL5&lt;2）。疑わしい信号を除去してもスコアが維持されるかのサニティチェックに使用します。<b>Reset</b> で全除外をクリア。</li>
             <li><b>使用タイミング:</b> (a) アラートをエスカレーションする前 — formula_trace と証拠を検証する; (b) LLM導出の国重みが疑わしい場合 — llm_reasoning を確認する; (c) 単一のノイジーなセンサーがスコアを牽引している疑いがある場合 — What-if で確認する。</li>
+        </ul>
+
+        <p><b>4.x v3 影画面の表示状態（表示モード・遮蔽・ライブチップ）</b></p>
+        <p>v3 影画面は浮遊パネルを持たない（P8 §7 でパネル蓄積を廃止）。代わりに、画面の状態を語る 3 つの小さな表示がある。いずれも判断は純モジュールが行い、DOM は書くだけである。</p>
+        <ul>
+            <li><b>表示モード chip</b>（注目レーン横、3 値: 待機表示 / 常設表示 / 最重要バナー）。サーバが重大標識（<span class="code-block">critical</span> / <span class="code-block">recall_reducing</span> / <span class="code-block">kill_switch</span>）を付けた行、または CRITICAL 帯の行があれば<b>無条件で最重要バナー</b>へ移る（S1-UI-031、NP1）。確認済・一時保留・却下はバナーを消せない（S1-UI-032）。chip の tooltip には<b>選んだ理由が必ず平文で入る</b>（NP6）。<br>
+            v1 の 4 つのスコア帯（0.40/0.50/0.85/0.78）は<b>移植していない</b>。スコアはサーバが決める量であり、ブラウザがそれを自前の境界と比較すればバックエンドから見えない閾値を持つことになるため。ヒステリシスは<b>連続静穏回数</b>で表現する（重い側へは 1 回で入り、軽い側へは複数回連続で静かなときだけ降りる）。表示下限（min_score）はサーバが R6 の時点で適用済である。</li>
+            <li><b>focus 切替の遮蔽</b>（DIMMED → REFRESHING → ENDED、代替終端 STALE）。結論の到着で遮蔽を解除し、シナリオ台帳の到着で更新標識を終える。<b>遮蔽が時間切れになっても遮蔽は維持する</b>（S1-UI-049）— 解除すると「前のシナリオの数値を新しいシナリオの名前で」見せることになり、欠測より悪い。時間切れ時は「同期未完了 — 最後に取得した状態を表示中」と再取得導線を出し、<b>任意のキーで解除</b>できる。Replay 中は遮蔽しない。</li>
+            <li><b>ライブチップ</b>（状況確認ヘッダ）。S1-UI-011 の 3 値（connected / degraded / disconnected）に加えて <b>unmounted</b> を持つ。「切断」は<b>チャネルが在って乗れていない</b>という主張であり、そもそもチャネルを合成していない配備にそれを言うのは誤警報になるため。切断中もポーリングは継続し、加速もしない。</li>
         </ul>
 
         </div>
@@ -2380,6 +2398,16 @@
         </ul>
         <p style="color:#888; font-size:11px;"><b>スコープはタブではなくシナリオ駆動。</b> 国単位採点からシナリオ単位採点への移行により、旧 Strategy / Threat Actors / Quick Pins タブは撤去された（<span class="code-block">docs/design/scenario-refactor.md</span> 参照）。participants / adversaries / correlate targets など per-country リストはすべて focused シナリオの <span class="code-block">participants</span> マップから導出され、Scenarios タブで管理する。</p>
 
+        <p><b>11.x v3 影画面の SETTINGS（3 段テストを通過したキーのみ）</b></p>
+        <p>v3 の設定画面には<b>「読まれることが検証されたキー」しか出ない</b>。本番の設定 registry は 98 キーを並べていたが、うち 95 キーは DB override 層に届いておらず、画面は送った値をそのまま表示していたため、誰も読まない値を変更し続けられた（G-15）。v3 はこれを構造で禁じる。</p>
+        <ul>
+            <li><b>3 段テスト</b>（<span class="code-block">tests/test_config_registry.py</span>、CI ゲート）: (1) 宣言された読み手（<span class="code-block">module:callable</span>）が実在しインポートできる、(2) 読み手の関数本体を AST 走査してキー名の文字列が現れる、(3) override を入れると読み手の出力が実際に変わる。通過するのは<b>現在 9 キー</b>で、すべて読み手は <span class="code-block">v3.scoring.settings:resolve_settings</span>。画面はこの件数と、対する固定定数の件数（R10 が開示）を<b>常に併記する</b>。少ないことは欠落ではなく事実である。</li>
+            <li><b>3 層解決</b>: <span class="code-block">override</span>（<span class="code-block">command_record</span> 台帳の fold）→ <span class="code-block">env</span> → <span class="code-block">default</span>。どの層が勝ったかは行ごとにバッジで出る。専用の override テーブルは作らない（誰が・いつ・なぜ・前は何だったかはすべて指令台帳の列で答えられる）。</li>
+            <li><b>バッジは 4 系統だが、すべてサーバの申告に由来する</b>: 出所（override/env/default）・env 層の有無・読み手・可変性。v1 の TIMING / IMPACT バッジは<b>出さない</b> — R14 がどちらも申告しておらず、ブラウザで算出したバッジはバックエンドがしていない主張になるため。IMPACT の唯一の機構的役割（高影響キーに理由を強制する）は、v3 が<b>すべての設定変更に理由を必須</b>としている（<span class="code-block">requires_reason=True</span>）ことで、より強く満たされている。</li>
+            <li><b>差分確認 → 理由入力 → 送信 → 読み戻し</b>: 差分が無ければ送信せず「変更なし」と返す。保存後に表示するのは<b>サーバが 3 層チェーンで再解決した値</b>（<span class="code-block">effect</span>）であり、送った値ではない。台帳には記録されたが実効値が動かなかった場合は<b>そのことを明示する</b> — その組み合わせが G-15 の指紋そのものだからである。</li>
+            <li>同じ画面に <b>ground truth 一覧</b>（読み取り専用）が同居する。抑制規則（noise exclusion）の面は指令 API (C8) が未実装のため、<b>未実装であることを明示</b>して置いていない。</li>
+        </ul>
+
         </div>
         </div><!-- /guide-ch-11 -->
         <div class="guide-chapter" id="guide-ch-12">
@@ -2498,6 +2526,17 @@
             <li><span class="code-block">rationale_matrix[].detail</span> — 減衰が有効な場合、<span class="code-block">(age X.Xh, w=Y.YY)</span> の接尾辞が付与され、エビデンスパネルで減衰後の寄与値が一目で確認可能。</li>
         </ul>
         <p style="font-size: 11px;">これらのフィールドは <span class="code-block">INTEL_AGE_DECAY_ENABLED=true</span>（既定）の場合のみ出力。<span class="code-block">false</span> にすると二値TTL挙動に戻す（回帰試験用）。ソースタイプ別にτを上書きする場合は環境変数 <span class="code-block">INTEL_AGE_DECAY_TAU_HOURS_&lt;SOURCE_TYPE&gt;</span> を使用（例: <span class="code-block">INTEL_AGE_DECAY_TAU_HOURS_DIPLOMATIC=6</span>）。</p>
+
+        <p style="font-size: 11px; color: #66ffcc;"><b>v3 サーフェス</b>（別配備・影稼働、prefix <span class="code-block">/api/v3</span>）: v3 画面が消費する endpoint のうち、WP-4.3 で新たに読み手を得たものを以下に挙げる。全応答は同形 envelope（<span class="code-block">observed_at</span> / <span class="code-block">data_freshness_sec</span> / <span class="code-block">served_at</span> / NP7 注意文）で返る。</p>
+        <ul style="font-family: monospace; font-size: 11px; line-height: 2.0;">
+            <li><span class="code-block">GET /api/v3/scenarios/&lt;scenario_id&gt;/evidence?window=&amp;domain=&amp;sensor=&amp;at=</span> — <span style="color:#66ffcc;">[v3 R5]</span> 兆候マトリクスと個別異常事象。行は <span class="code-block">sensor / signal_source / domain / country / status / raw_score / confidence / observed_at / suppressed / suppress_reason / evidence_url / flags</span>。<b>抑制済み行は理由付きで返る</b>（E-17: 「発火して除外」と「発火せず」を同じ OK に潰さない）。v3 画面の地理面の唯一の供給源。<b>座標は含まれない</b>（Ch.3 の v3 節を参照）。</li>
+            <li><span class="code-block">GET /api/v3/config</span> — <span style="color:#66ffcc;">[v3 R14]</span> 運用可変キーのみ。キーごとに <span class="code-block">value / source（override|env|default）/ unit / default / why / consumer / override{value,actor_id,reason,at} / env_present</span>、加えて <span class="code-block">variable_keys / layers / environment_layer_keys / pinned_note</span>。固定定数は R10 が開示する。</li>
+            <li><span class="code-block">POST /api/v3/config/&lt;key&gt;</span> — <span style="color:#66ffcc;">[v3 C7s]</span> ボディ <span class="code-block">{"value": ..., "reason": "..."}</span>。<b>reason は必須</b>。応答の <span class="code-block">effect.config</span> は追記後に同じ 3 層チェーンで<b>読み戻した</b>値であり、送信値のエコーではない。<span class="code-block">changed</span> が false なら「台帳に載ったが実効値は動いていない」。固定キー・未知キー・単位違反は 400。</li>
+            <li><span class="code-block">DELETE /api/v3/config/&lt;key&gt;</span> — <span style="color:#66ffcc;">[v3 C7d]</span> override の解除。削除ではなく追記で、誰がいつ既定へ戻したかが判断台帳に残る（AP4）。<span class="code-block">reason</span> 必須。</li>
+            <li><span class="code-block">GET /api/v3/ground_truth?scenario_id=</span> — <span style="color:#66ffcc;">[v3 C9g]</span> <span class="code-block">{scenario_id: [行]}</span> 形式。C9p（教師信号の投稿）の効果が実在する先。設定画面に読み取り専用で同居。</li>
+            <li><span class="code-block">GET /api/v3/app_config</span> — <span style="color:#66ffcc;">[v3 R15c]</span> 配備の自己申告。<span class="code-block">mode / authoritative / ledger / tick_interval_sec / scenario_ids / adapters_enabled / session_surface</span>、および <span class="code-block">websocket{mounted, reason, unpublished}</span>。<b>ライブチップはこれを読んでから接続する</b>（未マウントなら一切ダイヤルせず、「切断」ではなく「未マウント」と表示する）。</li>
+        </ul>
+        <p style="font-size: 11px; color: #888;">WebSocket 面: v3 の発行語彙は <span class="code-block">conclusion_update</span> / <span class="code-block">attention_update</span> / <span class="code-block">sensor_status</span> の 3 つ（<span class="code-block">notification_result</span> は<b>発行者が存在しない</b>ため構築自体が拒否される）。購読は <span class="code-block">subscribe_scenario</span> / <span class="code-block">unsubscribe_scenario</span> でシナリオ単位。<b>push は envelope ではない</b>（NP7 注意文も鮮度スタンプも持たない）ため、v3 クライアントは push を表示値としてマージせず、<b>該当射影の再取得の合図</b>として扱う。廃止済イベント名（<span class="code-block">threat_update</span> 等）の受信はサーバ側の版ずれとして報告し、黙って捨てない。</p>
         </div>
         </div><!-- /guide-ch-12 -->
         <div class="guide-chapter" id="guide-ch-13">
