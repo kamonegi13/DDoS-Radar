@@ -265,3 +265,33 @@ HTTP ワーカースレッドを持つため、shadow コンテナは起動直�
   すぎず、同族が残っている可能性を前提に扱うこと
 - これは D2 F-13（定数を import する相対検証テストは値の変更を検出しない）と同根 — **テストが
   検証していると称している対象を、実際には検証していない**族である
+
+### 追記（同日、2 回目の shadow 起動）— 「同族が残っている」はその日のうちに的中した
+
+上の 3 点目は予測ではなく**実測**になった。読み取り接続の修正は「traceback が読み取りを指していた」
+という理由で読み取りだけに限定されたが、**書き込み接続 `self._conn` は同一の欠陥を持っていた**。
+`LedgerStore` は gunicorn ワーカースレッド上で構築され、tick ループは自前のスレッドで**書く**。
+結果、shadow コンテナは **1 分ごとに、永久に**、同じ `ProgrammingError` で全ティックを落とし続けた。
+
+**教訓は「もう一方も直せ」ではない**。1 件目を見た時点で**同じ性質を共有する全ての箇所を数え上げる**
+のが正しい対応であり、traceback の指す 1 箇所だけを直すのは、次の 1 件を本番で見つけると決める判断に
+等しい。回帰テストは今回も `gevent.get_hub().threadpool` で書き、**修正前に 6 件全て落ちることを確認**
+してから書いた（`tests/test_ledger_store.py::TestTheWriteConnectionIsThreadLocal`）。
+
+書き込み側は読み取り側の複製ではない。1 ファイルに 2 本の書き込みハンドルは、SQLite では
+`SQLITE_BUSY` であって merge ではない。**安全にしているのはハンドルではなく `self._lock`** であり、
+`transaction()` が BEGIN IMMEDIATE..COMMIT 全体を保持するので、接続が何本あろうと同時に存在する
+書き込みトランザクションは常に 1 本である（`v3/ledger/store_connections.py`）。
+
+## 訂正 3（2026-08-09）— コンテナが HEALTHY と言い続けた（G-17 のコンテナ層再現）
+
+上記の書き込み欠陥が続く間ずっと、`docker ps` は `healthy`、`/healthz` は 200 + `{"status":"ok"}`
+を返し続けた。`read_health` が**リテラル 3 つ**を返す関数だったからである。これは
+**G-17（空のキャッシュから ROUTINE/CLEAR/NORMAL を返す）が、G-17 を表現不能にするために作った
+システム自身のコンテナ層で再現した**ものだ。
+
+含意はテスト資産の分類にも及ぶ: **「200 が返ること」を検査するテストは健全性を検査していない**。
+`test_v3_server.py::test_healthz_answers` と `test_api_projections.py::test_healthz_is_public` は
+どちらもその嘘の間、緑だった。両者は現在、生存（ルートが答えるか）と生産（ティックが回ったか）を
+分けて検査する（4 値と HTTP コードの契約は `tests/test_v3_health_surface.py`、運用面は
+`OPS-shadow-runbook.md` §2）。

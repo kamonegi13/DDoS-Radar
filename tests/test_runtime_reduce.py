@@ -615,6 +615,239 @@ class TestTheNamedSourceFamily:
         assert [s["level"] for s in reduced[0].flags["sources"]] == [3, 3, 3]
 
 
+def _rss(country: str, score: float, feed: str, items: int = 3):
+    """One `bg_observer_rss` row as `normalize` emits it — per FEED BODY,
+    already MAX-folded across the items inside that one body."""
+    return ObservationDraft(
+        signal_source="bg_observer", domain=INFO, country=country,
+        status=STATUS_FIRED, raw_score=score,
+        value=f"rss:{country} fatalities=0 conf=0.60",
+        flags={"items_in_feed": items, "fatalities": 0,
+               "extractor_confidence": 0.60, "alias_gap": []},
+        evidence_url=f"https://{feed}.test/story")
+
+
+class TestBgObserverFoldsAcrossTheNineFeeds:
+    """§7-2 #137. The last third of a fold that was two thirds done.
+
+    `normalize` already took the MAX across the items inside ONE feed body
+    and said the fold across the nine bodies belonged to the reduction
+    layer. Until it landed, two wires naming the same country produced two
+    rows for one `(signal_source, country)` and the tick raised.
+    """
+
+    def test_two_feeds_naming_one_country_become_one_row(self):
+        reduced = _reduce("bg_observer_rss",
+                          (_rss("IR", 0.45, "tass"), _rss("IR", 0.65, "scmp")))
+        assert len(reduced) == 1, \
+            "two wires reporting one war is one country's reading, not two"
+        assert reduced[0].country == "IR"
+
+    def test_the_fold_is_max_because_production_takes_max(self):
+        """`dedup_by_source_country_max` (`radar/scoring.py:1424-1432`)."""
+        reduced = _reduce("bg_observer_rss",
+                          (_rss("IR", 0.45, "tass"), _rss("IR", 0.65, "scmp"),
+                           _rss("IR", 0.25, "bbc")))
+        assert reduced[0].raw_score == 0.65
+
+    def test_the_fold_is_not_a_sum(self):
+        """The one genuinely wrong answer. Nine wires reporting one strike
+        is nine reports of one event, and production is explicit that the
+        duplicates exist to be deduplicated."""
+        reduced = _reduce("bg_observer_rss",
+                          (_rss("IR", 0.45, "tass"), _rss("IR", 0.45, "scmp")))
+        assert reduced[0].raw_score == 0.45
+        assert reduced[0].raw_score != 0.90
+
+    def test_the_winning_row_keeps_its_own_evidence(self):
+        reduced = _reduce("bg_observer_rss",
+                          (_rss("IR", 0.25, "tass"), _rss("IR", 0.65, "scmp")))
+        assert reduced[0].evidence_url == "https://scmp.test/story"
+
+    def test_countries_fold_independently(self):
+        reduced = _reduce("bg_observer_rss",
+                          (_rss("IR", 0.45, "tass"), _rss("IR", 0.65, "scmp"),
+                           _rss("TW", 0.25, "cna")))
+        by_country = {d.country: d.raw_score for d in reduced}
+        assert by_country == {"IR": 0.65, "TW": 0.25}
+
+    def test_the_feeds_that_lost_are_still_disclosed(self):
+        """NP6. "one feed mentioned Iran" and "seven did" are different
+        facts about corroboration, and only the winner's number survives."""
+        reduced = _reduce("bg_observer_rss",
+                          (_rss("IR", 0.45, "tass", items=4),
+                           _rss("IR", 0.65, "scmp", items=6)))
+        flags = reduced[0].flags
+        assert flags["feeds_matched"] == 2
+        assert flags["items_seen_total"] == 10
+        assert sorted(row["raw_score"] for row in flags["folded"]) == \
+            [0.45, 0.65]
+
+    def test_a_single_feed_still_folds_and_says_so(self):
+        reduced = _reduce("bg_observer_rss", (_rss("TW", 0.45, "cna"),))
+        assert len(reduced) == 1
+        assert reduced[0].flags["feeds_matched"] == 1
+
+
+def _advisory(feed: str, title: str):
+    """One candidate article row, as `apt_intel.normalize` emits it."""
+    return ObservationDraft(
+        signal_source="apt_intel", domain=CYBER, country="",
+        status=STATUS_OBSERVED, raw_score=0.0, value=title,
+        flags={"feed": feed, "confidence_floor": 0.35,
+               "awaiting": "llm_extraction (WP-2.7)",
+               "article": {"title": title, "feed": feed,
+                           "dedup_key": f"key-{title}",
+                           "authority": "CISA (US)", "link": ""}},
+        evidence_url=f"https://{feed}.test/{title}")
+
+
+def _dead_feed(feed: str, outcome: str = "returns_html"):
+    return ObservationDraft(
+        signal_source="apt_intel", domain=CYBER, country="",
+        status=STATUS_NO_DATA, raw_score=0.0, value=f"{feed}: {outcome}",
+        flags={"feed": feed, "outcome": outcome, "detail": "an HTML page",
+               "parse_stage": "body"},
+        evidence_url=f"https://{feed}.test/")
+
+
+class TestAptIntelFoldsToTheOneRowProductionHas:
+    """§7-2 #137. Production builds NO signal from this family.
+
+    `AptIntelSensor.fetch` writes one cache entry holding one integer
+    (`radar/sensors/apt_intel.py:605-608`) and its only reader asks whether
+    that integer is above zero (`convergence_tracker.py:138-139`). The
+    advisories reach scoring through `intel_queue.submit` (`:591`) and
+    become `llm_intel`, which is a different family with LLM-assigned
+    countries. So the fold's job is not to score N articles — they score
+    nothing on either side — but to let a working value reach a reader
+    without a scoring face.
+    """
+
+    def test_many_articles_from_many_feeds_become_one_row(self):
+        reduced = _reduce("apt_intel",
+                          (_advisory("cisa_alerts", "A"),
+                           _advisory("cisa_alerts", "B"),
+                           _advisory("jpcert", "C")))
+        assert len(reduced) == 1
+        assert reduced[0].country == ""
+        assert reduced[0].signal_source == "apt_intel"
+
+    def test_the_row_cannot_score(self):
+        """Production's contribution from this family is zero, and OBSERVED
+        with `raw_score` 0.0 is how v3 says the same thing."""
+        reduced = _reduce("apt_intel", (_advisory("jpcert", "A"),))
+        assert reduced[0].status == STATUS_OBSERVED
+        assert reduced[0].raw_score == 0.0
+
+    def test_every_article_survives_with_its_production_dedup_key(self):
+        """B-05 moved the dedup set from process memory to L1, and the key
+        is `radar/sensors/apt_intel.py:173-175`'s. Folding the rows must
+        not fold away the thing the fold's successor will address them by."""
+        reduced = _reduce("apt_intel",
+                          (_advisory("cisa_alerts", "A"),
+                           _advisory("jpcert", "B")))
+        flags = reduced[0].flags
+        assert flags["candidate_count"] == 2
+        assert [a["dedup_key"] for a in flags["articles"]] == \
+            ["key-A", "key-B"]
+        assert flags["feeds_with_candidates"] == ["cisa_alerts", "jpcert"]
+
+    def test_a_dead_feed_is_not_a_quiet_one(self):
+        """DP9's repair has to survive the fold. "CISA is serving an error
+        page" and "CISA published nothing this week" must not print alike."""
+        reduced = _reduce("apt_intel",
+                          (_advisory("jpcert", "A"), _dead_feed("ncsc_uk")))
+        dead = reduced[0].flags["feeds_dead"]
+        assert [row["feed"] for row in dead] == ["ncsc_uk"]
+        assert dead[0]["outcome"] == "returns_html"
+
+    def test_a_cycle_with_no_candidate_at_all_is_no_data(self):
+        reduced = _reduce("apt_intel",
+                          (_dead_feed("ncsc_uk"), _dead_feed("jpcert")))
+        assert reduced[0].status == STATUS_NO_DATA
+        assert reduced[0].flags["candidate_count"] == 0
+        assert "did not answer" in reduced[0].value
+
+    def test_the_row_says_what_it_is_waiting_for(self):
+        """`apt_intel` has no `IntelProfile`, so these candidates reach no
+        model. A row of candidates with nothing saying why they are still
+        candidates reads as a finished pipeline."""
+        reduced = _reduce("apt_intel", (_advisory("jpcert", "A"),))
+        assert reduced[0].flags["awaiting"] == "llm_extraction (WP-2.7)"
+
+    def test_an_empty_cycle_produces_nothing(self):
+        assert _reduce("apt_intel", ()) == ()
+
+
+class TestNoAdapterCanGrowThisDefectAgain:
+    """The structural claim, which is worth more than the three fixes.
+
+    `apt_intel` and `bg_observer_rss` were found by running one cycle and
+    collecting the violations. That enumeration was UNSOUND and the shadow
+    deployment proved it within a minute: `diplomatic` collides only when
+    two of its eleven feeds both yield an item in the same cycle, so a
+    quiet cycle reports a clean bill of health for an adapter that will
+    take the next tick down.
+
+    An adapter is at risk exactly when it declares more than one request —
+    `normalize` sees one payload (§2-2 barrier 1), so two payloads can
+    write the same `(signal_source, country)` and nothing below this layer
+    will notice. Rather than enumerate the risk by sampling, this asserts
+    over the DECLARATIONS: every multi-request adapter has a fold, or is
+    named here with the reason it cannot collide.
+    """
+
+    #: adapter -> why two payloads cannot produce one key. Adding a name
+    #: here is a claim about the adapter's `normalize`, and it needs the
+    #: reading that supports it.
+    CANNOT_COLLIDE: dict = {
+        "gps_jamming": (
+            "two requests, but only ONE produces drafts: the manifest "
+            "payload returns () and exists to name the day the tiles "
+            "request should ask for (`gps_jamming.py:168-169`). The tiles "
+            "payload emits one row per country in scope, so the keys are "
+            "distinct by construction."),
+    }
+
+    def test_every_multi_request_adapter_folds_or_says_why_not(self):
+        from v3.adapters.catalog import ALL_ADAPTERS
+        unguarded = {
+            adapter.adapter_id.value: len(adapter.requests)
+            for adapter in ALL_ADAPTERS
+            if len(adapter.requests) > 1
+            and adapter.adapter_id.value not in R.BY_ADAPTER
+            and adapter.adapter_id.value not in self.CANNOT_COLLIDE}
+        assert not unguarded, (
+            f"{sorted(unguarded)} declare several requests, have no fold, "
+            f"and are not claimed collision-free. `normalize` sees ONE "
+            f"payload, so two of them can write the same "
+            f"(signal_source, country) — which raises out of "
+            f"`_require_writable` and takes the whole tick down before it "
+            f"scores. Give each a fold, or name it in CANNOT_COLLIDE with "
+            f"the reading that shows its keys are distinct.")
+
+    def test_the_exemptions_are_still_single_producer(self):
+        """An exemption is a claim that has to keep being true. If a
+        second payload of one of these grows drafts, the reason above is
+        stale and the adapter needs a fold."""
+        from v3.adapters.catalog import ALL_ADAPTERS
+        declared = {a.adapter_id.value: a for a in ALL_ADAPTERS}
+        for name, reason in self.CANNOT_COLLIDE.items():
+            assert name in declared, f"{name} is exempted but not declared"
+            assert len(reason) > 80, \
+                f"{name}'s exemption needs a reading, not an assertion"
+
+    def test_the_four_candidate_article_adapters_share_one_fold(self):
+        """A-02's lesson applied to this layer: four copies of one fold is
+        the same mistake as eight copies of one prompt."""
+        folds = {name: R.BY_ADAPTER[name].fold
+                 for name in ("apt_intel", "diplomatic",
+                              "military_exercise", "hacktivist_news")}
+        assert {f.__qualname__ for f in folds.values()} == \
+            {"fold_candidate_articles.<locals>.fold"}
+
+
 class TestAMissingReductionIsLoud:
     def test_two_rows_with_the_same_key_are_refused_by_name(self):
         rows = (ObservationDraft(signal_source="whatever", domain=CYBER,
@@ -691,7 +924,14 @@ class TestTheSplitDidNotShrinkWhatIsReasonedAbout:
 
     #: Reviewed 2026-08-08 at the split. Lower it deliberately, in the
     #: same commit as a removal, and say why.
-    REDUCTION_FLOOR = 15
+    #:
+    #: Raised 15 -> 20 on 2026-08-09 (§7-2 #137/#138): `bg_observer_rss`
+    #: plus the FOUR candidate-article adapters (`apt_intel`,
+    #: `diplomatic`, `military_exercise`, `hacktivist_news`), whose
+    #: per-payload rows collided on L1's UNIQUE key with no fold declared.
+    #: Every tick of the shadow deployment raised out of
+    #: `_require_writable` before it could score.
+    REDUCTION_FLOOR = 20
 
     def test_the_registry_did_not_shrink(self):
         assert len(R.REDUCTIONS) >= self.REDUCTION_FLOOR, (
@@ -716,7 +956,12 @@ class TestTheSplitDidNotShrinkWhatIsReasonedAbout:
                            # and its attack-origin spike are one adapter's
                            # two joins, and they moved together out of the
                            # physical-domain module when the second landed.
-                           "v3.runtime.reduce_cyber"}
+                           "v3.runtime.reduce_cyber",
+                           # §7-2 #138: the candidate-article fold is
+                           # shared by four adapters spanning two domains
+                           # (`apt_intel` is cyber, the other three info),
+                           # so it belongs to neither domain module.
+                           "v3.runtime.reduce_common"}
 
     def test_every_public_name_the_module_promises_is_still_bound(self):
         for name in R.__all__:

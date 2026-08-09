@@ -658,24 +658,18 @@ class TestTheReadConnectionIsThreadLocal:
     tests faithful to the PRODUCTION concurrency shape rather than to
     pytest's.
 
-    Only reads cross threads in these tests, never writes: the write
-    connection's thread-affinity is a separate, pre-existing property
-    this task explicitly does not touch (confirmed separately that a
-    write from another thread raises the same ProgrammingError, for an
-    unrelated reason — the ledger's writer is not thread-local and was
-    never asked to be).
+    Only reads cross threads in these tests, never writes. The write
+    connection had the IDENTICAL defect and it is covered by
+    `TestTheWriteConnectionIsThreadLocal` below — scoping this class to
+    reads was the original error: the traceback showed a read, so the fix
+    was made to read, and the shadow container went on failing every tick
+    on the write path for exactly the same reason.
     """
 
     @staticmethod
     def _run_on_a_real_os_thread(target):
-        """Run `target` on a real OS thread via gevent's thread pool.
-
-        `ThreadPool.spawn` returns a gevent `AsyncResult`-like handle;
-        `.get()` blocks the calling greenlet until the task finishes and
-        re-raises whatever the task raised, so a failure inside `target`
-        surfaces as a normal test failure rather than being swallowed.
-        """
-        return gevent.get_hub().threadpool.spawn(target).get(timeout=10)
+        """See `_on_a_real_os_thread`; kept as the name these tests read."""
+        return _on_a_real_os_thread(target)
 
     def test_a_read_from_another_thread_returns_the_same_rows(self, store):
         # THE regression test for the defect. Confirmed by running this
@@ -777,5 +771,171 @@ class TestTheReadConnectionIsThreadLocal:
         reopened = LedgerStore(path)
         try:
             assert reopened.count_signals() == 1
+        finally:
+            reopened.close()
+
+
+def _on_a_real_os_thread(target, *args):
+    """Run `target` on a real OS thread via gevent's thread pool.
+
+    Shared by both thread-affinity classes for the reason the read class
+    documents at length: the root `conftest.py` monkey-patches gevent over
+    the whole session, so `threading.Thread` spawns a GREENLET and every
+    greenlet shares ONE real OS thread. A cross-thread test written with
+    `threading.Thread` passes before AND after the fix, which is the false
+    negative that already happened here once. `gevent.get_hub().threadpool`
+    is gevent's supported way to reach a genuine OS thread despite the
+    patch, and it matches the deployment shape: `Dockerfile.v3` runs plain
+    gunicorn `-k gthread` with no patching at all.
+    """
+    return gevent.get_hub().threadpool.spawn(target, *args).get(timeout=20)
+
+
+class TestTheWriteConnectionIsThreadLocal:
+    """The write handle had the identical defect the read handle had.
+
+    e973d31 made `_read_connection()` per-thread and scoped the fix to
+    reads because the traceback showed a read. The shadow container then
+    logged, once per tick, forever:
+
+        tick failed: ProgrammingError: SQLite objects created in a thread
+        can only be used in that same thread.
+
+    `LedgerStore` is constructed on the gunicorn worker's thread and
+    `v3/runtime/loop.py` runs the tick on a thread of its own — and the
+    tick WRITES. One cached `self._conn` is one thread's property, so
+    every tick died at its first append and `tl_observation` stayed empty
+    for the whole run.
+
+    **Writes are not reads, so the fix is not a copy.** Two write handles
+    to one SQLite file are not automatically safe; what makes them safe
+    here is that they were never what serialised writes in the first
+    place. `transaction()` holds `self._lock` for a whole BEGIN
+    IMMEDIATE..COMMIT, so at most one write transaction exists in this
+    process at any instant no matter how many handles do. These tests
+    check both halves: that a write from another thread WORKS, and that
+    the properties the single handle used to carry — one serialised
+    transaction, the append-only triggers, the prune gate's single
+    transaction — still hold once there are several.
+    """
+
+    def test_a_write_from_another_thread_succeeds(self, store):
+        # THE regression test. Against a single shared write connection
+        # this raises sqlite3.ProgrammingError — the exact line the
+        # shadow container logged once a minute, forever.
+        _on_a_real_os_thread(
+            lambda: store.append_signal(_signal(tick_id="from-worker"),
+                                        now=NOW))
+
+        assert store.count_signals() == 1
+
+    def test_the_deployment_shape_writes_on_one_thread_reads_on_another(
+            self, store):
+        # The container's actual shape: the tick thread appends, an HTTP
+        # worker thread projects. Both directions of the handoff have to
+        # work, and the row the reader sees has to be the row the writer
+        # wrote — a per-thread handle that saw a stale snapshot would be
+        # a quieter version of the same defect.
+        _on_a_real_os_thread(
+            lambda: store.append_tl(_tl(tick_id="tick-thread"), ))
+
+        row = store.latest_tl_at(NOW, scenario_id="taiwan")
+        assert row is not None and row["tick_id"] == "tick-thread"
+
+        store.append_signal(_signal(tick_id="main-thread"), now=NOW)
+        worker_row = _on_a_real_os_thread(
+            lambda: store.latest_signal_at(NOW, sensor="gps_jamming",
+                                           country="TW"))
+        assert worker_row is not None
+        assert worker_row["tick_id"] == "main-thread"
+
+    def test_two_real_threads_writing_at_once_lose_nothing(self, store):
+        # What a per-thread WRITE handle has to earn that a per-thread
+        # read handle did not: two handles can hold two write
+        # transactions on one file, and SQLite answers that with
+        # SQLITE_BUSY, not with a merge. The lock is what forbids it —
+        # `transaction()` holds it across BEGIN IMMEDIATE..COMMIT — so
+        # both threads' rows must ALL land, with no busy error and no
+        # loss. The barrier forces genuine overlap rather than letting
+        # the pool serialise the two tasks by accident.
+        pool = gevent.get_hub().threadpool
+        barrier = threading.Barrier(2, timeout=20)
+        per_thread = 40
+
+        def _write(prefix):
+            barrier.wait()
+            for index in range(per_thread):
+                store.append_signal(
+                    _signal(tick_id=f"{prefix}-{index}"), now=NOW)
+            return prefix
+
+        first = pool.spawn(_write, "alpha")
+        second = pool.spawn(_write, "beta")
+        assert first.get(timeout=30) == "alpha"
+        assert second.get(timeout=30) == "beta"
+
+        assert store.count_signals() == 2 * per_thread
+
+    def test_the_append_only_triggers_still_bite_on_a_second_handle(
+            self, store):
+        # A new write connection is a new chance to be exempt from the
+        # discipline. It must not be: the triggers are schema objects, so
+        # every handle to the file is subject to them, and a handle that
+        # could UPDATE would make "append-only" a property of which
+        # thread you happened to be on.
+        store.append_signal(_signal(), now=NOW)
+
+        def _try_to_rewrite_history():
+            with pytest.raises(sqlite3.IntegrityError):
+                store._connection().execute(       # noqa: SLF001
+                    "UPDATE signal_observation SET raw_score = 0.99")
+            with pytest.raises(sqlite3.IntegrityError):
+                store._connection().execute(       # noqa: SLF001
+                    "DELETE FROM signal_observation")
+            return True
+
+        assert _on_a_real_os_thread(_try_to_rewrite_history)
+        assert store.latest_signal_at(
+            NOW, sensor="gps_jamming", country="TW")["raw_score"] == 0.08
+
+    def test_a_prune_from_another_thread_is_still_one_transaction(self, store):
+        # The prune gate opens and closes inside ONE `BEGIN IMMEDIATE`.
+        # Run from a thread that has to open its own write handle first,
+        # that invariant has to survive: the flag must be gone afterwards
+        # (the gate closed) and the rows must actually be deleted (the
+        # deletes and the flag were the same transaction).
+        store.append_signal(_signal(tick_id="old", observed_at=NOW - 90 * DAY),
+                            now=NOW - 90 * DAY)
+        store.append_signal(_signal(tick_id="new"), now=NOW)
+
+        deleted = _on_a_real_os_thread(lambda: store.prune_expired(now=NOW))
+
+        assert deleted["signal_observation"] == 1
+        assert store.count_signals() == 1
+        flag = store._connection().execute(        # noqa: SLF001
+            "SELECT value FROM schema_meta WHERE key = 'pruning'").fetchone()
+        assert flag is None, \
+            "the gate was left open, so the ledger is no longer append-only"
+
+    def test_close_still_works_after_a_write_from_another_thread(
+            self, tmp_path):
+        # Same decision as the read handle's `close()`, and it has to be
+        # made again rather than assumed: `sqlite3.Connection.close()` is
+        # itself thread-gated, so closing another thread's handle raises.
+        # `close()` must not raise, and must not leave the file locked.
+        path = str(tmp_path / "v3.db")
+        instance = LedgerStore(path)
+
+        _on_a_real_os_thread(
+            lambda: instance.append_signal(_signal(tick_id="worker"),
+                                           now=NOW))
+
+        instance.close()  # must not raise
+
+        reopened = LedgerStore(path)
+        try:
+            assert reopened.count_signals() == 1
+            reopened.append_signal(_signal(tick_id="after-reopen"), now=NOW)
+            assert reopened.count_signals() == 2
         finally:
             reopened.close()

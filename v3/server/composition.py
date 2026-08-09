@@ -144,6 +144,14 @@ class Deployment:
         self._barrier = barrier
         self._clock = clock
         self._closed = False
+        #: The last completed tick's sweep coverage (G-19). Held here
+        #: because only the layer that ran the tick saw what the tick
+        #: PLANNED, and `/healthz` has to be able to say "this deployment
+        #: is concluding from 40% of its catalogue" rather than serve the
+        #: same body it would serve for a complete sweep. `None` until a
+        #: tick finishes, which `sweep_monitor` reports as UNSUPPLIED and
+        #: never as OK.
+        self._last_sweep: Optional[Mapping] = None
 
     # ── the tick ────────────────────────────────────────────────────────
     def tick(self, now: Optional[float] = None):
@@ -160,13 +168,19 @@ class Deployment:
         supply, which is what stops a constant being supplied.
         """
         at = float(self._clock() if now is None else now)
-        return TICK.run_tick(
+        report = TICK.run_tick(
             now=at, registry=self.registry, store=self.store,
             client=self.client, geography=self.geography,
             scenario_ids=self.scenario_ids, credentials=self.credentials,
             config=self.resolver,
             focused_scenario_id=focus_state(ReadOnlyLedger(self.store),
                                             until=at))
+        # Recorded only on the way OUT, so a tick that raised leaves the
+        # previous sweep in place rather than replacing it with a half
+        # measurement — the health surface would then be reporting coverage
+        # for a tick that never concluded.
+        self._last_sweep = dict(report.sweep)
+        return report
 
     # ── the API's seams ─────────────────────────────────────────────────
     def scenario_refs(self) -> tuple[ScenarioRef, ...]:
@@ -206,8 +220,22 @@ class Deployment:
         return widest if widest > 0 else None
 
     def ops_probe(self, now: float) -> dict:
+        """The deployment's operational facts, INCLUDING whether the loop
+        is producing.
+
+        The loop status is passed here rather than read by a handler for
+        the reason every other field on this probe is: only the layer that
+        owns the thread can see it. Passing it is what makes "healthy" a
+        claim about the tick and not about the process — the distinction
+        the shadow container spent an hour failing to make.
+        """
+        runtime = getattr(self, "runtime", None)
         return OPS.probe(self.settings.ledger_path,
-                         span_sec=self.observed_span_sec(now), now=now)
+                         span_sec=self.observed_span_sec(now), now=now,
+                         loop_status=(None if runtime is None
+                                      else runtime.status().as_dict()),
+                         sweep=self._last_sweep,
+                         interval_sec=self.settings.interval_sec)
 
     def app_config(self) -> dict:
         """R15c's payload. Deployment facts an analyst may act on.

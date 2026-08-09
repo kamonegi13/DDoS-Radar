@@ -445,9 +445,18 @@ class TestR10AndR12AndR15:
             assert f"## {conclusion_type}" in markdown
 
     def test_healthz_is_public(self, seeded):
+        """Public, and honest about what it does not know.
+
+        This context is built without an ops probe, so the loop's state is
+        UNSUPPLIED and the answer is `unknown` — not `ok`. That used to be
+        a literal `"ok"`, which is why the shadow container reported
+        healthy over a loop that had never completed a tick.
+        The contract this test guards is that the route is PUBLIC; the
+        four statuses are `tests/test_v3_health_surface.py`.
+        """
         response = _get(seeded, "/healthz", principal=ANONYMOUS)
         assert response.status == 200
-        assert response.as_dict()["health"]["status"] == "ok"
+        assert response.as_dict()["health"]["status"] == "unknown"
 
     def test_app_config_is_what_the_composition_root_supplied(self, seeded):
         body = _get(seeded, "/api/v3/app_config").as_dict()

@@ -17,12 +17,19 @@ Two properties are load-bearing:
   and a self-referential metric that had gone identically zero reported
   no anomaly across 360,000 conclusions.
 
-`ops_health` is the fifth block and it is ALWAYS served (WP-4.1g). Two of
-its four monitors are answerable by v3 today (backup age from a marker
-beside the ledger, capacity from the ledger file against the retention
-target); two are not, because v3 has no L5 verification layer and no LLM
-health roll-up. All four appear with their verdicts, so the composite is
-reserved for a NAMED reason rather than for an absent field.
+`ops_health` is the fifth block and it is ALWAYS served (WP-4.1g). Three
+of its five monitors are answerable by v3 today (whether the tick loop is
+producing, backup age from a marker beside the ledger, capacity from the
+ledger file against the retention target); two are not, because v3 has no
+L5 verification layer and no LLM health roll-up. All five appear with
+their verdicts, so the composite is reserved for a NAMED reason rather
+than for an absent field.
+
+`tick_loop` joined that list after the shadow container reported HEALTHY
+for its whole run with every tick failing. It is served from here AND from
+`/healthz` — one measurement, two surfaces, which is the point: a health
+probe with its own private notion of liveness is a second answer to the
+question this block exists to answer.
 
 Recall is `None` here today with a stated reason: the ground-truth label
 ledger lands with WP-3.3, and pooling zero cells is not a measurement.
@@ -31,8 +38,6 @@ a second one written here — S1-CONC-038 requires the chip and the CI gate
 to be the same arithmetic, which is only checkable if there is one.
 """
 from __future__ import annotations
-
-from typing import Mapping
 
 from v3.api.envelope import ApiResponse, tool_response
 from v3.calibration import status as S
@@ -137,14 +142,13 @@ def _ops_health_block(context) -> dict:
     Always present. WP-4.2's trust chip read amber because R7 had no such
     field at all, which meant the page could not distinguish "nothing is
     watching the backups" from "the server has not been taught to say".
-    Now it says: an unprobed deployment gets four monitors, each carrying
+    Now it says: an unprobed deployment gets every monitor, each carrying
     the reason it cannot answer, and the fold is still reserved — because
-    two green monitors out of four is not a green deployment (G-17).
+    green monitors beside unanswerable ones is not a green deployment
+    (G-17).
     """
-    supplied = getattr(context, "ops_health", None)
-    if isinstance(supplied, Mapping) and supplied.get("monitors"):
-        return dict(supplied)
-    return OPS.probe_absent(now=context.now)
+    return OPS.supplied_or_absent(getattr(context, "ops_health", None),
+                                  now=context.now)
 
 
 def read_self_eval(context) -> ApiResponse:

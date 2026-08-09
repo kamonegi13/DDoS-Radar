@@ -60,16 +60,48 @@ STOP_LATENCY_SEC = 0.0
 
 @dataclass(frozen=True, slots=True)
 class LoopStatus:
+    """What the loop has actually managed to do. A measurement, not a flag.
+
+    The shadow container reported HEALTHY for its whole run while every
+    tick died at its first write. NP3 is why the loop survived that, and
+    NP3 is right — but a contained failure nobody can see is worse than
+    the failure, so this type has to carry enough for a health surface to
+    tell "producing" from "alive and producing nothing".
+
+    Four fields answer that and each one is needed:
+
+      last_tick_at       when a tick last SUCCEEDED. `run_once` advances
+                         it only after the tick returns, so it is already
+                         the right clock; what was missing was anything
+                         to compare it against.
+      consecutive_errors the live fact. `errors` is a total, and a total
+                         cannot tell one bad tick an hour ago from every
+                         tick since boot — opposite operational states.
+      last_error_at      when the last failure was, so a stale message is
+                         not read as a current one.
+      started_at         when the thread began, so "no tick has finished"
+                         can be aged. Without it, a container 20 seconds
+                         into its first 60-second tick and a container
+                         that has failed 500 times look the same.
+    """
+
     running: bool
     ticks: int
     errors: int
+    #: The last SUCCESSFUL tick. A tick that raised never reaches here.
     last_tick_at: Optional[float]
     last_error: str = ""
+    last_error_at: Optional[float] = None
+    consecutive_errors: int = 0
+    started_at: Optional[float] = None
 
     def as_dict(self) -> dict:
         return {"running": self.running, "ticks": self.ticks,
                 "errors": self.errors, "last_tick_at": self.last_tick_at,
-                "last_error": self.last_error}
+                "last_error": self.last_error,
+                "last_error_at": self.last_error_at,
+                "consecutive_errors": self.consecutive_errors,
+                "started_at": self.started_at}
 
 
 class Runtime:
@@ -103,6 +135,9 @@ class Runtime:
         self._errors = 0
         self._last_tick_at: Optional[float] = None
         self._last_error = ""
+        self._last_error_at: Optional[float] = None
+        self._consecutive_errors = 0
+        self._started_at: Optional[float] = None
 
     # ── lifecycle ───────────────────────────────────────────────────────
     @property
@@ -124,6 +159,10 @@ class Runtime:
                     "this runtime is already running; a second loop over the "
                     "same ledger races for the same tick_id")
             self._stop.clear()
+            # Stamped BEFORE the thread exists, so a health probe that
+            # arrives between the two never sees a loop that is running
+            # and claims never to have been started.
+            self._started_at = float(self._clock())
             self._thread = threading.Thread(
                 target=self._run, name="noroshi-v3-runtime", daemon=True)
             self._thread.start()
@@ -147,7 +186,10 @@ class Runtime:
         return LoopStatus(running=self.is_running, ticks=self._ticks,
                           errors=self._errors,
                           last_tick_at=self._last_tick_at,
-                          last_error=self._last_error)
+                          last_error=self._last_error,
+                          last_error_at=self._last_error_at,
+                          consecutive_errors=self._consecutive_errors,
+                          started_at=self._started_at)
 
     # ── the loop ────────────────────────────────────────────────────────
     def run_once(self) -> object:
@@ -162,10 +204,15 @@ class Runtime:
             report = self._tick(now)
         except BaseException as failure:      # noqa: BLE001
             self._errors += 1
+            self._consecutive_errors += 1
             self._last_error = f"{type(failure).__name__}: {failure}"
+            self._last_error_at = now
             raise
         self._ticks += 1
         self._last_tick_at = now
+        # The streak ends; the total does not. One is "is it broken NOW",
+        # the other is "has it been", and a health surface needs both.
+        self._consecutive_errors = 0
         return report
 
     def _run(self) -> None:

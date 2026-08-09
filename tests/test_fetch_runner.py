@@ -191,6 +191,161 @@ class TestRunDueIsPure:
 
 # ── execute_plan: the impure half ───────────────────────────────────────
 
+def _multi(name, count, *, cadence_sec=3600.0):
+    """An adapter declaring `count` independent requests, so the budget has
+    something whose COST differs from its head-count to reason about."""
+    return _adapter(name, cadence_sec=cadence_sec, requests=tuple(
+        RequestSpec(url=f"https://example.test/{name}/{i}", label=f"r{i}")
+        for i in range(count)))
+
+
+def _plan(adapters, states=None, now=1_800_000_000.0):
+    return runner.run_due(now, adapters, states or {}, None, None,
+                          freshness={})
+
+
+class TestTheFetchBudgetBoundsOneTick:
+    """G-19. A cold `fetch_schedule` makes every adapter due at once.
+
+    Measured against the deployed geography that is 772 expanded steps in
+    one plan, and two shadow runs failed to finish it in twenty-five
+    minutes — so the schedule never advanced, every adapter stayed due, and
+    the next tick planned the same 772. `apply_budget` is what turns a
+    sweep that cannot finish into a sweep that finishes in seven ticks.
+    """
+
+    def test_an_over_budget_plan_is_cut_to_the_budget(self):
+        plan = _plan([_multi("a", 40), _multi("b", 40), _multi("c", 40)])
+        assert sum(len(p.steps) for p in plan.planned) == 120
+        bounded = runner.apply_budget(plan, max_requests=80)
+        assert sum(len(p.steps) for p in bounded.planned) == 80
+        assert [s.adapter_id.value for s in
+                bounded.skipped_for(runner.BUDGET_DEFERRED)] == ["c"]
+
+    def test_a_plan_inside_the_budget_is_returned_unchanged(self):
+        plan = _plan([_multi("a", 10), _multi("b", 10)])
+        assert runner.apply_budget(plan, max_requests=120) is plan
+
+    def test_the_deferred_adapter_says_what_it_cost_and_when_it_last_ran(self):
+        """NP6. A deferral an operator cannot open is a deferral that reads
+        as a source quietly dropping out of the sweep."""
+        plan = _plan([_multi("a", 40), _multi("b", 40)])
+        deferred = runner.apply_budget(
+            plan, max_requests=40).skipped_for(runner.BUDGET_DEFERRED)
+        assert len(deferred) == 1
+        assert "40 request(s)" in deferred[0].detail
+        assert "80 of a 40 budget" in deferred[0].detail
+        assert "never run" in deferred[0].detail
+
+    def test_an_adapter_is_atomic_even_when_it_alone_exceeds_the_budget(self):
+        """Half-fetching is the one thing this must not do. `reduce` folds
+        across an adapter's payloads, so a `ct_log` that fetched 80 of its
+        162 domains would fold a verdict indistinguishable from a complete
+        one — G-17 manufactured by the fix for G-19."""
+        plan = _plan([_multi("huge", 200)])
+        bounded = runner.apply_budget(plan, max_requests=120)
+        assert [p.adapter_id.value for p in bounded.planned] == ["huge"]
+        assert len(bounded.planned[0].steps) == 200
+        assert bounded.skipped_for(runner.BUDGET_DEFERRED) == ()
+
+    def test_at_least_one_adapter_is_always_admitted(self):
+        """A budget that could admit nothing is the same livelock wearing
+        different clothes."""
+        plan = _plan([_multi("a", 90), _multi("b", 90)])
+        bounded = runner.apply_budget(plan, max_requests=1)
+        assert len(bounded.planned) == 1
+
+    def test_a_non_positive_budget_is_refused(self):
+        plan = _plan([_multi("a", 5)])
+        with pytest.raises(DomainError, match="livelock"):
+            runner.apply_budget(plan, max_requests=0)
+
+    def test_the_longest_waiting_adapter_goes_first(self):
+        now = 1_800_000_000.0
+        states = {
+            "recent": AdapterState(adapter_id="recent").with_run(
+                at=now - 4000.0, outcome="ok", breaker=BreakerState()),
+            "ancient": AdapterState(adapter_id="ancient").with_run(
+                at=now - 90000.0, outcome="ok", breaker=BreakerState()),
+        }
+        plan = _plan([_multi("recent", 40), _multi("ancient", 40)],
+                     states=states, now=now)
+        bounded = runner.apply_budget(plan, max_requests=40)
+        assert [p.adapter_id.value for p in bounded.planned] == ["ancient"]
+
+    def test_a_never_run_adapter_outranks_one_that_has_run(self):
+        """`schedule.overdue_by` is 0.0 for an adapter that has never run,
+        so lateness cannot break the cold-start tie and "never spoke" has
+        to be its own, stronger claim."""
+        now = 1_800_000_000.0
+        states = {"seen": AdapterState(adapter_id="seen").with_run(
+            at=now - 90000.0, outcome="ok", breaker=BreakerState())}
+        plan = _plan([_multi("seen", 40), _multi("fresh", 40)],
+                     states=states, now=now)
+        bounded = runner.apply_budget(plan, max_requests=40)
+        assert [p.adapter_id.value for p in bounded.planned] == ["fresh"]
+
+    def test_running_an_adapter_sends_it_to_the_back_of_the_queue(self):
+        """Starvation-freedom, as arithmetic rather than as a cadence
+        coincidence: the adapter that just ran is the most recently run and
+        therefore sorts last."""
+        now = 1_800_000_000.0
+        adapters = [_multi(name, 40, cadence_sec=1.0)
+                    for name in ("a", "b", "c")]
+        states, admitted = {}, []
+        for _ in range(3):
+            bounded = runner.apply_budget(
+                _plan(adapters, states=states, now=now), max_requests=40)
+            won = bounded.planned[0].adapter_id.value
+            admitted.append(won)
+            states[won] = AdapterState(adapter_id=won).with_run(
+                at=now, outcome="ok", breaker=BreakerState())
+            now += 60.0
+        assert sorted(admitted) == ["a", "b", "c"], \
+            "every adapter ran within three ticks even at a 1s cadence"
+
+    def test_a_suppression_producer_is_never_deferred(self):
+        """Deferring one changes how the adapters that DO run are read: a
+        cycle missing its suppressor reports noise as signal."""
+        plan = _plan([_multi("gdelt", 100), _multi("space_weather", 100)])
+        bounded = runner.apply_budget(plan, max_requests=40,
+                                      always_admit=("space_weather",))
+        assert "space_weather" in [p.adapter_id.value for p in bounded.planned]
+        assert [s.adapter_id.value for s in
+                bounded.skipped_for(runner.BUDGET_DEFERRED)] == ["gdelt"]
+
+    def test_the_producer_still_spends_the_budget(self):
+        plan = _plan([_multi("space_weather", 30), _multi("a", 30),
+                      _multi("b", 30)])
+        bounded = runner.apply_budget(plan, max_requests=60,
+                                      always_admit=("space_weather",))
+        assert sum(len(p.steps) for p in bounded.planned) == 60
+
+    def test_the_admitted_set_keeps_the_plans_own_order(self):
+        """The priority order decides ADMISSION only. Execution order is
+        `order_producers_first`'s, and re-sorting here would move that
+        decision into a function that is not about it."""
+        plan = _plan([_multi("z", 10), _multi("a", 10), _multi("m", 200)])
+        bounded = runner.apply_budget(plan, max_requests=20)
+        assert [p.adapter_id.value for p in bounded.planned] == ["z", "a"]
+
+    def test_the_earlier_skips_survive_the_budget(self):
+        plan = _plan([_multi("a", 40), _adapter("off", enabled=False,
+                                                reason="no key")])
+        bounded = runner.apply_budget(plan, max_requests=40)
+        assert [s.adapter_id.value
+                for s in bounded.skipped_for(runner.DISABLED)] == ["off"]
+
+    def test_the_budget_does_not_advance_anything(self):
+        """PURE. A deferred adapter's `last_run_at` is untouched, which is
+        the whole reason it comes back due next tick."""
+        now = 1_800_000_000.0
+        plan = _plan([_multi("a", 40), _multi("b", 40)], now=now)
+        bounded = runner.apply_budget(plan, max_requests=40)
+        assert bounded.now == now
+        assert all(p.last_run_at is None for p in bounded.planned)
+
+
 class TestExecutePlan:
     def _run(self, store, adapters, *responses, states=None):
         registry = AdapterRegistry(adapters)

@@ -58,6 +58,24 @@ UNCOUNTED_SKIPS: frozenset = frozenset({
     runner_module.DISABLED,
 })
 
+#: G-19's skip, and it belongs in NEITHER set above without a second fact.
+#:
+#: A budget deferral costs the tick nothing WHEN the adapter already has an
+#: observation inside its freshness horizon: scoring reads L1's in-force
+#: projection at `now` (`v3/runtime/scoring.py::assemble`), not this tick's
+#: rows, so a source deferred for one tick is still being scored from what
+#: it said last time. Counting that as a failure would fire the coverage
+#: guards on a healthy deployment and name working sources as broken.
+#:
+#: On a COLD ledger the same skip means the opposite. An adapter that has
+#: never been fetched has nothing in the projection, contributes nothing,
+#: and `stale_sources` cannot see it either — it only ages rows that EXIST
+#: (`if newest is not None`). Left in `NOT_CONSULTED`, a first tick that
+#: swept 40% of its sources would produce exactly the conclusions of one
+#: that swept all of them. That is G-17's shape, so the deferral is
+#: resolved against the ledger rather than assumed either way.
+DEFERRED_SKIPS: frozenset = frozenset({runner_module.BUDGET_DEFERRED})
+
 
 @dataclass(frozen=True, slots=True)
 class SourceOutcome:
@@ -87,7 +105,9 @@ class SourceOutcome:
                 "detail": self.detail}
 
 
-def outcomes_for_cycle(cycle, *, credentials=None) -> tuple[SourceOutcome, ...]:
+def outcomes_for_cycle(cycle, *, credentials=None,
+                       unobserved: Sequence[str] = ()
+                       ) -> tuple[SourceOutcome, ...]:
     """Read one `CycleResult` into per-source verdicts.
 
     Both halves of the cycle are read. The results say what the adapters
@@ -95,7 +115,15 @@ def outcomes_for_cycle(cycle, *, credentials=None) -> tuple[SourceOutcome, ...]:
     why, and a source held shut by its own circuit breaker is a source
     that answered nothing — the fact B-01 made invisible by fetching
     around the breaker entirely.
+
+    `unobserved` is the set of adapters L1 holds NO observation for at all
+    (`never_observed`). It decides the one skip reason whose meaning
+    depends on the ledger: a budget deferral (G-19) is free when the
+    adapter's last reading is still in force and is total darkness when it
+    has never had one. Supplied rather than looked up, because this
+    function is otherwise a pure read of one cycle.
     """
+    dark = frozenset(str(name) for name in unobserved)
     outcomes: list[SourceOutcome] = []
     for result in getattr(cycle, "results", ()):
         adapter_id = result.adapter_id.value
@@ -109,10 +137,21 @@ def outcomes_for_cycle(cycle, *, credentials=None) -> tuple[SourceOutcome, ...]:
     plan = getattr(cycle, "plan", None)
     for skipped in getattr(plan, "skipped", ()):
         adapter_id = skipped.adapter_id.value
-        bucket = SourceOutcome.FAILED if skipped.reason in COUNTED_SKIPS \
-            else SourceOutcome.NOT_CONSULTED
-        outcomes.append(SourceOutcome(
-            adapter_id, bucket, f"{skipped.reason}: {skipped.detail}"))
+        detail = f"{skipped.reason}: {skipped.detail}"
+        if skipped.reason in DEFERRED_SKIPS:
+            if adapter_id in dark:
+                bucket = SourceOutcome.FAILED
+                detail = (f"{detail} — and L1 holds no observation from this "
+                          f"source at all, so nothing of it is in force")
+            else:
+                bucket = SourceOutcome.NOT_CONSULTED
+                detail = (f"{detail} — its last reading is still in force, "
+                          f"so this tick scored from it anyway")
+        elif skipped.reason in COUNTED_SKIPS:
+            bucket = SourceOutcome.FAILED
+        else:
+            bucket = SourceOutcome.NOT_CONSULTED
+        outcomes.append(SourceOutcome(adapter_id, bucket, detail))
 
     if credentials is not None:
         # An adapter whose REQUIRED credential is missing never reaches a
@@ -153,6 +192,45 @@ def stale_sources(store, *, now: float, adapters: Iterable,
         if newest is not None and (now - newest) > horizon:
             stale.append(adapter.name)
     return tuple(sorted(set(stale)))
+
+
+def never_observed(store, *, now: float, adapters: Iterable,
+                   countries: Sequence[str] = ()) -> tuple[str, ...]:
+    """Adapters L1 holds no observation from AT ALL. G-19's other half.
+
+    `stale_sources` cannot answer this: it ages rows that exist and skips
+    an adapter with none (`if newest is not None`), which is right for its
+    own question and is exactly why a source that has never spoken is
+    invisible to it. On a cold ledger that describes most of the catalogue,
+    and a first tick that swept 40% of its sources would otherwise conclude
+    with the same input health as one that swept all of them.
+
+    The scope is this tick's participants **and GLOBAL**, not one or the
+    other. `stale_sources` writes `tuple(countries) or ("GLOBAL",)`, so
+    whenever a tick has participants — which is every real tick — it never
+    looks at GLOBAL at all, and a countryless family (`apt_intel`,
+    `cf_bgp_hijack`, every §7-2 #127 row) can never be reported stale.
+    That is a real gap in the OTHER function and it is left alone here
+    deliberately: closing it makes more sources unusable, which is a
+    sensitivity change with its own direction and its own registration.
+    Reproducing it here would have been worse than either — it would mark
+    every countryless adapter permanently dark and fire the coverage guard
+    on a healthy deployment forever.
+
+    Each probe is an index seek on `idx_signal_obs_lookup`'s
+    `(sensor, country)` prefix and `any()` stops at the first hit, so a
+    warm ledger costs about one seek per adapter; the full 31 x 28 only
+    happens while the ledger is genuinely empty.
+    """
+    dark: list[str] = []
+    scope = tuple(countries) + ("GLOBAL",)
+    for adapter in adapters:
+        seen = any(store.latest_signal_at(now, sensor=adapter.name,
+                                          country=country) is not None
+                   for country in scope)
+        if not seen:
+            dark.append(adapter.name)
+    return tuple(sorted(set(dark)))
 
 
 def history_span_sec(store, scenario_id: str, *, now: float) -> float:
@@ -202,10 +280,46 @@ def for_scenario(cycle, *, store, scenario_id: str, now: float,
     """The whole supply, in one call. The impure entry point."""
     adapters = tuple(adapters)
     return build(
-        outcomes_for_cycle(cycle, credentials=credentials),
+        outcomes_for_cycle(
+            cycle, credentials=credentials,
+            unobserved=never_observed(store, now=now, adapters=adapters,
+                                      countries=countries)),
         stale=stale_sources(store, now=now, adapters=adapters,
                             countries=countries),
         history_span=history_span_sec(store, scenario_id, now=now))
+
+
+def sweep_coverage(cycle, *, unobserved: Sequence[str] = ()) -> dict:
+    """How much of what this tick MEANT to fetch it actually fetched.
+
+    G-19's disclosure. The budget makes a partial sweep a normal, expected
+    state; what must never be normal is a partial sweep that reads like a
+    complete one. `deferred` is what the budget held back and `dark` is the
+    subset of those that L1 has never heard from at all — the second number
+    is the one that says whether the tool is concluding from a sample of
+    the world or from a sample of its own schedule.
+
+    Counted over the adapters that were DUE, not over the whole catalogue:
+    an adapter on a four-hour cadence is not missing from a sweep at minute
+    thirty, and counting it would report every steady-state tick as
+    partial, which is how a real alarm comes to be ignored.
+    """
+    plan = getattr(cycle, "plan", None)
+    executed = tuple(getattr(cycle, "results", ()))
+    deferred = tuple(item for item in getattr(plan, "skipped", ())
+                     if item.reason in DEFERRED_SKIPS)
+    dark = frozenset(str(name) for name in unobserved)
+    deferred_ids = sorted(item.adapter_id.value for item in deferred)
+    dark_ids = sorted(name for name in deferred_ids if name in dark)
+    due = len(executed) + len(deferred_ids)
+    return {
+        "due": due,
+        "fetched": len(executed),
+        "deferred": deferred_ids,
+        "deferred_never_observed": dark_ids,
+        "complete": not deferred_ids,
+        "coverage": 1.0 if not due else round(len(executed) / due, 3),
+    }
 
 
 def disclosure(outcomes: Sequence[SourceOutcome]) -> list[dict]:
@@ -214,5 +328,7 @@ def disclosure(outcomes: Sequence[SourceOutcome]) -> list[dict]:
 
 
 __all__ = ["SourceOutcome", "COUNTED_SKIPS", "UNCOUNTED_SKIPS",
-           "outcomes_for_cycle", "stale_sources", "history_span_sec",
-           "build", "for_scenario", "disclosure"]
+           "DEFERRED_SKIPS",
+           "outcomes_for_cycle", "stale_sources", "never_observed",
+           "history_span_sec", "build", "for_scenario", "disclosure",
+           "sweep_coverage"]

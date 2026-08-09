@@ -236,6 +236,126 @@ class TestStalenessIsAskedOfTheLedger:
                                countries=("TW", "JP")) == ()
 
 
+class TestABudgetDeferralMeansTwoDifferentThings:
+    """G-19. The same skip reason, and opposite operational facts.
+
+    Scoring reads L1's in-force projection at `now`, not this tick's rows,
+    so an adapter deferred for one tick is still being scored from what it
+    said last time — counting that as a failure fires the coverage guards
+    on a healthy deployment. An adapter that has NEVER been fetched has
+    nothing in the projection, and `stale_sources` cannot see it either
+    because it only ages rows that exist. Left undistinguished, a first
+    tick that swept 40% of its sources concludes exactly like one that
+    swept all of them, which is G-17.
+    """
+
+    def test_a_deferral_with_a_reading_still_in_force_is_not_a_failure(self):
+        outcomes = H.outcomes_for_cycle(
+            _cycle(skipped=[_skip("gdelt", runner_module.BUDGET_DEFERRED)]),
+            unobserved=())
+        assert [o.bucket for o in outcomes] == [H.SourceOutcome.NOT_CONSULTED]
+        assert "still in force" in outcomes[0].detail
+
+    def test_a_deferral_of_a_source_that_never_spoke_is_a_failure(self):
+        outcomes = H.outcomes_for_cycle(
+            _cycle(skipped=[_skip("gdelt", runner_module.BUDGET_DEFERRED)]),
+            unobserved=("gdelt",))
+        assert [o.bucket for o in outcomes] == [H.SourceOutcome.FAILED]
+        assert "no observation from this source at all" in outcomes[0].detail
+
+    def test_the_darkness_only_applies_to_the_budget_skip(self):
+        """`NOT_DUE` stays uncounted whatever the ledger holds: a source on
+        a four-hour cadence is not a broken source at minute thirty."""
+        outcomes = H.outcomes_for_cycle(
+            _cycle(skipped=[_skip("slow", runner_module.NOT_DUE)]),
+            unobserved=("slow",))
+        assert [o.bucket for o in outcomes] == [H.SourceOutcome.NOT_CONSULTED]
+
+    def test_a_cold_partial_sweep_reaches_the_coverage_guard(self):
+        """The end-to-end claim. Three sources fetched, three deferred and
+        never observed, is a degraded_ratio of 0.5 — which is what turns a
+        calm verdict into "inconclusive, and here is why" (NP5+8)."""
+        health = H.build(H.outcomes_for_cycle(
+            _cycle(results=[_result("a"), _result("b"), _result("c")],
+                   skipped=[_skip(n, runner_module.BUDGET_DEFERRED)
+                            for n in ("d", "e", "f")]),
+            unobserved=("d", "e", "f")))
+        assert health.consulted == 6
+        assert health.degraded_ratio == 0.5
+
+    def test_a_warm_partial_sweep_does_not(self):
+        health = H.build(H.outcomes_for_cycle(
+            _cycle(results=[_result("a"), _result("b"), _result("c")],
+                   skipped=[_skip(n, runner_module.BUDGET_DEFERRED)
+                            for n in ("d", "e", "f")]),
+            unobserved=()))
+        assert health.consulted == 3
+        assert health.degraded_ratio == 0.0
+
+
+class TestNeverObservedIsAskedOfTheLedger:
+    def test_a_source_that_never_wrote_is_dark(self, ledger_store):
+        assert H.never_observed(ledger_store, now=1_000.0,
+                                adapters=[_adapter("never")],
+                                countries=("TW",)) == ("never",)
+
+    def test_a_source_that_wrote_once_is_not_dark_however_old(self,
+                                                              ledger_store):
+        """Age is `stale_sources`' question. This one is only ever "has it
+        EVER spoken", and conflating them would count one outage twice."""
+        write_signal(ledger_store, sensor="ancient", country="TW",
+                     observed_at=1_000.0, horizon=60.0)
+        assert H.never_observed(ledger_store, now=9_000_000.0,
+                                adapters=[_adapter("ancient")],
+                                countries=("TW",)) == ()
+
+    def test_a_countryless_source_is_found_under_global(self, ledger_store):
+        """The scope is participants AND GLOBAL. `stale_sources` writes
+        `countries or ("GLOBAL",)`, so on any tick with participants it
+        never looks at GLOBAL — reproducing that here would mark every
+        countryless family permanently dark and fire the coverage guard on
+        a healthy deployment forever."""
+        write_signal(ledger_store, sensor="apt_intel", country="GLOBAL",
+                     observed_at=1_000.0, horizon=3600.0)
+        assert H.never_observed(ledger_store, now=1_500.0,
+                                adapters=[_adapter("apt_intel")],
+                                countries=("TW", "JP")) == ()
+
+
+class TestTheSweepCoverageIsReported:
+    """G-19's disclosure. A partial sweep is a normal state; a partial
+    sweep that reads like a complete one is not."""
+
+    def test_a_complete_sweep_says_so(self):
+        sweep = H.sweep_coverage(_cycle(results=[_result("a"), _result("b")]))
+        assert sweep["complete"] is True
+        assert sweep["coverage"] == 1.0
+        assert sweep["deferred"] == []
+
+    def test_a_partial_sweep_names_what_it_deferred(self):
+        sweep = H.sweep_coverage(
+            _cycle(results=[_result("a")],
+                   skipped=[_skip("b", runner_module.BUDGET_DEFERRED),
+                            _skip("c", runner_module.BUDGET_DEFERRED)]),
+            unobserved=("c",))
+        assert sweep["complete"] is False
+        assert sweep["due"] == 3 and sweep["fetched"] == 1
+        assert sweep["coverage"] == 0.333
+        assert sweep["deferred"] == ["b", "c"]
+        assert sweep["deferred_never_observed"] == ["c"]
+
+    def test_a_not_due_adapter_does_not_make_a_sweep_partial(self):
+        """Counted over what was DUE. An adapter on a four-hour cadence is
+        not missing from a sweep at minute thirty, and counting it would
+        report every steady-state tick as partial — which is how a real
+        alarm comes to be ignored."""
+        sweep = H.sweep_coverage(
+            _cycle(results=[_result("a")],
+                   skipped=[_skip("b", runner_module.NOT_DUE)]))
+        assert sweep["complete"] is True
+        assert sweep["due"] == 1
+
+
 class TestHistorySpanIsDerived:
     def test_no_history_is_zero(self, ledger_store):
         assert H.history_span_sec(ledger_store, "taiwan_contingency",

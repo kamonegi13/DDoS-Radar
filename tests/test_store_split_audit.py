@@ -41,7 +41,10 @@ LEDGER_DIR = REPO_ROOT / "v3" / "ledger"
 
 
 class TestTheStoreIsSplitAndUnderTheHouseLimit:
-    @pytest.mark.parametrize("name", ["store.py", "store_entities.py",
+    @pytest.mark.parametrize("name", ["store.py", "store_attention.py",
+                                      "store_calibration.py",
+                                      "store_connections.py",
+                                      "store_entities.py",
                                       "store_migration.py"])
     def test_each_module_is_within_the_line_limit(self, name):
         lines = (LEDGER_DIR / name).read_text(encoding="utf-8").splitlines()
@@ -63,10 +66,12 @@ class TestTheStoreIsSplitAndUnderTheHouseLimit:
         store two objects wearing one name."""
         from v3.ledger.store_attention import AttentionLedgerMixin
         from v3.ledger.store_calibration import CalibrationLedgerMixin
+        from v3.ledger.store_connections import ConnectionMixin
         from v3.ledger.store_entities import EntityStateMixin
         from v3.ledger.store_migration import MigrationSupportMixin
         for mixin in (AttentionLedgerMixin, CalibrationLedgerMixin,
-                      EntityStateMixin, MigrationSupportMixin):
+                      ConnectionMixin, EntityStateMixin,
+                      MigrationSupportMixin):
             assert "__init__" not in vars(mixin)
             assert "__slots__" not in vars(mixin)
             assert mixin.__bases__ == (object,)
@@ -77,6 +82,7 @@ class TestTheAuditFollowsTheClassAcrossModules:
         report = SS.coverage()
         assert report["modules"] == ["store.py", "store_attention.py",
                                      "store_calibration.py",
+                                     "store_connections.py",
                                      "store_entities.py",
                                      "store_migration.py"]
 

@@ -97,12 +97,35 @@ services:
       # http on a loopback-published port; flip to true behind TLS.
       - NOROSHI_V3_COOKIE_SECURE=${NOROSHI_V3_COOKIE_SECURE:-false}
     healthcheck:
+      # The check asserts the LOOP, not the process. The previous version
+      # opened /healthz and accepted any 2xx, and that is how this
+      # container reported `healthy` for its whole run while every tick died at
+      # its first write and `tl_observation` stayed empty — G-17 at the
+      # container layer. The status field has four values and only `ok`
+      # means "a tick completed inside its budget"; `starting` and
+      # `unknown` are honest 200s that are NOT health, so the compare is
+      # what catches them. A `degraded` answer is a 503, which raises here
+      # on its own.
       test: ["CMD", "python", "-c",
-             "import urllib.request; urllib.request.urlopen('http://localhost:8300/healthz', timeout=5)"]
+             "import json,sys,urllib.request; sys.exit(0 if json.loads(urllib.request.urlopen('http://localhost:8300/healthz', timeout=5).read())['health']['status'] == 'ok' else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      # Three tick intervals at the default 60s cadence, and DELIBERATELY
+      # shorter than the endpoint's own first-tick grace (30 min — the
+      # measured cold sweep, `ops_health.first_tick_grace`). The two do
+      # not agree, and the disagreement is the choice:
+      #
+      #   * a genuinely slow cold start reads `unhealthy` here for the
+      #     length of its first sweep, while /healthz says `starting` with
+      #     the reason. A false alarm.
+      #   * a genuinely broken loop reads `unhealthy` in about five
+      #     minutes rather than in thirty.
+      #
+      # NP1: a missed alarm is worse than a noisy one, and this container
+      # has already spent a whole run being green over nothing. Read
+      # /healthz — not `docker ps` — to tell the two apart.
+      start_period: 180s
     logging:
       driver: json-file
       options:

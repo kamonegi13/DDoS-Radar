@@ -34,10 +34,16 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Optional, Sequence
 
+from v3.adapters.cyber.apt_intel import SIGNAL_SOURCE as APT_INTEL_SIGNAL
 from v3.adapters.info.telegram_mirror import CHANNEL_SOURCE_PREFIX
+from v3.adapters.llm.diplomatic import SIGNAL_SOURCE as DIPLOMATIC_SIGNAL
+from v3.adapters.llm.hacktivist_news import SIGNAL_SOURCE as \
+    HACKTIVIST_NEWS_SIGNAL
+from v3.adapters.llm.military_exercise import SIGNAL_SOURCE as \
+    MILITARY_EXERCISE_SIGNAL
 from v3.adapters.info.travel_advisory import SOURCE_PREFIX as \
     ADVISORY_SOURCE_PREFIX
-from v3.adapters.types import ObservationDraft
+from v3.adapters.types import CYBER, INFO, ObservationDraft
 from v3.kernel.errors import DomainError
 # Re-exported so `v3.runtime.reduce` stays the ONE name a caller needs
 # after the 800-line split (`tests/test_runtime_reduce.py` reaches every
@@ -47,10 +53,11 @@ from v3.kernel.errors import DomainError
 from v3.runtime.reduce_common import (CHECKHOST_URL_OK_RATE,  # noqa: F401
                                       NARRATIVE_SOURCE_PREFIX, PENDING_PREFIX,
                                       Reduction)
+from v3.runtime.reduce_common import fold_candidate_articles
 from v3.runtime.reduce_cyber import _fold_cloudflare
-from v3.runtime.reduce_info import (_fold_ct_log, _fold_gdelt,
-                                    _fold_named_sources, _fold_ripe_bgp,
-                                    _fold_tor)
+from v3.runtime.reduce_info import (_fold_bg_observer, _fold_ct_log,
+                                    _fold_gdelt, _fold_named_sources,
+                                    _fold_ripe_bgp, _fold_tor)
 from v3.runtime.reduce_physical import (_fold_ais, _fold_check_host,
                                         _fold_ihr, _fold_isr, _fold_mil_air,
                                         _fold_ripe_atlas,
@@ -113,6 +120,44 @@ REDUCTIONS: tuple[Reduction, ...] = (
                                    "article_count", "normalized_freq")),
               "§7-2 #51", "radar/routes/core.py:1197-1216",
               "feeds fold into one theatre entry"),
+    Reduction("bg_observer_rss", _fold_bg_observer, "§7-2 #11, #137",
+              "radar/background_observer.py:369-401 / "
+              "radar/scoring.py:1424-1432 / radar/routes/core.py:2103-2113",
+              "the nine feeds' rows for one country fold by MAX, which is "
+              "the fold `dedup_by_source_country_max` applies to the same "
+              "family downstream (weights are 1.0, so ranking by raw_score "
+              "and by final_contribution select the same row)"),
+    # The four candidate-article adapters, ONE fold (§7-2 #138). Each
+    # declares 5-11 feeds and emits a countryless OBSERVED row per selected
+    # article, so any cycle in which two feeds both yield an item collides
+    # on L1's UNIQUE key. Production builds no `Signal` from any of them —
+    # every one ends at `set_cache({<name>: {"submitted": N}})` whose only
+    # reader asks whether the integer is above zero
+    # (`convergence_tracker.py:132-139`) — and their articles reach scoring
+    # through `intel_queue.submit` as `llm_intel` instead.
+    Reduction("apt_intel",
+              fold_candidate_articles(APT_INTEL_SIGNAL, CYBER), "§7-2 #138",
+              "radar/sensors/apt_intel.py:591,605-608 / "
+              "radar/sensors/convergence_tracker.py:138-139",
+              "the five CERT feeds' candidate articles and feed-liveness "
+              "verdicts fold into the ONE countryless OBSERVED row "
+              "production's cache holds"),
+    Reduction("diplomatic",
+              fold_candidate_articles(DIPLOMATIC_SIGNAL, INFO), "§7-2 #138",
+              "radar/sensors/diplomatic.py:552,568-570 / "
+              "radar/sensors/convergence_tracker.py:132-133",
+              "eleven feeds' candidate articles fold into one row"),
+    Reduction("military_exercise",
+              fold_candidate_articles(MILITARY_EXERCISE_SIGNAL, INFO),
+              "§7-2 #138",
+              "radar/sensors/military_exercise.py:429,438-440 / "
+              "radar/sensors/convergence_tracker.py:135-136",
+              "seven feeds' candidate articles fold into one row"),
+    Reduction("hacktivist_news",
+              fold_candidate_articles(HACKTIVIST_NEWS_SIGNAL, INFO),
+              "§7-2 #138",
+              "radar/sensors/hacktivist_news_sensor.py:452,466-468",
+              "five feeds' candidate articles fold into one row"),
     Reduction("travel_advisory",
               _fold_named_sources("travel_advisory", ADVISORY_SOURCE_PREFIX,
                                   ("source", "level", "level_label",

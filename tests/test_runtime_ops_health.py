@@ -131,6 +131,55 @@ class TestTheFoldRefusesToRoundUp:
         assert all(row["reason"] for row in folded["monitors"])
 
 
+class TestTheSweepMonitorSaysHowMuchOfTheCatalogueSpoke:
+    """G-19. The budget makes a partial sweep normal; this is what stops a
+    partial sweep from being SILENT."""
+
+    def _sweep(self, *, deferred=(), dark=(), fetched=5):
+        return {"due": fetched + len(deferred), "fetched": fetched,
+                "deferred": list(deferred),
+                "deferred_never_observed": list(dark),
+                "complete": not deferred,
+                "coverage": round(fetched / (fetched + len(deferred)), 3)}
+
+    def test_a_complete_sweep_is_ok(self):
+        row = O.sweep_monitor(self._sweep())
+        assert row["verdict"] == O.OK
+        assert row["reason"] == O.REASON_SWEEP_COMPLETE
+
+    def test_a_staged_sweep_of_sources_still_in_force_is_insufficient(self):
+        row = O.sweep_monitor(self._sweep(deferred=("gdelt",)))
+        assert row["verdict"] == O.INSUFFICIENT
+        assert row["reason"] == O.REASON_SWEEP_PARTIAL
+
+    def test_a_deferred_source_that_never_spoke_is_an_anomaly(self):
+        """The cold-start state. Transient by design and reported as
+        loudly as a fault, because a conclusion drawn from 40% of the
+        catalogue must not read like a quiet world."""
+        row = O.sweep_monitor(self._sweep(deferred=("gdelt",), dark=("gdelt",)))
+        assert row["verdict"] == O.ANOMALY
+        assert row["reason"] == O.REASON_SWEEP_DARK
+        assert row["deferred_never_observed"] == ["gdelt"]
+
+    def test_no_report_is_unsupplied_and_never_ok(self):
+        assert O.sweep_monitor(None)["verdict"] == O.UNSUPPLIED
+        assert O.sweep_monitor(None)["reason"] == O.REASON_SWEEP_UNSUPPLIED
+
+    def test_an_empty_report_is_also_unsupplied(self):
+        """`TickReport.sweep` defaults empty. An empty mapping has not told
+        us the sweep was whole — it has told us nothing."""
+        assert O.sweep_monitor({})["verdict"] == O.UNSUPPLIED
+
+    def test_the_probe_carries_it(self, store):
+        folded = O.probe(store.path, span_sec=None, now=NOW,
+                         marker=store.path + ".missing",
+                         sweep=self._sweep(deferred=("a",), dark=("a",)))
+        row = O.monitor_named(folded, O.MONITOR_SWEEP)
+        assert row["verdict"] == O.ANOMALY
+        assert folded["worst_verdict"] == O.ANOMALY
+        assert folded["worst_monitor"] == O.MONITOR_SWEEP
+
+
 class TestR7ServesIt:
     def _self_eval(self, store, *, ops=None):
         response = handle(
@@ -144,9 +193,15 @@ class TestR7ServesIt:
     def test_the_field_exists_even_with_no_probe(self, store):
         block = self._self_eval(store)
         assert block["worst_band"] == O.BAND_RESERVED
-        assert block["worst_monitor"] == O.MONITOR_BACKUP
+        # `tick_loop` leads the declaration order, so it wins the tie —
+        # deliberately: when several monitors are equally unanswerable,
+        # the one an operator acts on first is "has this tool concluded
+        # anything".
+        assert block["worst_monitor"] == O.MONITOR_LOOP
         assert block["threshold"] == 0
-        assert block["failing_count"] == 4
+        # Six since G-19 added `sweep`: with no probe composed, every one
+        # of the six is non-OK, which is the whole shape of the block.
+        assert block["failing_count"] == 6
 
     def test_a_probed_deployment_serves_its_measurements(self, store,
                                                          tmp_path):

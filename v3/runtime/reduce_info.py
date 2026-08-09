@@ -371,3 +371,54 @@ def _fold_named_sources(signal_source: str, prefix_of,
                 evidence_url=_first_url(carried)))
         return reduced
     return fold
+
+
+def _fold_bg_observer(drafts: Sequence[ObservationDraft],
+                      baselines: Mapping[str, Any],
+                      now: float) -> list[ObservationDraft]:   # noqa: ARG001
+    """The nine feeds' rows for one country become the ONE production scores.
+
+    `normalize` already takes the MAX across the items INSIDE one feed body
+    (`bg_observer_rss.py:181-195`), and said in the same breath that the
+    fold ACROSS the nine feeds belonged here — the adapter declares nine
+    `RequestSpec`s, `normalize` is called once per payload (§2-2 barrier 1),
+    and two wires carrying the same war produce two rows for one country.
+    That is the collision, and it is the last third of the same fold.
+
+    **MAX, because MAX is what production computes.** The observer enqueues
+    one Signal per (country, item) with no fold of its own
+    (`background_observer.py:369-401`), and `dedup_by_source_country_max`
+    (`radar/scoring.py:1424-1432`) keeps, per `(signal_source,
+    contributing_country)`, the contribution with the largest
+    `final_contribution`. For this family that ordering is the ordering of
+    `raw_score`: the drain gives every bg_observer signal
+    `country_weights={c: 1.0}` (`radar/routes/core.py:2103-2113`), so
+    `final = raw_score x 1.0 x participant_weight` and the participant
+    weight is one number per country per scenario. Ranking by `raw_score`
+    here and by `final_contribution` there select the same row.
+
+    Taking the SUM instead would be the one genuinely wrong answer. Nine
+    wires reporting one strike is nine reports of one event, not nine
+    events, and production is explicit that the duplicates exist to be
+    deduplicated (`background_observer.py:276-279`).
+
+    What loses is still disclosed. `feeds_matched` counts the wires that
+    named this country and `folded` carries each one's score and display
+    line, because "one feed mentioned Iran" and "seven did" are different
+    facts about corroboration and only the winner's number survives the
+    fold.
+    """
+    reduced: list[ObservationDraft] = []
+    for country, group in _by_country(drafts).items():
+        best = max(group, key=lambda draft: float(draft.raw_score))
+        folded = [{"raw_score": float(d.raw_score), "value": d.value,
+                   "evidence_url": d.evidence_url,
+                   "items_in_feed": d.flags.get("items_in_feed")}
+                  for d in group]
+        items_seen = sum(int(d.flags.get("items_in_feed") or 0) for d in group)
+        reduced.append(replace(
+            best, flags={**dict(best.flags),
+                         "feeds_matched": len(group),
+                         "items_seen_total": items_seen,
+                         "folded": folded}))
+    return reduced

@@ -321,12 +321,19 @@ class TestNoLegacyModuleIsReachable:
         """"No writes to a v1 table" starts as a property of the graph.
 
         Two modules in the reachable set can open a database, and both
-        take their path from the caller: `v3/ledger/store.py` (the v3
-        ledger, whose path this entrypoint refuses to let be a v1 file)
-        and `v3/parity/ledger.py` (the harness's own separate file,
-        reachable only because `v3/runtime/scoring.py` borrows the parity
-        input adapter). The server constructs neither by accident — the
-        test below watches every connect during a whole boot.
+        take their path from the caller: `v3/ledger/store_connections.py`
+        (every handle to the v3 ledger, whose path this entrypoint refuses
+        to let be a v1 file) and `v3/parity/ledger.py` (the harness's own
+        separate file, reachable only because `v3/runtime/scoring.py`
+        borrows the parity input adapter). The server constructs neither
+        by accident — the test below watches every connect during a whole
+        boot.
+
+        `store.py` used to be the first of the two and is no longer an
+        opener at all: the handles moved to `store_connections.py` when
+        the write connection became per-thread. Still ONE jurisdiction
+        (A-09) — one object, one file, one module that opens it — which is
+        why the count is the property asserted rather than the names.
         """
         code = (
             "import sys\n"
@@ -346,7 +353,8 @@ class TestNoLegacyModuleIsReachable:
             source = Path(line).read_text(encoding="utf-8")
             if "sqlite3.connect" in source:
                 openers.append(Path(line).name)
-        assert sorted(openers) == ["ledger.py", "store.py"], openers
+        assert sorted(openers) == ["ledger.py", "store_connections.py"], \
+            openers
 
     def test_the_server_package_constructs_no_second_store(self):
         for path in sorted(SERVER_DIR.glob("*.py")):
@@ -553,9 +561,20 @@ def web(deployment):
 
 
 class TestTheWebSurface:
-    def test_healthz_answers(self, web):
+    def test_healthz_answers_and_says_the_loop_has_not_started(self, web):
+        """This deployment is composed but never started, so the honest
+        answer is `degraded`, not `ok`.
+
+        It used to be an unconditional 200 with a literal `"ok"` body, and
+        that is what let the shadow container report healthy
+        while every tick failed. What this test guards now is that the
+        route ANSWERS at all — the four statuses and their codes are
+        `tests/test_v3_health_surface.py`.
+        """
         response = web.get("/healthz")
-        assert response.status_code == 200
+        assert response.status_code == 503
+        assert response.get_json()["health"]["status"] == "degraded"
+        assert response.get_json()["health"]["reason"] == "loop_not_started"
 
     def test_the_api_is_mounted_under_its_prefix(self, web):
         """Mounted means routed. `/healthz` is the one public route

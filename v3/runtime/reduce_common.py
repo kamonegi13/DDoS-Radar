@@ -24,7 +24,8 @@ from typing import Any, Callable, Mapping, Optional, Sequence
 from v3.adapters.info.rss_narrative import feed_source as _feed_source
 from v3.adapters.physical.check_host import URL_OK_RATE as \
     CHECK_HOST_URL_OK_RATE
-from v3.adapters.types import STATUS_NO_DATA, ObservationDraft
+from v3.adapters.types import (STATUS_NO_DATA, STATUS_OBSERVED,
+                               ObservationDraft)
 
 #: Production's per-URL "this URL is up" line (`checkhost.py:225-233`),
 #: taken from the adapter that already declares it rather than restated.
@@ -124,6 +125,91 @@ def _measured(drafts: Sequence[ObservationDraft],
     """
     return [d for d in drafts
             if d.status != STATUS_NO_DATA and int(d.flags.get(key, 0) or 0) >= 0]
+
+
+def fold_candidate_articles(signal_source: str, domain: str):
+    """N feeds' candidate articles -> the ONE row production has. §7-2 #138.
+
+    FOUR adapters share this shape exactly — `apt_intel`, `diplomatic`,
+    `military_exercise`, `hacktivist_news`. Each declares five to eleven
+    feeds, `normalize` is called once per payload (§2-2 barrier 1), and each
+    call emits one countryless `OBSERVED` draft per SELECTED ARTICLE plus a
+    `NO_DATA` draft for a feed that did not answer. Every one of those rows
+    carries the adapter's single `SIGNAL_SOURCE` and `country=""`, so any
+    cycle in which two feeds both yield an item collides on L1's
+    `UNIQUE (tick_id, sensor, signal_source, country)` and the tick raises
+    before it can score.
+
+    **One fold, not four.** The design sheet's own A-02 finding is eight
+    copies of one prompt drifting apart; four copies of one fold would be
+    the same mistake in the layer built to prevent it.
+
+    **What production puts in front of scoring is a count, and no signal.**
+    All four sensors end the same way — `log_fetch(any_feed_ok, ms, 0,
+    submitted)` and `set_cache({<name>: {"submitted": N}})`
+    (`radar/sensors/apt_intel.py:605-608`, `diplomatic.py:568-570`,
+    `military_exercise.py:438-440`, `hacktivist_news_sensor.py:466-468`) —
+    and the only reader of those cache entries is
+    `convergence_tracker.py:132-139`, which asks whether the integer is
+    above zero. No `Signal` is built from any of them, so each family's
+    contribution to every scenario score is exactly zero.
+
+    The articles DO reach scoring, by another road: each is
+    `intel_queue.submit`-ed with an LLM-assigned country and becomes an
+    `llm_intel` signal. v3 keeps that road — `v3/adapters/llm/extraction.py`
+    is the one extraction surface — but nothing in `v3/runtime/` calls it
+    yet, so for all four the selected articles are candidates waiting on a
+    stage that is not wired.
+
+    So one row, `OBSERVED`, `raw_score=0.0`, countryless, carrying every
+    article in `flags`. The `cf_spike_target` (§7-2 #118) / `ooni_heavy`
+    (#131) shape, with the one difference that no NAME has to be invented:
+    the articles fit in the row production already has.
+
+    A dead feed still reads as dead. The liveness rows fold into
+    `feeds_dead` and they decide the status — a cycle in which no feed
+    yielded a candidate is `NO_DATA`, because "this authority is serving an
+    error page" and "this authority published nothing this week" must not
+    print alike (DP9's repair, and the reason those rows exist at all).
+    """
+    def fold(drafts: Sequence[ObservationDraft],
+             baselines: Mapping[str, Any],
+             now: float) -> list[ObservationDraft]:   # noqa: ARG001
+        if not drafts:
+            return []
+        carrying = [d for d in drafts if d.flags.get("article")]
+        articles = [dict(d.flags["article"]) for d in carrying]
+        dead = [{"feed": d.flags.get("feed"), "outcome": d.flags.get("outcome"),
+                 "detail": d.flags.get("detail"),
+                 "parse_stage": d.flags.get("parse_stage")}
+                for d in drafts if not d.flags.get("article")]
+        feeds = sorted({str(d.flags.get("feed") or "") for d in carrying}
+                       - {""})
+        # Adapter-specific flags travel from the rows themselves rather than
+        # being restated here: `awaiting`, `confidence_floor`, `item_domain`
+        # and `selection_slot` differ across the four, and a fold that named
+        # them would be a fifth place to keep them in step.
+        carried_flags = {key: value
+                         for draft in (carrying or drafts)
+                         for key, value in draft.flags.items()
+                         if key not in ("article", "feed", "outcome",
+                                        "detail", "parse_stage")}
+        value = (f"{len(articles)} candidate article(s) from "
+                 f"{len(feeds)} feed(s)") if articles else \
+            f"no candidate article; {len(dead)} feed(s) did not answer"
+        return [ObservationDraft(
+            signal_source=signal_source, domain=domain, country="",
+            status=STATUS_OBSERVED if articles else STATUS_NO_DATA,
+            raw_score=0.0, confidence=_min_confidence(carrying or drafts),
+            value=value,
+            flags={**carried_flags,
+                   "articles": articles,
+                   "candidate_count": len(articles),
+                   "feeds_with_candidates": feeds,
+                   "feeds_dead": dead,
+                   "feeds_reporting": len(drafts)},
+            evidence_url=_first_url(carrying or drafts))]
+    return fold
 
 
 def _coverage(measured: Sequence, total: Sequence) -> dict:

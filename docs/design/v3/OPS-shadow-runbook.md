@@ -111,14 +111,53 @@ docker compose --profile shadow up -d --build v3_shadow
 
 ```bash
 docker compose --profile shadow ps v3_shadow
-curl -sS -D- -o/dev/null http://127.0.0.1:8300/healthz     # 200 + X-Noroshi-Mode: shadow
+curl -sS -D- http://127.0.0.1:8300/healthz     # X-Noroshi-Mode: shadow
 ```
+
+### `/healthz` の 4 値（2026-08-09 改訂）
+
+以前の `/healthz` は `{"status": "ok"}` を**リテラルで**返していた。その結果、
+影コンテナは稼働中ずっと `healthy` を出し続け、その間 1 度もティックは完走せず
+`tl_observation` は空だった。**これは G-17（空のキャッシュから ROUTINE を
+返す）がコンテナ層で再現したもの**である。現在は `ops_health` の `tick_loop`
+モニタ（`v3/runtime/ops_health.py`）を読み、次の 4 値を返す:
+
+| status | HTTP | 意味 | オーケストレータの取るべき動作 |
+|---|---|---|---|
+| `ok` | 200 | 稼働中かつ**結論を生産している** | 通常運用 |
+| `starting` | 200 | 初回ティックが未完了、まだ予算内 | **再起動しない**（起動中のものを起動し直すだけ） |
+| `unknown` | 200 | 応答はしたが、この配備は loop プローブを渡していない | 配線の欠落。健全でも故障でもない |
+| `degraded` | 503 | 稼働中だが**生産していない**（未完走 / 停止 / 遅延） | 台帳と `tick failed` を見る |
+
+500 は使わない。500 は「プローブ自身が答えられなかった」という**別の事実**で
+あり、2 つの状態が 1 つの答えを共有したことが今回の欠陥そのものだから。
+
+`compose` の healthcheck は `status == "ok"` を検査する（200 だけを見る検査は
+`starting` と `unknown` を healthy と読む）。
+
+> **冷起動では `docker ps` が数分間 `unhealthy` を出す。これは既知かつ意図的**。
+> 空の台帳では `fetch_schedule` が無く全 adapter が同時に due になるため、初回
+> ティックの掃引は**実測で 15 分以上**かかる。エンドポイント側はこれを
+> `starting` と呼ぶ（`first_tick_grace` = 30 分）が、compose の `start_period`
+> は 180 秒しかない — **わざと短くしてある**。両者が食い違う理由は NP1:
+>
+> - 遅いだけの冷起動 → 初回掃引の間 `unhealthy`（誤報）
+> - 本当に壊れたループ → 30 分ではなく約 5 分で `unhealthy`（本報）
+>
+> 見逃しは誤報より悪い。**どちらであるかは `docker ps` ではなく `/healthz` の
+> `status` と `tick_loop.errors` で判別する**（`starting` かつ `errors: 0` なら
+> 掃引中、`degraded` かつ `errors > 0` なら失敗中）。
+
+同じ測定は `GET /api/v3/self_eval` の `ops_health.monitors[]` にも出る（AP3）。
+**プローブは 1 つで、面が 2 つある。**
 
 ---
 
 ## 3. ティックが回っていることの確認
 
-**「コンテナが Up」はティックが回っている証拠ではない。** 見るのは 3 つ。
+**「コンテナが Up」はティックが回っている証拠ではない。**（2026-08-09 以降、
+`healthy` はその証拠になった — 上表参照。ただし `docker ps` の `Up` は依然
+として証拠ではない。）見るのは 3 つ。
 
 ```bash
 # (a) 起動時の開示。劣化しているものが WARNING で 1 行ずつ出ている

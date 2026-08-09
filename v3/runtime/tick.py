@@ -35,8 +35,10 @@ from v3.conclusions.availability import InputHealth
 from v3.conclusions.context import ScenarioContext
 from v3.conclusions.derive import derive_all
 from v3.conclusions.persistence import persist
+from v3.fetch import policy as fetch_policy
 from v3.fetch import recorder
-from v3.fetch.runner import CycleHooks, FetchPlan, execute_plan, run_due
+from v3.fetch.runner import (CycleHooks, FetchPlan, apply_budget, execute_plan,
+                             run_due)
 from v3.kernel.errors import DomainError
 from v3.runtime import attention as attention_module
 from v3.runtime import attribution as attribution_module
@@ -159,6 +161,16 @@ class TickReport:
     credentials: Mapping
     suppressors: Mapping
     coverage: Mapping
+    #: G-19's disclosure: how much of what this tick MEANT to fetch it
+    #: fetched, and how much of what it deferred L1 has never heard from.
+    #: On the report because a partial sweep that reads like a complete one
+    #: is this programme's signature defect, and the budget makes partial
+    #: sweeps a normal state rather than an exceptional one.
+    #:
+    #: Defaults EMPTY, not complete, and `ops_health.sweep_monitor` reads an
+    #: empty mapping as UNSUPPLIED for that reason: a report that says
+    #: nothing about its sweep has not told us the sweep was whole.
+    sweep: Mapping[str, object] = field(default_factory=dict)
     #: scenario_id -> `ScoringResult.as_dict()`. Empty when the tick ran
     #: acquisition-only, which is a different fact from "scored, nothing
     #: found" and must not look like it (NP5+8).
@@ -199,6 +211,7 @@ class TickReport:
                 "withheld": {adapter: [list(row) for row in rows]
                              for adapter, rows in self.withheld.items()},
                 "observations_written": self.observations_written,
+                "sweep": dict(self.sweep),
                 "health": dict(self.health),
                 "conclusions": dict(self.conclusions),
                 "credentials": dict(self.credentials),
@@ -218,7 +231,8 @@ def fetch_cycle(*, now: float, registry, store, client,
                 credentials: Optional[CredentialPlan] = None,
                 tick_id: Optional[str] = None,
                 adversaries: Sequence[str] = (),
-                cores: Sequence[str] = ()):
+                cores: Sequence[str] = (),
+                fetch_budget: Optional[int] = None):
     """Steps 1-4: schedule, expand, plan, execute. Returns a CycleResult.
 
     `adversaries` reaches the cloudflare fold, where an origin country's
@@ -230,6 +244,12 @@ def fetch_cycle(*, now: float, registry, store, client,
     `cores` reaches the same fold for the same reason: `cf_vector_shift`
     fires on whether an EFFECTIVE CORE shifted (`core.py:877`/`:886`), and
     an origin distribution cannot answer that on its own.
+
+    `fetch_budget` overrides G-19's per-tick request bound. An argument
+    rather than a read of `policy` at the call site so a test can make the
+    budget bite with three adapters instead of thirty-four, and so the
+    parity harness — which replays recorded payloads and has no wall clock
+    to protect — can lift it.
     """
     states = recorder.load_states(store)
     baselines = baselines_module.for_cycle(store, now=now,
@@ -243,9 +263,19 @@ def fetch_cycle(*, now: float, registry, store, client,
     # its stored snapshot is over a day old (`core.py:738-742`). The age
     # is in the snapshot this cycle already read, so the gate is data the
     # planner is handed rather than a second schedule to keep.
-    plan = order_producers_first(
+    #
+    # G-19: then bound it. A cold `fetch_schedule` makes every adapter due
+    # at once — 772 expanded steps against the deployed geography — and a
+    # sweep that cannot finish is a deployment that never reaches its first
+    # conclusion. `apply_budget` is pure and runs BEFORE the reordering, so
+    # the reordering still sees the whole admitted set; the producers are
+    # exempt from the budget for the same reason they are reordered, which
+    # is that a cycle missing its suppressor reads noise as signal.
+    plan = order_producers_first(apply_budget(
         run_due(now, registry.enabled(), states, None, expansions,
-                freshness=baselines_module.refresh_state(baselines)))
+                freshness=baselines_module.refresh_state(baselines)),
+        max_requests=fetch_budget or fetch_policy.FETCH_BUDGET_REQUESTS,
+        always_admit=PRODUCER_ORDER))
     state = _CycleState()
     cycle = execute_plan(
         plan, registry, client=client, store=store,
@@ -316,7 +346,7 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
              scenario_ids: Sequence[str],
              credentials: Optional[CredentialPlan] = None,
              config=None, focused_scenario_id: Optional[str] = None,
-             score=None) -> TickReport:
+             score=None, fetch_budget: Optional[int] = None) -> TickReport:
     """One whole tick. The composition root's single unit of work.
 
     `config` is the composition root's `ConfigResolver`. Supplying it is
@@ -368,7 +398,7 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
     cycle, state = fetch_cycle(
         now=now, registry=registry, store=store, client=client,
         geography=geography, countries=countries, credentials=credentials,
-        tick_id=identity, cores=cores,
+        tick_id=identity, cores=cores, fetch_budget=fetch_budget,
         adversaries=tuple(dict.fromkeys(
             country for scenario_id in scenarios
             for country in adversaries_of(geography, scenario_id))))
@@ -392,8 +422,17 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
         results_by_scenario = dict(score(now, cycle) or {}) \
             if score is not None else {}
 
+    # G-19: resolved against the ledger BEFORE the outcomes are built,
+    # because a budget deferral means opposite things depending on whether
+    # the source has ever spoken — free when its last reading is still in
+    # force, total darkness when there is no reading at all.
+    unobserved = health_module.never_observed(store, now=now,
+                                              adapters=registry.enabled(),
+                                              countries=countries)
     outcomes = health_module.outcomes_for_cycle(cycle,
-                                                credentials=credentials)
+                                                credentials=credentials,
+                                                unobserved=unobserved)
+    sweep = health_module.sweep_coverage(cycle, unobserved=unobserved)
     stale = health_module.stale_sources(store, now=now,
                                         adapters=registry.enabled(),
                                         countries=countries)
@@ -428,6 +467,7 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
         credentials=credentials.as_dict() if credentials else {},
         suppressors=state.suppressors.as_dict(),
         coverage=expansion_module.coverage_report(geography, countries),
+        sweep=sweep,
         scoring={scenario_id: scored.as_dict()
                  for scenario_id, scored in results_by_scenario.items()},
         settings=settings_disclosure,

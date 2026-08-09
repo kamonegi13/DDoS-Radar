@@ -61,6 +61,31 @@ _PINNED: dict[str, Threshold] = {
         provenance_ref="D1-sensors §4 (K01): honour Retry-After only up to "
                        "120s; a longer value means the daily quota is gone "
                        "and waiting cannot recover it"),
+    # G-19: a cold ledger has an empty `fetch_schedule`, so EVERY adapter
+    # is due in the same tick. Measured against the deployed geography (4
+    # scenarios, 27 participants) that first plan is 772 expanded steps and
+    # up to 935 requests, and two shadow runs were still inside `ppoll` at
+    # twenty-five minutes having reached neither the scoring stage nor a
+    # single `tl_observation`. A first sweep that cannot finish is a
+    # deployment that cannot reach a first conclusion, which NP5+8 makes a
+    # design failure rather than a slow start.
+    #
+    # 120 is derived, not chosen. `ops_health.LOOP_MIN_OVERDUE_SEC` is the
+    # 300s at which this programme's own health surface calls a deployment
+    # late, and the shadow ledger's measured cost is ~2.5s per request
+    # across the whole sweep (311 requests in >25 min; the healthy-only p95
+    # is 0.6s, so the average is carried by the timeout and retry paths —
+    # 3 attempts x (5s connect + 20s read) + backoff is 78s for one dead
+    # host). 120 x 2.5s = 300s, so one tick's fetch stage is sized to the
+    # same budget the monitor judges it by, and the 772-step cold sweep
+    # completes in seven ticks — well inside `first_tick_grace` (1800s).
+    "FETCH_BUDGET_REQUESTS": Threshold.pinned(
+        120, unit="count",
+        provenance_ref="G-19 / ops_health.LOOP_MIN_OVERDUE_SEC (300s) at "
+                       "the shadow ledger's measured ~2.5s per request "
+                       "across a full sweep; bounds ONE tick's fetch stage "
+                       "so a cold start reaches a conclusion by staging "
+                       "the sweep instead of never finishing it"),
     "MAX_BODY_BYTES": Threshold.pinned(
         8_000_000, unit="count",
         provenance_ref="Guard against an upstream streaming an unbounded "
@@ -81,6 +106,7 @@ HTTP_CONNECT_TIMEOUT_SEC = _value("HTTP_CONNECT_TIMEOUT_SEC")
 HTTP_MAX_ATTEMPTS = int(_value("HTTP_MAX_ATTEMPTS"))
 HTTP_BACKOFF_BASE_SEC = _value("HTTP_BACKOFF_BASE_SEC")
 RETRY_AFTER_MAX_SEC = _value("RETRY_AFTER_MAX_SEC")
+FETCH_BUDGET_REQUESTS = int(_value("FETCH_BUDGET_REQUESTS"))
 MAX_BODY_BYTES = int(_value("MAX_BODY_BYTES"))
 
 
@@ -102,5 +128,5 @@ def backoff_delay(attempt: int) -> float:
 
 __all__ = ["CB_FAILURE_THRESHOLD", "CB_INITIAL_DELAY_SEC", "CB_MAX_DELAY_SEC",
            "HTTP_TIMEOUT_SEC", "HTTP_CONNECT_TIMEOUT_SEC", "HTTP_MAX_ATTEMPTS", "HTTP_BACKOFF_BASE_SEC",
-           "RETRY_AFTER_MAX_SEC", "MAX_BODY_BYTES",
+           "RETRY_AFTER_MAX_SEC", "FETCH_BUDGET_REQUESTS", "MAX_BODY_BYTES",
            "pinned", "pinned_names", "backoff_delay"]

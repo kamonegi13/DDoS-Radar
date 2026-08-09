@@ -50,6 +50,14 @@ UNRESOLVED = "unresolved_placeholder"
 #: Every request the adapter would have sent still has a stored answer
 #: younger than its declared `refresh_after_sec` (§7-2 #117).
 FRESH_ENOUGH = "answer_still_fresh"
+#: This tick's request budget was already spent on adapters that had been
+#: waiting longer (G-19). NOT a failure and NOT "not due": the adapter is
+#: due, nothing is wrong with it, and it will be planned first next tick.
+#: Its own reason code because the three are different operational facts
+#: and `v3/runtime/health.py` has to be able to tell them apart — folding
+#: a deferral into `NOT_DUE` is how "we swept 40% of our sources" would
+#: come to render as an ordinary quiet tick.
+BUDGET_DEFERRED = "fetch_budget_deferred"
 
 #: Where a draft's `reason` lands in the observation's flags.
 #:
@@ -74,6 +82,12 @@ class PlannedFetch:
     steps: tuple[ResolvedStep, ...]
     breaker: BreakerState
     overdue_by_sec: float = 0.0
+    #: When this adapter last ran, or `None` for never. Carried because
+    #: `apply_budget` orders by it: `overdue_by_sec` is 0.0 for an adapter
+    #: that has NEVER run (`schedule.overdue_by`), so on a cold ledger every
+    #: candidate ties at zero and lateness cannot break the tie. "Longest
+    #: since it last spoke" can, and it is starvation-free by construction.
+    last_run_at: Optional[float] = None
     #: `(label, scope_key, due_at)` for each step this plan did NOT send
     #: because its stored answer is still fresh (§7-2 #117). Carried rather
     #: than dropped: a plan that quietly sends fewer requests than the
@@ -262,10 +276,114 @@ def run_due(now: float, adapters: Sequence[SourceAdapter],
             adapter_id=adapter.adapter_id, steps=steps, breaker=current,
             overdue_by_sec=schedule.overdue_by(now, state.last_run_at,
                                                adapter.cadence),
+            last_run_at=state.last_run_at,
             withheld=withheld))
 
     return FetchPlan(now=now, planned=tuple(planned), skipped=tuple(skipped),
                      breaker_states=effective)
+
+
+def _request_cost(item: PlannedFetch) -> int:
+    """What this adapter will cost the budget, counted in resolved steps.
+
+    STEPS rather than `requests`: a chain's later alternatives are only
+    reached when the earlier ones do not answer, so counting them would
+    charge every adapter for the failure it is hoping to avoid, and
+    `ct_log`'s 162 steps would price as 324.
+    """
+    return len(item.steps)
+
+
+def apply_budget(plan: FetchPlan, *, max_requests: int,
+                 always_admit: Sequence[str] = ()) -> FetchPlan:
+    """Bound ONE tick's fetch stage. PURE — a plan in, a plan out.
+
+    G-19. `is_due` answers True for every adapter that has never run, which
+    is correct and is also why a cold ledger plans the entire catalogue in
+    one tick: 772 expanded steps against the deployed geography, which two
+    shadow runs failed to finish in twenty-five minutes. A deployment that
+    cannot complete its first sweep cannot reach its first conclusion, and
+    the schedule never advances, so the next tick plans the same 772 again.
+
+    **The unit is the ADAPTER, and it is atomic.** An adapter is admitted
+    whole or deferred whole, even when it alone exceeds the budget
+    (`ct_log` does). Half-fetching is the one thing this must not do:
+    `reduce` folds across an adapter's payloads, so a ct_log that fetched
+    80 of its 162 domains would fold a verdict that looks exactly like a
+    complete one — G-17's shape, manufactured by the fix for G-19.
+
+    **Order is "longest since it last spoke", never registry order.** A
+    fixed order would be starvation-free here by accident (every cadence is
+    at least 300s and the loop ticks every 60s, so an adapter that runs
+    leaves the due set for at least five ticks) — but only by accident, and
+    the first adapter declared with a 30s cadence would silently monopolise
+    the budget. Ordering by `last_run_at` ascending, never-run first, is
+    starvation-free by construction: running an adapter makes it the most
+    recently run, which sorts it last.
+
+    `always_admit` is the composition root's list of suppression PRODUCERS.
+    They are exempt because deferring one changes how the adapters that DO
+    run are read: `space_weather` and `openweather` mute other families per
+    country, and a cycle missing its suppressor reports noise as signal.
+    They still spend the budget, so what follows them gets what is left.
+
+    At least one adapter is always admitted. A budget that could admit
+    nothing is a loop that fetches nothing forever, which is the livelock
+    this function exists to end wearing different clothes.
+    """
+    if max_requests <= 0:
+        raise DomainError(
+            f"max_requests must be positive, got {max_requests}: a "
+            f"non-positive budget defers every adapter forever, which is "
+            f"the livelock this bound exists to end")
+    exempt = frozenset(str(name) for name in always_admit)
+    admitted: list[PlannedFetch] = []
+    deferred: list[SkippedFetch] = []
+    spent = 0
+
+    def take(item: PlannedFetch) -> None:
+        nonlocal spent
+        admitted.append(item)
+        spent += _request_cost(item)
+
+    reserved = [item for item in plan.planned
+                if item.adapter_id.value in exempt]
+    for item in reserved:
+        take(item)
+
+    # `last_run_at is None` (never run) sorts first; the adapter id is the
+    # final tie-break so two adapters that last ran in the same instant
+    # order reproducibly (NP6 — a plan has to replay).
+    candidates = sorted(
+        (item for item in plan.planned if item.adapter_id.value not in exempt),
+        key=lambda item: (item.last_run_at is not None,
+                          item.last_run_at or 0.0, item.adapter_id.value))
+    for item in candidates:
+        cost = _request_cost(item)
+        if admitted and spent + cost > max_requests:
+            waited = "never run" if item.last_run_at is None \
+                else f"last ran at {item.last_run_at:.0f}"
+            deferred.append(SkippedFetch(
+                item.adapter_id, BUDGET_DEFERRED,
+                f"{cost} request(s) would take this tick to "
+                f"{spent + cost} of a {max_requests} budget; {waited}, so it "
+                f"is planned before the adapters admitted here next tick"))
+            continue
+        take(item)
+
+    if not deferred:
+        return plan
+    # The admitted set is returned in the PLAN's original order, not the
+    # priority order: `order_producers_first` and the executor read this
+    # sequence, and re-ordering here would move a decision about execution
+    # into a function about admission.
+    keep = {item.adapter_id.value for item in admitted}
+    return FetchPlan(
+        now=plan.now,
+        planned=tuple(item for item in plan.planned
+                      if item.adapter_id.value in keep),
+        skipped=plan.skipped + tuple(deferred),
+        breaker_states=plan.breaker_states)
 
 
 # ── the impure half ─────────────────────────────────────────────────────
@@ -574,8 +692,9 @@ def _append_drafts(store, adapter: SourceAdapter, drafts, *, tick_id: str,
     return written
 
 
-__all__ = ["run_due", "execute_plan", "FetchPlan", "PlannedFetch",
-           "CycleHooks",
+__all__ = ["run_due", "apply_budget", "execute_plan", "FetchPlan",
+           "PlannedFetch", "CycleHooks",
            "SkippedFetch", "CycleResult", "AdapterResult",
            "NOT_DUE", "BREAKER_OPEN", "RATE_LIMITED", "DISABLED",
-           "UNRESOLVED", "FRESH_ENOUGH", "FIRED_REASON_FLAG"]
+           "UNRESOLVED", "FRESH_ENOUGH", "BUDGET_DEFERRED",
+           "FIRED_REASON_FLAG"]

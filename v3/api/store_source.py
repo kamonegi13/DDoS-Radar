@@ -59,7 +59,14 @@ STORE_CLASS = "LedgerStore"
 #: READ_METHODS entry, and the audit refused the build rather than
 #: silently classifying it as neither — which is the G-01 shape and the
 #: reason this gate exists.
-METHOD_FLOOR = 68
+#: Raised 68 -> 69 on 2026-08-09 for `_version_on`, the private schema-
+#: version read that the per-thread write handle needed: `_migrate` runs
+#: at construction and must read the version off the connection it was
+#: HANDED, not off one a thread-keyed lookup might open underneath it.
+#: The same change moved the handle methods to `store_connections.py` —
+#: a SIXTH module on the chain — and the count is unchanged by that,
+#: which is the property this floor exists to prove.
+METHOD_FLOOR = 69
 #: The public half of the same count. Named separately because the two
 #: seams partition PUBLIC methods (`READ_METHODS` / `WRITE_METHODS`), and
 #: a public method that stopped being seen is the one an analyst notices.

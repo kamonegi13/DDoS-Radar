@@ -30,6 +30,13 @@ serialise on an in-process lock, because sqlite permits a single writer
 and the baseline fold is a read-modify-write that must not interleave.
 Two processes writing the same file is out of scope — v3 has one writer
 by design, and `busy_timeout` only softens the symptom.
+
+BOTH handles are per-thread, and the reason is not symmetry: sqlite3
+refuses a connection used off its creating thread, this store is built on
+the gunicorn worker's thread, and `v3/runtime/loop.py` runs the tick — the
+only writer — on a thread of its own. `v3/ledger/store_connections.py`
+carries the handles and the whole argument for why several write handles
+are safe when one lock is what serialises them.
 """
 from __future__ import annotations
 
@@ -38,8 +45,6 @@ import logging
 import sqlite3
 import threading
 import time
-import urllib.parse
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -50,16 +55,14 @@ from v3.ledger.records import (CommandRecord, ConclusionRecord,
                                SignalObservation, TLObservation)
 from v3.ledger.store_attention import AttentionLedgerMixin
 from v3.ledger.store_calibration import CalibrationLedgerMixin
+from v3.ledger.store_connections import ConnectionMixin
+from v3.ledger.store_connections import open_write as _open_write
 from v3.ledger.store_entities import EntityStateMixin
 from v3.ledger.store_migration import MigrationSupportMixin
 
 log = logging.getLogger("v3.ledger")
 
 _PRUNE_FLAG = "pruning"
-# Both connections wait rather than failing instantly when the other holds
-# the write lock. WAL keeps readers unblocked; this covers the window when
-# a writer is committing.
-BUSY_TIMEOUT_MS = 5000
 
 
 def _require_same_tick(stored, incoming: dict, *, tick_id: str,
@@ -103,13 +106,14 @@ def _command_row(row) -> dict:
 
 
 class LedgerStore(AttentionLedgerMixin, CalibrationLedgerMixin,
-                  EntityStateMixin, MigrationSupportMixin):
+                  ConnectionMixin, EntityStateMixin, MigrationSupportMixin):
     """The v3 observation ledger, baselines, and conclusion storage.
 
-    ONE object with one connection pair, assembled from four modules for
+    ONE object with one set of handles, assembled from five modules for
     the 800-line house limit. The bases carry methods, never state: the
-    connections, the lock and the schema live here, so "single
-    jurisdiction" (A-09) is unchanged by the split.
+    connection caches, the write lock and the schema are built HERE, so
+    "single jurisdiction" (A-09) stays a property of one object even
+    though `store_connections.py` holds the methods that use them.
 
     The split is audit-visible rather than incidental. `v3/api/readonly.py`
     and `v3/api/writeonly.py` classify these methods by AST — the read seam
@@ -131,30 +135,26 @@ class LedgerStore(AttentionLedgerMixin, CalibrationLedgerMixin,
                 "database is real.")
         self._path = str(Path(path).expanduser())
         Path(self._path).parent.mkdir(parents=True, exist_ok=True)
-        # isolation_level=None: transactions are explicit here, because the
-        # retention job must set a flag, delete, and clear the flag as ONE
-        # unit. Implicit transaction handling cannot express that.
-        self._conn = sqlite3.connect(self._path, isolation_level=None)
+        primary = _open_write(self._path)
         try:
-            self._conn.row_factory = sqlite3.Row
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA foreign_keys=ON")
-            self._conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
-            # WAL + NORMAL: fsync at checkpoints rather than at every
-            # commit. Safe against process crash (WAL replays); the
-            # exposure is a power loss losing the last transactions, which
-            # for an append-only observation ledger costs one tick, not
-            # integrity. FULL would make the 1M-row migration fsync-bound.
-            self._conn.execute("PRAGMA synchronous=NORMAL")
             self._read_conns: dict[int, sqlite3.Connection] = {}  # per-thread
             self._read_conns_lock = threading.Lock()
+            # Per-thread too, for the reason the module docstring gives.
+            # The schema is applied to the FIRST handle only — every later
+            # one attaches to a file that already has it, and re-running
+            # the migration list per thread would be a second migrator.
+            self._write_conns: dict[int, sqlite3.Connection] = {
+                threading.get_ident(): primary}
+            self._write_conns_lock = threading.Lock()
             # Writes are serialised in-process: sqlite allows one writer,
             # and the fold job is a read-modify-write that must not
-            # interleave. Multi-greenlet-safe by this lock; single process.
+            # interleave. THIS is what serialises writes — not the number
+            # of connections, which is why several are safe.
+            # Multi-greenlet-safe by this lock; single process.
             self._lock = threading.Lock()
-            self._apply_schema()
+            self._apply_schema(primary)
         except BaseException:
-            self._conn.close()
+            primary.close()
             raise
 
     # ── lifecycle ───────────────────────────────────────────────────────
@@ -162,14 +162,20 @@ class LedgerStore(AttentionLedgerMixin, CalibrationLedgerMixin,
     def path(self) -> str:
         return self._path
 
-    def _apply_schema(self) -> None:
-        self._conn.executescript(schema_module.SCHEMA_SQL)
-        self._migrate()
+    def _apply_schema(self, conn: sqlite3.Connection) -> None:
+        """Run once, on the constructing thread's handle, at construction.
+
+        Takes the connection rather than reaching for one, because it runs
+        before the store is usable: a lookup that could open a SECOND
+        handle here would be a handle racing the schema it depends on.
+        """
+        conn.executescript(schema_module.SCHEMA_SQL)
+        self._migrate(conn)
         # Defence in depth. The prune gate is opened and closed inside one
         # transaction, so a durable flag here can only mean a process died
         # mid-prune. Leaving it would disable the append-only triggers
         # silently, which is the worst possible failure of this layer.
-        stuck = self._conn.execute(
+        stuck = conn.execute(
             "SELECT value FROM schema_meta WHERE key = ?",
             (_PRUNE_FLAG,)).fetchone()
         if stuck is not None:
@@ -177,10 +183,10 @@ class LedgerStore(AttentionLedgerMixin, CalibrationLedgerMixin,
                 "v3 ledger: clearing a stale prune flag at %s — a previous "
                 "process died mid-retention and left the append-only "
                 "triggers disabled", self._path)
-            self._conn.execute("DELETE FROM schema_meta WHERE key = ?",
-                               (_PRUNE_FLAG,))
+            conn.execute("DELETE FROM schema_meta WHERE key = ?",
+                         (_PRUNE_FLAG,))
 
-    def _migrate(self) -> None:
+    def _migrate(self, conn: sqlite3.Connection) -> None:
         """Apply every migration above the recorded version, in order.
 
         A fresh store records no version, which reads as 0 and therefore
@@ -191,7 +197,7 @@ class LedgerStore(AttentionLedgerMixin, CalibrationLedgerMixin,
         Each migration runs inside one transaction with the version bump,
         so a store is never left claiming a version it did not reach.
         """
-        current = self.schema_version()
+        current = self._version_on(conn)
         if current > schema_module.SCHEMA_VERSION:
             raise RuntimeError(
                 f"v3 ledger at {self._path} reports schema v{current}, newer "
@@ -201,94 +207,34 @@ class LedgerStore(AttentionLedgerMixin, CalibrationLedgerMixin,
         for migration in schema_module.MIGRATIONS:
             if migration.version <= current:
                 continue
-            self._conn.execute("BEGIN IMMEDIATE")
+            conn.execute("BEGIN IMMEDIATE")
             try:
                 for statement in migration.statements:
-                    self._conn.execute(statement)
-                self._conn.execute(
+                    conn.execute(statement)
+                conn.execute(
                     "INSERT INTO schema_meta (key, value) VALUES "
                     "('version', ?) ON CONFLICT (key) DO UPDATE SET value = ?",
                     (str(migration.version), str(migration.version)))
             except BaseException:
-                self._conn.execute("ROLLBACK")
+                conn.execute("ROLLBACK")
                 raise
-            self._conn.execute("COMMIT")
+            conn.execute("COMMIT")
             log.info("v3 ledger: applied schema migration v%d (%s)",
                      migration.version, migration.rationale)
         if not schema_module.MIGRATIONS:
-            self._conn.execute(
+            conn.execute(
                 "INSERT INTO schema_meta (key, value) VALUES ('version', ?) "
                 "ON CONFLICT (key) DO NOTHING",
                 (str(schema_module.SCHEMA_VERSION),))
 
-    def schema_version(self) -> int:
-        row = self._conn.execute(
+    @staticmethod
+    def _version_on(conn: sqlite3.Connection) -> int:
+        row = conn.execute(
             "SELECT value FROM schema_meta WHERE key = 'version'").fetchone()
         return int(row["value"]) if row else 0
 
-    def close(self) -> None:
-        """Close the write connection and the CALLER's own read handle;
-        other threads' handles get dereferenced instead — sqlite3's
-        deallocator closes those for real once unreferenced."""
-        with self._read_conns_lock:
-            own = self._read_conns.pop(threading.get_ident(), None)
-            self._read_conns.clear()
-        if own is not None:
-            own.close()
-        self._conn.close()
-
-    def _connection(self) -> sqlite3.Connection:
-        """The writing connection. Internal — writes go through the API."""
-        return self._conn
-
-    def _read_connection(self) -> sqlite3.Connection:
-        """One read-only handle per thread (see `__init__`); lazy, cached."""
-        ident = threading.get_ident()
-        with self._read_conns_lock:
-            if ident in self._read_conns:
-                return self._read_conns[ident]
-        # quote(): an unquoted '#' or '?' truncates the URI, so the
-        # read connection silently opens a DIFFERENT (empty) database
-        # while writes keep succeeding — every read returns nothing and
-        # nothing reports why. Third occurrence of this lesson here.
-        uri = f"file:{urllib.parse.quote(self._path)}?mode=ro"
-        conn = sqlite3.connect(uri, uri=True)
-        conn.row_factory = sqlite3.Row
-        conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
-        with self._read_conns_lock:   # different threads -> different keys
-            self._read_conns[ident] = conn
-        return conn
-
-    @contextmanager
-    def _maybe_transaction(self, connection=None):
-        """Join the caller's transaction, or open one.
-
-        The ETL batches a whole chunk into one transaction and passes it
-        down; everything else gets its own. The lock is held by whoever
-        opened the transaction, and it is not reentrant, so a passed-in
-        connection must never re-acquire it.
-        """
-        if connection is not None:
-            yield connection
-            return
-        with self.transaction() as own:
-            yield own
-
-    @contextmanager
-    def transaction(self):
-        """One serialised write transaction. Rolls back on any exception.
-
-        Held for the whole unit of work, so a partially applied prune or
-        fold cannot survive a failure.
-        """
-        with self._lock:
-            self._conn.execute("BEGIN IMMEDIATE")
-            try:
-                yield self._conn
-            except BaseException:
-                self._conn.execute("ROLLBACK")
-                raise
-            self._conn.execute("COMMIT")
+    def schema_version(self) -> int:
+        return self._version_on(self._connection())
 
     # ── signal ledger (append-only) ─────────────────────────────────────
     def append_signal(self, observation: SignalObservation,
@@ -784,7 +730,8 @@ class LedgerStore(AttentionLedgerMixin, CalibrationLedgerMixin,
     def _set_prune_flag(connection, enabled: bool) -> None:
         """Open/close the trigger gate, inside the caller's transaction.
 
-        Takes the connection rather than using self._conn so it cannot be
+        Takes the connection rather than calling `_connection()` so it
+        cannot be
         called outside a transaction by accident: opening the gate and
         closing it must be the same atomic unit as the deletes between.
         """

@@ -15,6 +15,15 @@ goes with them.
 **R15.** `/healthz` is the one public route on the surface. That is a
 decision, stated in the route table: a liveness probe that requires a
 token cannot be used by the thing that restarts the process.
+
+**And it used to be a lie.** `read_health` returned the literals
+`{"status": "ok", "ledger_reachable": True}`, so the shadow container
+answered 200 OK for its whole run while every tick failed and
+`tl_observation` stayed empty — G-17 at the container layer, in the system built to make
+G-17 unrepresentable. It now reports the `tick_loop` monitor
+(`v3/runtime/ops_health.py`), which is the same measurement `GET
+/api/v3/self_eval` serves, and the HTTP code says which of four states
+the deployment is in. See `HEALTH_HTTP` for why none of them is 500.
 """
 from __future__ import annotations
 
@@ -26,6 +35,50 @@ from v3.conclusions import CONCLUSION_TYPES, NP7_DISCLAIMER
 from v3.conclusions import thresholds as conclusion_thresholds
 from v3.conclusions.availability import registry_disclosure
 from v3.config import registry as config_registry
+from v3.runtime import ops_health as OPS
+
+#: The four answers `/healthz` can give. Four, not two, because an
+#: orchestrator does something different with each.
+HEALTH_OK = "ok"              # up AND producing
+HEALTH_STARTING = "starting"  # up, no tick has finished yet, still in budget
+HEALTH_UNKNOWN = "unknown"    # the endpoint answered; nobody wired the probe
+HEALTH_DEGRADED = "degraded"  # up and NOT producing
+
+#: Verdict → status. The mapping is the whole contract, so it is a table
+#: rather than a chain of ifs: `INSUFFICIENT` (measured, not yet
+#: determinable) and `UNSUPPLIED` (not measured at all) are NP5+8's two
+#: distinct inconclusive states, and collapsing them is how "nobody is
+#: watching" comes to read as "nothing is wrong".
+HEALTH_STATUS: dict = {
+    OPS.OK: HEALTH_OK,
+    OPS.INSUFFICIENT: HEALTH_STARTING,
+    OPS.UNSUPPLIED: HEALTH_UNKNOWN,
+    OPS.WARN: HEALTH_DEGRADED,
+    OPS.ANOMALY: HEALTH_DEGRADED,
+}
+
+#: Status → HTTP code, and each one is a decision about what a restarter
+#: should do:
+#:
+#:   200 ok        route to it, believe it.
+#:   200 starting  do NOT restart. Killing a container for being
+#:                 mid-first-tick restarts the thing that is starting;
+#:                 compose's `start_period` covers the same window from
+#:                 the other side. It is not `ok`, so a probe that asserts
+#:                 the loop still refuses it.
+#:   200 unknown   the endpoint worked and this deployment wired no loop
+#:                 probe. A wiring gap is not a service failure, and it is
+#:                 not health either.
+#:   503 degraded  alive, not producing. 503 and never 500: 500 means the
+#:                 probe itself could not answer, which is a DIFFERENT
+#:                 fact, and the two have to stay distinguishable — the
+#:                 whole defect here was two states sharing one answer.
+HEALTH_HTTP: dict = {HEALTH_OK: 200, HEALTH_STARTING: 200,
+                     HEALTH_UNKNOWN: 200, HEALTH_DEGRADED: 503}
+
+#: A single-row lookup on `schema_meta`'s primary key: it touches the file
+#: without scanning it, so the probe cannot become the load it reports on.
+_REACHABILITY_PROBE_TABLE = "signal_observation"
 
 
 def read_thresholds(context) -> ApiResponse:
@@ -59,10 +112,62 @@ def read_app_config(context) -> ApiResponse:
                          app_config=dict(context.app_config))
 
 
+def _ledger_reachable(context) -> bool:
+    """Can this process actually read its ledger? Asked, not asserted.
+
+    Broad except on purpose, and it is the same ruling S1-CONC-038 made
+    for the self-evaluation: a probe that raises takes the health surface
+    down, and a health surface that is down is read as a health surface
+    that is fine.
+    """
+    try:
+        context.ledger.checkpoint(_REACHABILITY_PROBE_TABLE)
+    except BaseException:                     # noqa: BLE001
+        return False
+    return True
+
+
 def read_health(context) -> ApiResponse:
-    """R15 — the liveness probe. Public, deliberately."""
-    return tool_response(observed_at=context.now,
-                         health={"status": "ok", "ledger_reachable": True})
+    """R15 — is the process up, AND is the loop producing? Public.
+
+    Two questions, because they had one answer and that is what let a
+    container report healthy over a tool that had concluded nothing. The
+    loop's verdict comes from `ops_health`, so this endpoint and the AP3
+    self-evaluation are reading the same measurement rather than two.
+
+    The whole ops fold is NOT republished here: `/healthz` is
+    unauthenticated, so it carries the loop (which is what a probe needs)
+    and a pointer to the composite. The monitor bodies stay behind
+    `GET /api/v3/self_eval`.
+    """
+    folded = OPS.supplied_or_absent(getattr(context, "ops_health", None),
+                                    now=context.now)
+    loop = OPS.monitor_named(folded, OPS.MONITOR_LOOP)
+    status = HEALTH_STATUS.get(loop["verdict"], HEALTH_DEGRADED)
+    reason = loop["reason"]
+
+    reachable = _ledger_reachable(context)
+    if not reachable:
+        # A tool that cannot read its own ledger cannot conclude anything,
+        # whatever the loop believes about itself.
+        status, reason = HEALTH_DEGRADED, "ledger_unreachable"
+
+    return tool_response(
+        observed_at=context.now, status=HEALTH_HTTP[status],
+        health={
+            "status": status,
+            "reason": reason,
+            "ledger_reachable": reachable,
+            "tick_loop": loop,
+            "ops_health": {
+                "worst_verdict": folded.get("worst_verdict"),
+                "worst_monitor": folded.get("worst_monitor"),
+                "worst_reason": folded.get("worst_reason"),
+                "worst_band": folded.get("worst_band"),
+                "failing_count": folded.get("failing_count"),
+                "monitor_count": folded.get("monitor_count"),
+            },
+        })
 
 
 def _line(label: str, value) -> str:
@@ -113,4 +218,5 @@ def read_report(context, *, scenario_id: str, at=None) -> ApiResponse:
 
 
 __all__ = ["read_thresholds", "read_app_config", "read_health",
-           "read_report"]
+           "read_report", "HEALTH_OK", "HEALTH_STARTING", "HEALTH_UNKNOWN",
+           "HEALTH_DEGRADED", "HEALTH_STATUS", "HEALTH_HTTP"]

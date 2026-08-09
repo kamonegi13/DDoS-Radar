@@ -102,6 +102,19 @@ SUMMARY_CHARS = 500
 #: one of them. Named once here.
 CONFIDENCE_FLOOR = 0.35
 
+#: The ONE `signal_source` every row of this family carries — the article
+#: rows and the feed-liveness rows alike. Named rather than repeated
+#: because `v3/runtime/reduce_cyber.py::_fold_apt_intel` folds on it, and a
+#: literal in two modules is two chances for the fold to stop matching
+#: what it folds.
+SIGNAL_SOURCE = "apt_intel"
+
+#: What the folded row is waiting for, in the row itself. `apt_intel` has
+#: no `IntelProfile` (`v3/adapters/llm/extraction.py`) yet, so the selected
+#: articles reach no model — and a row that carried candidates with nothing
+#: saying why they are still candidates would read as a finished pipeline.
+AWAITING = "llm_extraction (WP-2.7)"
+
 #: Slot 1's ledger (`_ADVISORY_KEYWORDS`, legacy lines 106-134), matched
 #: against title + summary. Transcribed rather than curated: the list is
 #: multilingual on purpose (JPCERT titles are Japanese, CERT-Bund's are
@@ -349,7 +362,7 @@ def normalize(payload, context: NormalizeContext
     source_name = payload.label or "cert"
     if not result.is_alive:
         return (ObservationDraft(
-            signal_source="apt_intel", domain=CYBER, country="",
+            signal_source=SIGNAL_SOURCE, domain=CYBER, country="",
             status=STATUS_NO_DATA, raw_score=0.0,
             value=f"{source_name}: {result.outcome}",
             flags={"feed": source_name, "outcome": result.outcome,
@@ -390,14 +403,23 @@ def normalize(payload, context: NormalizeContext
 
     return tuple(
         ObservationDraft(
-            signal_source="apt_intel", domain=CYBER, country="",
+            signal_source=SIGNAL_SOURCE, domain=CYBER, country="",
             # Not FIRED: an advisory becomes a signal only after the LLM
             # stage attributes it (WP-2.7). Landing it as OBSERVED keeps
             # the article in the ledger with its provenance intact.
+            #
+            # These rows are PER ARTICLE and they all share this one
+            # `signal_source` and no country, so they collide on L1's
+            # `UNIQUE (tick_id, sensor, signal_source, country)`. They are
+            # folded to the single row production has by
+            # `v3/runtime/reduce_cyber.py::_fold_apt_intel` (§7-2 #137);
+            # `article` is the key that fold groups on, so it stays a whole
+            # dict rather than being flattened into sibling flags.
             status=STATUS_OBSERVED, raw_score=0.0,
             value=article["title"][:200],
-            flags={"feed": source_name, "article": article,
-                   "awaiting": "llm_extraction (WP-2.7)",
+            flags={"feed": source_name, "article": {**article,
+                                                    "feed": source_name},
+                   "awaiting": AWAITING,
                    "confidence_floor": CONFIDENCE_FLOOR},
             evidence_url=article["link"] or payload.url)
         for article in selected)
@@ -415,6 +437,7 @@ APT_INTEL_ADAPTER = SourceAdapter(
     baseline_refs=("apt_intel_dedup",))
 
 __all__ = ["APT_INTEL", "APT_INTEL_ADAPTER", "normalize", "dedup_key",
+           "SIGNAL_SOURCE", "AWAITING",
            "is_discarded", "is_noise_title", "is_advisory", "theater_names",
            "normalize_title", "published_timestamp",
            "is_within_age_window", "FEEDS",
