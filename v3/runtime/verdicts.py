@@ -85,6 +85,118 @@ def bgp_is_anomaly(stat: PhaseStat) -> bool:
                 and stat.z < BGP_HOD_ANOMALY_Z)
 
 
+# ── ripe_bgp warm-up — v3 only, §7-2 #135 ───────────────────────────────
+#
+# The one verdict in this module production does NOT reach the same way.
+# Everything above is transcription; this is a design, and it is here
+# rather than in the fold for the reason the module docstring gives —
+# a differential sweep needs a function to call, and this one is swept
+# against `bgp_is_anomaly` to prove it is the stricter of the two.
+#
+# Production's warm-up branch (`bgp_routing.py:74`) is
+# `drop_ratio > 0.15`, where `drop_ratio` measures against
+# `self._baseline[code]`: a dict in process memory, re-seeded on the first
+# reading after every restart and refreshed hourly (`:53,:57`). D2 A-03.
+# It is not in `baseline_refs`, it is not in L1, and it cannot be
+# replayed — so v3 cannot transcribe it, and R1 says it must not try.
+#
+# What v3 has instead is the SAME series the warm path reads, unfiltered.
+# `bgp_hod` holds one bucket per HOUR; the warm path keeps only the
+# buckets sharing the current hour of day, so it needs seven DAYS to see
+# seven samples where the series itself needed seven HOURS. The pooled
+# read is those same rows with the phase filter lifted.
+#
+# Pooling costs something real and the constants are what pays for it.
+# Writing the pooled variance as sigma_a^2 = sigma_w^2 + sigma_b^2
+# (within-hour plus between-hour) and the current hour's diurnal offset
+# as d_h, the two Z scores relate as
+#
+#     z_pooled = (z_hod * sigma_w + d_h) / sigma_a
+#
+# so at an hour that is normally QUIET (d_h < 0) the pooled Z is depressed
+# by an amount that has nothing to do with the reading. With
+# sigma_w = sigma_b, an exactly average country (z_hod = 0) already scores
+# z_pooled = -0.71, and a -2.0 threshold on the pooled Z would fire at
+# z_hod = -1.83: EARLIER than the warm path, on strictly less evidence.
+# Hence two changes rather than none:
+#
+#   * the threshold widens to -3.0, and
+#   * firing additionally requires production's own relative drop.
+#
+# The conjunction is not invented either. `checkhost_status` above is the
+# same shape and says why: a Z branch that also requires the absolute
+# reading to be bad is what keeps a routine maintenance window out of the
+# ledger. Here it also bounds the smallest movement that can fire at 15%
+# of the pooled mean, which is what makes the pooled sigma's quality
+# non-critical — a badly estimated sigma cannot turn a 2% wobble into a
+# verdict.
+
+#: `HOD_MIN_SAME_HOUR` (`radar/config.py`, `bgp_routing.py:23`) — the same
+#: minimum production asks of the warm path, asked of the pooled series.
+#: Not raised to 24 (a full diurnal cycle) on purpose: at one bucket an
+#: hour, 24 would surrender the first day of every new scenario, and the
+#: drop conjunction is what guards a short pool, not the sample count.
+BGP_WARMUP_MIN_SAMPLES = BGP_HOD_MIN_SAMPLES
+
+#: `bgp_routing.py:70` — `max(std, 1.0)`, applied after the square root.
+BGP_WARMUP_STD_FLOOR = BGP_HOD_STD_FLOOR
+
+#: Widened from `BGP_HOD_ANOMALY_Z` (-2.0) by the pooling argument above.
+#: -3.0 is not a new number in this system: it is what production calls a
+#: BLACKOUT on the same statistic (`CHECKHOST_BLACKOUT_Z`,
+#: `checkhost.py:265`) — the stricter tier of the same ladder.
+BGP_WARMUP_ANOMALY_Z = -3.0
+
+#: `BgpRoutingSensor.BGP_DROP_THRESHOLD` (`bgp_routing.py:23`), used by
+#: production in EXACTLY this branch (`:74`). v3 changes what the drop is
+#: measured against — the ledger's pooled mean instead of a dict in
+#: memory — and keeps the threshold and the shape.
+BGP_WARMUP_DROP_THRESHOLD = 0.15
+
+
+@dataclass(frozen=True, slots=True)
+class WarmupStat:
+    """A warm-up reading, with both guards readable (NP6, AP2).
+
+    `valid` False means WITHHELD, not "no anomaly", and `n` says which of
+    the two silences it is: 0 samples is a ledger with no history for this
+    country at all, and anything below `BGP_WARMUP_MIN_SAMPLES` is a
+    ledger with some. G-17 is what happens when those read alike.
+    """
+
+    anomaly: bool
+    valid: bool
+    n: int
+    z: Optional[float] = None
+    drop_ratio: Optional[float] = None
+    mean: Optional[float] = None
+
+
+def bgp_warmup_verdict(pooled: Sequence[float], prefixes: float
+                       ) -> WarmupStat:
+    """The pooled-series verdict, for use ONLY while the warm path is cold.
+
+    Both guards must agree. `drop_ratio` is `(mean - now) / mean`, which
+    is production's `(pfx_base - pfx_now) / pfx_base` with `pfx_base`
+    supplied by L1; a non-positive mean yields no ratio at all rather than
+    a zero, because a zero there is a claim that nothing dropped.
+    """
+    stat = phase_zscore(pooled, prefixes,
+                        min_samples=BGP_WARMUP_MIN_SAMPLES,
+                        std_floor=BGP_WARMUP_STD_FLOOR)
+    if not stat.valid or stat.z is None or stat.mean is None:
+        return WarmupStat(anomaly=False, valid=False, n=stat.n)
+    if stat.mean > 0:
+        drop_ratio = max(0.0, (stat.mean - prefixes) / stat.mean)
+    else:
+        drop_ratio = None
+    anomaly = bool(stat.z < BGP_WARMUP_ANOMALY_Z
+                   and drop_ratio is not None
+                   and drop_ratio > BGP_WARMUP_DROP_THRESHOLD)
+    return WarmupStat(anomaly=anomaly, valid=True, n=stat.n, z=stat.z,
+                      drop_ratio=drop_ratio, mean=stat.mean)
+
+
 # ── check_host (`radar/sensors/checkhost.py:247-269`, core.py:1373) ─────
 
 CHECKHOST_HOD_MIN_SAMPLES = 7
@@ -237,6 +349,9 @@ def ais_dark_gaps(reports: Sequence[dict], previous, now: float, *,
 
 
 __all__ = ["PhaseStat", "phase_zscore", "bgp_hod_verdict", "bgp_is_anomaly",
+           "WarmupStat", "bgp_warmup_verdict", "BGP_WARMUP_MIN_SAMPLES",
+           "BGP_WARMUP_STD_FLOOR", "BGP_WARMUP_ANOMALY_Z",
+           "BGP_WARMUP_DROP_THRESHOLD",
            "checkhost_status", "is_asphyxiation", "gdelt_dow_alert",
            "ct_log_in_warmup", "ct_log_untrusted", "ais_dark_gaps",
            "BGP_HOD_MIN_SAMPLES", "BGP_HOD_STD_FLOOR", "BGP_HOD_ANOMALY_Z",

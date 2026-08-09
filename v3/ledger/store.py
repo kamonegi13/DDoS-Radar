@@ -703,6 +703,35 @@ class LedgerStore(AttentionLedgerMixin, CalibrationLedgerMixin,
              int(before_bucket))).fetchall()
         return [float(row["mean"]) for row in rows]
 
+    def baseline_series_values(self, baseline_id: str, *, sensor: str,
+                               country: str, before_bucket: int) -> list:
+        """EVERY bucket's value, any phase, oldest first — §7-2 #135.
+
+        `baseline_phase_values` without the phase predicate, and that is
+        the whole of the difference: same table, same series, same
+        exclusive `before_bucket`, same `mean` column. It reads no row the
+        phase read could not reach; it declines to throw twenty-three
+        twenty-fourths of them away.
+
+        It exists because a same-phase series fills at one sample per DAY
+        while the series it is drawn from fills at one per HOUR, so the
+        seven samples `HOD_MIN_SAME_HOUR` asks for take a week to arrive
+        and seven hours to arrive. §7-2 #135's warm-up verdict is what
+        happens in between; production spends that week on a baseline
+        held in process memory (A-03) instead.
+
+        NOT a second window. The bound is still the write side's
+        (`record_bucket_sample`'s newest-N), for the reason spelled out on
+        `baseline_phase_values`: a lower bound here would be a second,
+        silently narrower window — F-06's shape.
+        """
+        rows = self._read_connection().execute(
+            "SELECT mean FROM baseline_stat "
+            "WHERE baseline_id = ? AND sensor = ? AND country = ? "
+            "AND bucket < ? ORDER BY bucket ASC",
+            (baseline_id, sensor, country, int(before_bucket))).fetchall()
+        return [float(row["mean"]) for row in rows]
+
     def baseline_bucket_count(self, baseline_id: str, *, sensor: str,
                               country: str) -> int:
         """How many buckets one series is holding — the window, measured."""

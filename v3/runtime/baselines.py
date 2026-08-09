@@ -141,6 +141,20 @@ PHASE_BASELINES: Mapping[str, PhaseBaseline] = {
     )}
 
 
+#: `supply key -> PHASE_BASELINES ref it re-reads`. §7-2 #135.
+#:
+#: NOT a baseline, and deliberately not one: `bgp_hod_pooled` names the
+#: SAME `baseline_id`, the same sensor and the same rows as `bgp_hod`,
+#: with the phase predicate lifted (`store.baseline_series_values`). It is
+#: a second READ, not a second dependency, so it stays out of
+#: `PHASE_BASELINES`, out of `supplied_names()` and out of any adapter's
+#: `baseline_refs` — declaring it would make `coverage()` report one
+#: dependency twice and the family look one baseline further from done
+#: than it is. `ripe_bgp.baseline_refs == ("bgp_hod",)` is still the whole
+#: truth about what that adapter needs from L1.
+POOLED_PHASE_READS: Mapping[str, str] = {"bgp_hod_pooled": "bgp_hod"}
+
+
 @dataclass(frozen=True, slots=True)
 class EntityBaseline:
     """One per-entity series or marker set, and what it is keyed by.
@@ -321,6 +335,31 @@ def phase_history(store, *, now: float, countries: Sequence[str]) -> dict:
     return resolved
 
 
+def pooled_history(store, *, now: float, countries: Sequence[str]) -> dict:
+    """`{pooled key: {country: (value, ...)}}` — every bucket, oldest first.
+
+    The same rows `phase_history` reads for the same ref, without the
+    phase filter, for §7-2 #135's warm-up verdict. Read here rather than
+    in the fold for the reason every other baseline is: the fold is pure
+    and a step that opened a database mid-cycle could not be replayed.
+
+    Every requested country gets a key, including one with no history at
+    all — the fold has to tell "read, and the ledger held nothing" from
+    "never read", because only the first of those is the cold-start truth
+    that must be WITHHELD rather than scored.
+    """
+    resolved: dict = {}
+    for key, ref in POOLED_PHASE_READS.items():
+        baseline = PHASE_BASELINES[ref]
+        before = baseline.bucket_of(now)
+        resolved[key] = {
+            country: tuple(store.baseline_series_values(
+                baseline.baseline_id, sensor=baseline.sensor,
+                country=country, before_bucket=before))
+            for country in countries}
+    return resolved
+
+
 def entity_history(store) -> dict:
     """`{ref: {entity: state}}` — one read per series, as production holds
     one dict in memory.
@@ -364,6 +403,7 @@ def for_cycle(store, *, now: float, countries: Sequence[str],
     """
     supplied = previous_cycle(store, now=now, countries=countries)
     supplied.update(phase_history(store, now=now, countries=countries))
+    supplied.update(pooled_history(store, now=now, countries=countries))
     supplied.update(entity_history(store))
     supplied[ADVERSARY_ORIGINS] = tuple(
         sorted({str(code).upper() for code in adversaries}))
@@ -484,6 +524,7 @@ def coverage(adapters: Iterable) -> dict:
 
 
 __all__ = ["PREVIOUS_CYCLE_SCALARS", "PHASE_BASELINES", "ENTITY_BASELINES",
+           "POOLED_PHASE_READS", "pooled_history",
            "ADVERSARY_ORIGINS", "EFFECTIVE_CORES", "refresh_state",
            "UNANSWERABLE", "VERDICT_WITHHELD", "PhaseBaseline",
            "EntityBaseline", "previous_cycle", "phase_history",

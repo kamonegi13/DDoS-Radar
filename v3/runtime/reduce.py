@@ -77,9 +77,11 @@ REDUCTIONS: tuple[Reduction, ...] = (
     Reduction("ripe_atlas", _fold_ripe_atlas, "§7-2 #28, #29",
               "radar/sensors/ripe_atlas.py:133,137-147 / core.py:1533-1547",
               "pool RTTs across measurements, then p95"),
-    Reduction("ripe_bgp", _fold_ripe_bgp, "§7-2 #9",
+    Reduction("ripe_bgp", _fold_ripe_bgp, "§7-2 #9, #135",
               "radar/sensors/bgp_routing.py:67-77 / core.py:1140-1148",
-              "hour-of-day Z-score decides ANOMALY; warm-up still withheld"),
+              "hour-of-day Z-score decides ANOMALY; below seven same-hour "
+              "samples a v3-only pooled-series verdict decides it instead "
+              "(#135), and below seven samples of ANY hour it is withheld"),
     Reduction("ct_log", _fold_ct_log, "§7-2 #8, #9",
               "radar/sensors/ct_log.py:273-341 / core.py:1836-1848",
               "known-CA ledger + warm-up marker turn a candidate into "

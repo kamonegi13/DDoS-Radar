@@ -179,17 +179,32 @@ def _fold_ripe_bgp(drafts: Sequence[ObservationDraft],
     supply to a single channel rather than widening `NormalizeContext`
     into a second one (A-02).
 
-    **The warm-up branch is NOT ported and the row keeps withholding.**
+    **The warm-up branch is v3's own, and it is registered (§7-2 #135).**
     Production falls back to `drop_ratio > 0.15` below seven same-hour
     samples, where `drop_ratio` compares against an in-process baseline
     refreshed hourly (`self._baseline[code]`, `:37-45`) — an A-03 memory
     baseline that v3 does not have and that `baseline_refs` does not
-    declare. Inventing a substitute would be a difference nobody
-    registered; withholding is visible.
+    declare, so transcribing it is not open to v3. Withholding instead was
+    the state through WP-4.1d and it is a MISS: warm-up is not a corner,
+    it is every newly registered scenario's first week.
+
+    So the row now reaches a verdict by a route production does not have,
+    from the same `bgp_hod` rows with the phase filter lifted
+    (`verdicts.bgp_warmup_verdict`). The route is named on the row rather
+    than hidden in the number, the band is production's 0-1, and the
+    difference is registered in the SENSITIVE direction — v3 can fire
+    where production's ladder would not have been consulted at all.
+
+    Three outcomes, and they must stay three. A verdict (fired or not),
+    a WITHHELD for want of history, and — when L1 supplied nothing at
+    all — the untouched draft. G-17: an empty ledger must not read as a
+    calm world, so `hod_verdict` carries a marker naming WHICH silence it
+    is instead of `is_anomaly=False`.
     """
     hod = baselines.get("bgp_hod")
     if hod is None:
         return list(drafts)
+    pooled = baselines.get("bgp_hod_pooled") or {}
     reduced = []
     for draft in drafts:
         prefixes = draft.flags.get("announced_prefixes")
@@ -202,8 +217,7 @@ def _fold_ripe_bgp(drafts: Sequence[ObservationDraft],
         flags["hod_z"] = None if stat.z is None else round(stat.z, 2)
         flags["hod_n"] = stat.n
         if not stat.valid:
-            flags["hod_verdict"] = PENDING_PREFIX + "bgp_hod_warmup"
-            reduced.append(replace(draft, flags=flags))
+            reduced.append(_bgp_warmup(draft, flags, pooled, float(prefixes)))
             continue
         anomaly = verdicts.bgp_is_anomaly(stat)
         flags.update({"is_anomaly": anomaly,
@@ -215,6 +229,49 @@ def _fold_ripe_bgp(drafts: Sequence[ObservationDraft],
             reason="BGP prefix withdrawal" if anomaly else "",
             flags=flags))
     return reduced
+
+
+#: Flag naming the route a `ripe_bgp` verdict took. A sibling key, never
+#: the verdict field itself: §7-2 #9's discipline says a reader that asks
+#: "is this an anomaly" must get an answer or nothing, and a reader that
+#: asks "how was it decided" must be able to find out separately.
+BGP_ROUTE = "verdict_route"
+BGP_ROUTE_WARMUP = "warmup_pooled_all_hours"
+#: The two silences, told apart. `_cold` is a ledger with fewer than
+#: `BGP_WARMUP_MIN_SAMPLES` buckets for this country — including none.
+BGP_PENDING_COLD = PENDING_PREFIX + "bgp_hod_cold"
+
+
+def _bgp_warmup(draft: ObservationDraft, flags: dict,
+                pooled: Mapping[str, Any], prefixes: float
+                ) -> ObservationDraft:
+    """§7-2 #135 — the same-hour baseline is cold; the series is not.
+
+    Returns the row WITHHELD when the pooled series is too short as well,
+    which is the genuine cold start: nothing to derive from, so nothing
+    derived. The marker is a distinct string from the warm path's, so
+    "seven same-hour samples away" and "seven samples of any kind away"
+    are not one silence wearing one name.
+    """
+    stat = verdicts.bgp_warmup_verdict(pooled.get(draft.country, ()),
+                                       prefixes)
+    flags["warmup_n"] = stat.n
+    if not stat.valid:
+        flags["hod_verdict"] = BGP_PENDING_COLD
+        return replace(draft, flags=flags)
+    flags[BGP_ROUTE] = BGP_ROUTE_WARMUP
+    flags["warmup_z"] = None if stat.z is None else round(stat.z, 2)
+    flags["warmup_mean"] = None if stat.mean is None else round(stat.mean, 2)
+    flags["warmup_drop_ratio"] = (None if stat.drop_ratio is None
+                                  else round(stat.drop_ratio, 4))
+    flags.update({"is_anomaly": stat.anomaly,
+                  "status": "ANOMALY" if stat.anomaly else "NORMAL"})
+    return replace(
+        draft, status=STATUS_FIRED if stat.anomaly else STATUS_OK,
+        raw_score=verdicts.BGP_ANOMALY_SCORE if stat.anomaly else 0.0,
+        value="ANOMALY" if stat.anomaly else "NORMAL",
+        reason="BGP prefix withdrawal" if stat.anomaly else "",
+        flags=flags)
 
 
 def _fold_ct_log(drafts: Sequence[ObservationDraft],

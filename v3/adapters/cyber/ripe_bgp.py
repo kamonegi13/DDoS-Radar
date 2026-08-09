@@ -8,7 +8,9 @@ Everything this sensor concludes, it concludes from its own history:
   * the degraded path, used until seven same-hour samples exist, compares
     against a drop baseline that lived in process memory and was
     refreshed hourly — so the first cycle after any restart reported a
-    drop ratio of exactly 0 (DP3/A-03)
+    drop ratio of exactly 0 (DP3/A-03). v3 does not transcribe it: L2
+    reaches a verdict there by pooling the ledger's own `bgp_hod` buckets
+    across hours, a REGISTERED difference (§7-2 #135), not a port
   * the trend label is a least-squares slope over the returned series,
     one of the THREE copies of that computation DP4 records
 
@@ -21,6 +23,22 @@ layer's to make, and OK would claim a verdict.
 `signal_source` is `"bgp"`, shared with `ioda_bgp` and `ihr_health`, so
 S1-SCORE-008 dedups the three by MAX rather than counting one event three
 times.
+
+**`announced_prefixes` is not a key RIPE returns, and has not been for the
+whole life of this baseline.** `country-routing-stats` answers with
+`v4_prefixes_ris` / `v6_prefixes_ris` / `asns_ris` per `stats_date`;
+`latest.get("announced_prefixes", 0)` therefore reads 0 on every cycle, in
+production as here. Measured, not inferred: every one of the 5,398 rows in
+the live `bgp_hod` table is 0.0, across eight countries and the full
+672-bucket window, so production's Z is `(0-0)/max(0,1.0)` = 0.0 and its
+drop ratio is 0.0 — BOTH of its branches are unreachable. The transcription
+is faithful and the defect is production's; v3 reproduces the reading
+rather than silently repairing it, because reading a DIFFERENT quantity
+under `bgp_hod` would corrupt the migrated series and would be an
+unregistered difference in what is measured. Registered as evidence on
+§7-2 #135; the repair is production-side and needs its own ruling.
+`tests/test_v3_bgp_warmup.py::TestTheMeasuredQuantityIsDead` pins it, so
+whoever fixes the key finds the register row.
 """
 from __future__ import annotations
 

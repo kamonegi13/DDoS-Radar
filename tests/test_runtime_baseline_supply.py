@@ -354,14 +354,20 @@ class TestRipeBgpNowScores:
         assert out[0].flags["hod_z"] == -2.5
         assert out[0].status == STATUS_FIRED
 
-    def test_below_seven_samples_the_verdict_is_still_withheld(self):
+    def test_below_seven_same_hour_samples_with_no_pooled_series_withholds(
+            self):
         """Production's warm-up branch uses an in-process hourly baseline
-        v3 does not have; withholding is visible, inventing is not."""
+        v3 does not have; withholding is visible, inventing is not.
+
+        Since §7-2 #135 the withholding is narrower: it is the cold start
+        — no pooled series either — rather than the whole warm-up window.
+        `tests/test_v3_bgp_warmup.py` owns the branch that decides in
+        between; this pins the floor it degrades to."""
         history = {"bgp_hod": {"TW": (1000.0, 1000.0)}}
         out = R.reduce_drafts("ripe_bgp", [_bgp_draft(prefixes=1)],
                               baselines=history, now=NOW)
         assert out[0].status == STATUS_OBSERVED
-        assert out[0].flags["hod_verdict"].startswith("pending_l1_")
+        assert out[0].flags["hod_verdict"] == "pending_l1_bgp_hod_cold"
 
 
 def _check_host_drafts(country="TW", rates=(1.0, 1.0, 1.0), latency=100.0):
