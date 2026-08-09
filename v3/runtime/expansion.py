@@ -29,6 +29,7 @@ from typing import Iterable, Mapping, Optional, Sequence
 
 from v3.adapters.cyber.ooni_censorship import LOOKBACK_DAYS as \
     OONI_LOOKBACK_DAYS
+from v3.adapters.cyber.ripe_bgp import LOOKBACK_SEC as RIPE_BGP_LOOKBACK_SEC
 from v3.adapters.info.gdelt import query_for as gdelt_query_for
 from v3.adapters.physical.ais_maritime import CHOKEPOINT_BOX_HALF_DEG
 from v3.adapters.physical.check_host import MAX_URLS_PER_COUNTRY
@@ -98,6 +99,12 @@ def _time_windows(now: float) -> dict:
             "until_date": _date(now)},
         "usgs_seismic": {"since_iso": _iso(now - USGS_LOOKBACK_SEC)},
         "gdelt": {"history_window": f"{GDELT_HISTORY_WINDOW_DAYS}"},
+        # D2 H-05 / §7-2 #136. Not a lookback for its own sake: without a
+        # `starttime` RIPE answers `resolution: 1w` and the newest entry is
+        # a weekly figure up to six days stale, which an HOURLY bgp_hod
+        # bucket cannot hold without turning a weekly step into a
+        # hundred-sigma Z. The constant is the adapter's, imported.
+        "ripe_bgp": {"since_iso": _iso(now - RIPE_BGP_LOOKBACK_SEC)},
     }
 
 

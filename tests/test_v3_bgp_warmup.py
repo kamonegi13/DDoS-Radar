@@ -562,55 +562,73 @@ class TestEveryPerCountryReaderIsStillFed:
         assert "hod_verdict" not in decided.flags
 
 
-# ── 7. the finding: the judged quantity is dead on BOTH sides ───────────
+# ── 7. the finding, and its repair: the judged quantity is alive ────────
 
-class TestTheMeasuredQuantityIsDead:
-    """`announced_prefixes` is not a key RIPE returns.
+class TestTheMeasuredQuantityIsAliveAgain:
+    """D2 H-05, closed. The quantity this whole rule judges was dead.
 
-    `country-routing-stats` answers with `v4_prefixes_ris` /
-    `v6_prefixes_ris` / `asns_ris` per `stats_date`. Production's
-    `latest.get("announced_prefixes", 0)` therefore reads 0 forever, its
-    hour-of-day Z is `(0-0)/max(0,1.0)` = 0.0, its drop ratio is 0.0, and
-    BOTH of its branches are unreachable — measured against the live
-    ledger, where all 5,398 `bgp_hod` rows across eight countries and the
-    full 672-bucket window are 0.0.
+    `announced_prefixes` is not a key `country-routing-stats` returns; it
+    answers with `v4_prefixes_ris` / `v6_prefixes_ris` / `asns_ris` per
+    `stats_date`. Production's `latest.get("announced_prefixes", 0)` read
+    0 forever, so its hour-of-day Z was `(0-0)/max(0,1.0)` = 0.0, its drop
+    ratio was 0.0, and BOTH branches were unreachable — measured against
+    the live ledger, where all 5,398 `bgp_hod` rows across 19 countries
+    (eight of them holding the full 672-bucket window) were 0.0. v3
+    transcribed the same read, so parity held and the defect was
+    production's.
 
-    v3 transcribes the same read, so parity is preserved and the defect is
-    production's. It is pinned here rather than repaired because reading a
-    different quantity under the same `baseline_id` would corrupt the
-    migrated series AND be an unregistered difference in what is measured.
-    When someone fixes the key, these tests fail and point at §7-2 #135.
+    Repaired on both sides in one change (§7-2 #136), with
+    `scripts/backfill_bgp_hod.py` replacing the dead-zero epoch with real
+    RIPE history so the first true reading is not judged against a
+    baseline of fabricated zeros. What #135 rules on — the warm-up route —
+    is unchanged; what it judges is now a measurement.
+
+    The detailed obligations of the repaired quantity live in
+    `tests/test_bgp_prefix_quantity.py`; these three keep the connection
+    from this rule to that one visible.
     """
 
-    CURRENT_SHAPE = {"data": {"resource": "TW", "stats": [
-        {"timeline": [{"starttime": "2026-08-03T00:00:00"}],
+    CURRENT_SHAPE = {"data": {"resource": "TW", "resolution": "1h", "stats": [
+        {"timeline": [{"starttime": "2026-08-03T00:00:00",
+                       "endtime": "2026-08-03T00:00:00"}],
          "v4_prefixes_ris": 9607, "v6_prefixes_ris": 1206,
          "asns_ris": 242, "v4_prefixes_stats": -1,
          "v6_prefixes_stats": -1, "asns_stats": 465,
          "stats_date": "2026-08-03T00:00:00"}]}}
 
-    def test_production_reads_a_key_the_current_payload_does_not_have(self):
-        source = (REPO / "radar" / "sensors" / "bgp_routing.py").read_text()
-        assert 'latest.get("announced_prefixes", 0)' in source
-        assert "announced_prefixes" not in self.CURRENT_SHAPE["data"][
-            "stats"][0]
+    def test_production_no_longer_reads_a_key_the_payload_does_not_have(self):
+        """Behavioural, not textual: `bgp_routing.py` still DISCUSSES the
+        dead read at length, and a prose match would pass whatever the
+        code did."""
+        from radar.sensors import bgp_routing
 
-    def test_v3_transcribes_the_same_read_and_therefore_the_same_zero(self):
+        entry = self.CURRENT_SHAPE["data"]["stats"][0]
+        assert "announced_prefixes" not in entry
+        assert bgp_routing.prefix_count(entry) == 9607 + 1206
+        assert bgp_routing.prefix_count({"announced_prefixes": 8100}) is None
+
+    def test_v3_reads_the_same_repaired_quantity(self):
         import json
 
         from tests.test_adapters_cyber_fidelity import context, synthetic
         body = json.dumps(self.CURRENT_SHAPE).encode()
         draft = ripe_bgp.normalize(synthetic(body), context("ripe_bgp"))[0]
-        assert draft.flags["announced_prefixes"] == 0
-        assert draft.flags["seen_ases"] == 0
+        assert draft.flags["announced_prefixes"] == 9607 + 1206
+        assert draft.flags["seen_ases"] == 242
 
-    def test_an_all_zero_history_can_reach_neither_verdict(self):
-        """Which is the state of the live ledger, and the reason #135's
-        rule cannot fire today for a reason that has nothing to do with
-        #135. A dead measurement is not a calm world."""
+    def test_a_real_reading_against_the_old_all_zero_epoch_still_cannot_fire(
+            self):
+        """Why the key fix and the epoch are ONE change.
+
+        The dead rows do not make the repaired detector noisy — they make
+        it silent. A pool of zeros puts every real reading at a large
+        POSITIVE Z and leaves the drop ratio undefined, so a genuine
+        collapse reads as NORMAL. Insensitive, and invisible.
+        """
         zeros = tuple([0.0] * 30)
-        warm = verdicts.bgp_hod_verdict(zeros, 0.0)
-        assert warm.valid is True and verdicts.bgp_is_anomaly(warm) is False
-        cold = verdicts.bgp_warmup_verdict(zeros, 0.0)
+        warm = verdicts.bgp_hod_verdict(zeros, 10813.0)
+        assert warm.valid is True and warm.z > 0
+        assert verdicts.bgp_is_anomaly(warm) is False
+        cold = verdicts.bgp_warmup_verdict(zeros, 10813.0)
         assert cold.valid is True and cold.anomaly is False
         assert cold.drop_ratio is None

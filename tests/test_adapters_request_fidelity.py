@@ -667,7 +667,12 @@ class TestNoPlaceholderCanReachTheWire:
             # `DEFAULT_MEASUREMENT_IDS` are now three concrete addresses,
             # so no caller can forget to supply them.
             "ripe_atlas": ["country"],
-            "ripe_bgp": ["country"],
+            # D2 H-05 / §7-2 #136. `{since_iso}` is not a tuning knob:
+            # without a `starttime` RIPE answers `resolution: 1w`, so
+            # the newest entry is a weekly figure stored into an hourly
+            # `bgp_hod` bucket. `v3/runtime/expansion.py` fills it from
+            # the adapter's own `LOOKBACK_SEC`.
+            "ripe_bgp": ["country", "since_iso"],
             # WP-2.7. `{country_lower}` is a SEPARATE slot from
             # `{country}` on purpose: Onionoo matches case-sensitively
             # (`radar/sensors/tor_metrics.py:54,89` send `code.lower()`),
@@ -681,7 +686,8 @@ class TestNoPlaceholderCanReachTheWire:
         }
 
     @pytest.mark.parametrize("name,values", [
-        ("ripe_bgp", {"country": "TW"}),
+        ("ripe_bgp", {"country": "TW",
+                      "since_iso": "2026-08-02T07:06:40Z"}),
         ("ooni_censorship", {"country": "TW", "since_date": "2026-08-01",
                              "until_date": "2026-08-07"}),
         ("peeringdb_ixp", {"country": "TW"}),

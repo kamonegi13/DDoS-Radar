@@ -188,8 +188,10 @@ class TestSignalSourceIsProductionsKey:
         assert production["ripe_bgp"] == "bgp"
         assert production["ioda_bgp"] == "bgp"
         draft = ripe_bgp.normalize(
-            synthetic(json.dumps({"data": {"resource": "TW", "stats": [
-                {"announced_prefixes": 900, "seen_ases": 40}]}}).encode()),
+            synthetic(json.dumps({"data": {"resource": "TW",
+                                   "resolution": "1h", "stats": [
+                {"v4_prefixes_ris": 860, "v6_prefixes_ris": 40,
+                 "asns_ris": 40, "v4_prefixes_stats": -1}]}}).encode()),
             context("ripe_bgp"))[0]
         assert draft.signal_source == "bgp"
 
@@ -707,8 +709,10 @@ class TestWithheldVerdictsAreNamedNotAsserted:
 
     def test_ripe_bgp_withholds_the_hour_of_day_verdict(self):
         draft = ripe_bgp.normalize(
-            synthetic(json.dumps({"data": {"resource": "TW", "stats": [
-                {"announced_prefixes": 900, "seen_ases": 40}]}}).encode()),
+            synthetic(json.dumps({"data": {"resource": "TW",
+                                   "resolution": "1h", "stats": [
+                {"v4_prefixes_ris": 860, "v6_prefixes_ris": 40,
+                 "asns_ris": 40, "v4_prefixes_stats": -1}]}}).encode()),
             context("ripe_bgp"))[0]
         assert draft.status == STATUS_OBSERVED
         assert draft.raw_score == 0.0

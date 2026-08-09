@@ -121,6 +121,17 @@ CREATE INDEX idx_continuity_observed_at    ON inconclusive_continuity_log (obser
 **分類**: CORE
 
 #### S3-DATA-011: ベースライン群（7 表）— backfill 不能・語彙 rename 対象
+
+> **訂正（2026-08-09、D2 H-05）— `bgp_hod` は backfill 不能ではない。** RIPE Stat の
+> `country-routing-stats` は `starttime` / `endtime` を受け取り、本センサーが 1 点だけ標本抽出していた
+> **毎時履歴をそのまま返す**（24 日窓まで `resolution: 1h`。系列は run-length encoded なので `timeline` を展開する）。
+> `scripts/backfill_bgp_hod.py` が 28 日 × 27 か国を **54 リクエスト / 416 秒**で再構成する（実測）。
+> **これは任意の改善ではなく必須手順である**: 移行元の 5,398 行は**すべて 0.0**（H-05 — 存在しないキーを
+> `.get(key, 0)` で読んでいた結果であり、測定ではない）。本段は wipe-then-copy なので、
+> **バックフィル前に移行すると死んだ 0 が v3 台帳へそのまま入る**。順序は「(1) 本番でキー修理 →
+> (2) `backfill_bgp_hod.py` → (3) 移行」。`checkhost_hod` / `gdelt_dow` は依然 backfill 不能
+> （前者は自前のプローブ成功率、後者は 20 週かけて回復する）。
+
 **挙動**: 以下 7 表を移行 **MUST**。`hod_baseline` / `checkhost_hod` / `bgp_hod` / `gdelt_dow` / `cooccurrence_stats` は S3-DATA-002 の rename 対象（`theater` → `country`）**MUST**。HOD 系はバケット数上限でローリング trim される（時間 retention ではない）。
 
 ```sql

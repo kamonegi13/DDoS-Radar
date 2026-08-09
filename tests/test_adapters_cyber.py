@@ -475,9 +475,16 @@ class TestRipeBgp:
         assert self._draft().country == "TW"
 
     def test_the_latest_sample_is_reported_with_the_series(self):
+        """Values from a REAL captured response (D2 H-05): the count is
+        `v4_prefixes_ris + v6_prefixes_ris`. The fixture this replaced was
+        hand-written around `announced_prefixes`, a key RIPE has never
+        returned, which is how the port reproduced the defect and passed."""
         flags = self._draft().flags
-        assert flags["announced_prefixes"] == 6100
-        assert flags["prefix_series"] == [8100, 8150, 6100]
+        assert flags["announced_prefixes"] == 9600 + 1203
+        assert flags["prefix_series"] == [9601 + 1204, 9603 + 1204,
+                                          9602 + 1204, 9600 + 1203]
+        assert flags["v4_prefixes"] == 9600 and flags["v6_prefixes"] == 1203
+        assert flags["resolution"] == "1h"
 
     def test_the_verdict_is_not_this_layers_to_make(self):
         """DP4: the hour-of-day Z-score exists three times in the legacy
@@ -1075,16 +1082,22 @@ class TestCyberTranscriptionPins:
         assert draft.flags["count"] == 14
 
     def test_the_prefix_series_carries_every_sample(self):
-        """`_compute_trend` regresses over the WHOLE array
-        (`bgp_routing.py:81,119`) and reports `trend_entries = len(stats)`
-        (`:140`). A least-squares slope is window-dependent, so a `[-24:]`
-        here hands L2 a different WITHDRAWING/STABLE/GROWING label than
-        production computes from the same response."""
-        assert '"trend_entries": len(stats)' in \
+        """`_compute_trend` regresses over the WHOLE array and reports
+        `trend_entries = len(pfx_values)`. A least-squares slope is
+        window-dependent, so a `[-24:]` here hands L2 a different
+        WITHDRAWING/STABLE/GROWING label than production computes from the
+        same response.
+
+        `pfx_values` rather than `stats` since D2 H-05's repair: an entry
+        whose RIS view is absent is DROPPED on both sides rather than read
+        as zero, because one fabricated zero drags the slope to
+        WITHDRAWING and reports an outage nobody observed."""
+        assert '"trend_entries": len(pfx_values)' in \
             legacy_source("radar/sensors/bgp_routing.py")
-        stats = [{"announced_prefixes": 1000 + n, "seen_ases": 50 + n}
-                 for n in range(31)]
-        body = json.dumps({"data": {"resource": "TW", "stats": stats}}).encode()
+        stats = [{"v4_prefixes_ris": 1000 + n, "v6_prefixes_ris": 0,
+                  "asns_ris": 50 + n} for n in range(31)]
+        body = json.dumps({"data": {"resource": "TW", "resolution": "1h",
+                                    "stats": stats}}).encode()
         draft = ripe_bgp.normalize(synthetic(body), context("ripe_bgp"))[0]
         assert len(draft.flags["prefix_series"]) == 31
         assert len(draft.flags["ases_series"]) == 31

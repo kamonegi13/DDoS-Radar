@@ -1003,18 +1003,32 @@ class TestEntropyTracking:
 
 
 class TestBgpTrend:
-    """Tests for RIPE BGP time series trend computation."""
+    """Tests for RIPE BGP time series trend computation.
+
+    The entries below use RIPE's REAL field names. Until 2026-08-09 these
+    tests fed `announced_prefixes` / `seen_ases`, keys
+    `country-routing-stats` has never returned, so they proved the
+    regression arithmetic worked over data the sensor could never obtain —
+    while the shipped trend label was permanently STABLE (D2 H-05).
+    """
+
+    @staticmethod
+    def _entry(prefixes, ases):
+        """One entry in the shape RIPE actually answers with."""
+        return {"v4_prefixes_ris": prefixes, "v6_prefixes_ris": 0,
+                "asns_ris": ases, "v4_prefixes_stats": -1,
+                "v6_prefixes_stats": -1}
 
     def test_stable_prefixes(self):
         """Constant prefix counts → STABLE trend."""
-        stats = [{"announced_prefixes": 1000, "seen_ases": 50} for _ in range(5)]
+        stats = [self._entry(1000, 50) for _ in range(5)]
         result = BgpRoutingSensor._compute_trend(stats)
         assert result["trend_label"] == "STABLE"
         assert result["prefix_trend"] == 0.0
 
     def test_withdrawing_prefixes(self):
         """Decreasing prefix counts → WITHDRAWING trend."""
-        stats = [{"announced_prefixes": 1000 - i * 20, "seen_ases": 50} for i in range(10)]
+        stats = [self._entry(1000 - i * 20, 50) for i in range(10)]
         result = BgpRoutingSensor._compute_trend(stats)
         assert result["trend_label"] == "WITHDRAWING"
         assert result["prefix_trend"] < 0
@@ -1022,7 +1036,7 @@ class TestBgpTrend:
 
     def test_growing_prefixes(self):
         """Increasing prefix counts → GROWING trend."""
-        stats = [{"announced_prefixes": 1000 + i * 20, "seen_ases": 50} for i in range(10)]
+        stats = [self._entry(1000 + i * 20, 50) for i in range(10)]
         result = BgpRoutingSensor._compute_trend(stats)
         assert result["trend_label"] == "GROWING"
         assert result["prefix_trend"] > 0
@@ -1030,13 +1044,22 @@ class TestBgpTrend:
 
     def test_insufficient_data(self):
         """< 3 entries → INSUFFICIENT_DATA."""
-        stats = [{"announced_prefixes": 1000, "seen_ases": 50}]
+        result = BgpRoutingSensor._compute_trend([self._entry(1000, 50)])
+        assert result["trend_label"] == "INSUFFICIENT_DATA"
+
+    def test_the_dead_key_no_longer_yields_a_trend(self):
+        """H-05's regression guard: a payload full of the OLD keys carries
+        no RIS view at all, so it is INSUFFICIENT_DATA rather than a
+        confident STABLE over ten fabricated zeros."""
+        stats = [{"announced_prefixes": 1000 - i * 20, "seen_ases": 50}
+                 for i in range(10)]
         result = BgpRoutingSensor._compute_trend(stats)
         assert result["trend_label"] == "INSUFFICIENT_DATA"
+        assert result["trend_entries"] == 0
 
     def test_ases_trend_computed(self):
         """ASN trend is also computed."""
-        stats = [{"announced_prefixes": 1000, "seen_ases": 50 + i * 2} for i in range(5)]
+        stats = [self._entry(1000, 50 + i * 2) for i in range(5)]
         result = BgpRoutingSensor._compute_trend(stats)
         assert result["ases_trend"] > 0
 

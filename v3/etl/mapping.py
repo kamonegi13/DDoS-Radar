@@ -90,7 +90,15 @@ MIGRATABLE: dict[str, TableMapping] = {
         stage=1, baseline_id="bgp_hod", value_column="prefix_count",
         bucket_column="hour_bucket",
         hash_order_columns=("theater", "hour_bucket"),
-        note="S3-DATA-011: backfill-impossible."),
+        note="S3-DATA-011 said backfill-impossible; D2 H-05 measured "
+             "otherwise. RIPE Stat serves the hourly history this series "
+             "samples one point of, so `scripts/backfill_bgp_hod.py` "
+             "reconstructs it — which is how the dead-zero epoch (every "
+             "one of the 5,398 migrated rows was 0.0, the absence of a "
+             "key read as a measurement) was replaced rather than "
+             "carried across. Migrate AFTER that script has run: this "
+             "stage is wipe-then-copy, so a migration of the old table "
+             "reinstates the zeros."),
     "gdelt_dow": TableMapping(
         source_table="gdelt_dow", target="baseline",
         order_by="day_bucket", identity_columns=("theater", "day_bucket"),

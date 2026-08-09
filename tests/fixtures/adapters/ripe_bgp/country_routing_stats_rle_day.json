@@ -1,0 +1,227 @@
+{
+  "status": "ok",
+  "data_call_name": "country-routing-stats",
+  "data": {
+    "resource": "TW",
+    "query_starttime": "2026-08-01T00:00:00",
+    "query_endtime": "2026-08-02T00:00:00",
+    "resolution": "1h",
+    "stats": [
+      {
+        "timeline": [
+          {
+            "starttime": "2026-08-01T00:00:00",
+            "endtime": "2026-08-01T01:00:00"
+          }
+        ],
+        "v4_prefixes_ris": 9601,
+        "v6_prefixes_ris": 1204,
+        "asns_ris": 245,
+        "v4_prefixes_stats": -1,
+        "v6_prefixes_stats": -1,
+        "asns_stats": 467,
+        "stats_date": "2026-08-01T00:00:00"
+      },
+      {
+        "timeline": [
+          {
+            "starttime": "2026-08-01T02:00:00",
+            "endtime": "2026-08-01T02:00:00"
+          }
+        ],
+        "v4_prefixes_ris": 9603,
+        "v6_prefixes_ris": 1204,
+        "asns_ris": 245,
+        "v4_prefixes_stats": -1,
+        "v6_prefixes_stats": -1,
+        "asns_stats": 467,
+        "stats_date": "2026-08-01T00:00:00"
+      },
+      {
+        "timeline": [
+          {
+            "starttime": "2026-08-01T03:00:00",
+            "endtime": "2026-08-01T03:00:00"
+          }
+        ],
+        "v4_prefixes_ris": 9602,
+        "v6_prefixes_ris": 1204,
+        "asns_ris": 245,
+        "v4_prefixes_stats": -1,
+        "v6_prefixes_stats": -1,
+        "asns_stats": 467,
+        "stats_date": "2026-08-01T00:00:00"
+      },
+      {
+        "timeline": [
+          {
+            "starttime": "2026-08-01T04:00:00",
+            "endtime": "2026-08-01T04:00:00"
+          }
+        ],
+        "v4_prefixes_ris": 9600,
+        "v6_prefixes_ris": 1203,
+        "asns_ris": 244,
+        "v4_prefixes_stats": -1,
+        "v6_prefixes_stats": -1,
+        "asns_stats": 467,
+        "stats_date": "2026-08-01T00:00:00"
+      },
+      {
+        "timeline": [
+          {
+            "starttime": "2026-08-01T05:00:00",
+            "endtime": "2026-08-01T05:00:00"
+          }
+        ],
+        "v4_prefixes_ris": 9599.5,
+        "v6_prefixes_ris": 1202,
+        "asns_ris": 243,
+        "v4_prefixes_stats": -1,
+        "v6_prefixes_stats": -1,
+        "asns_stats": 467,
+        "stats_date": "2026-08-01T00:00:00"
+      },
+      {
+        "timeline": [
+          {
+            "starttime": "2026-08-01T06:00:00",
+            "endtime": "2026-08-01T07:00:00"
+          },
+          {
+            "starttime": "2026-08-01T09:00:00",
+            "endtime": "2026-08-01T09:00:00"
+          },
+          {
+            "starttime": "2026-08-01T13:00:00",
+            "endtime": "2026-08-01T14:00:00"
+          }
+        ],
+        "v4_prefixes_ris": 9603,
+        "v6_prefixes_ris": 1203,
+        "asns_ris": 244,
+        "v4_prefixes_stats": -1,
+        "v6_prefixes_stats": -1,
+        "asns_stats": 467,
+        "stats_date": "2026-08-01T00:00:00"
+      },
+      {
+        "timeline": [
+          {
+            "starttime": "2026-08-01T08:00:00",
+            "endtime": "2026-08-01T08:00:00"
+          },
+          {
+            "starttime": "2026-08-01T11:00:00",
+            "endtime": "2026-08-01T12:00:00"
+          },
+          {
+            "starttime": "2026-08-01T16:00:00",
+            "endtime": "2026-08-01T16:00:00"
+          }
+        ],
+        "v4_prefixes_ris": 9602,
+        "v6_prefixes_ris": 1203,
+        "asns_ris": 244,
+        "v4_prefixes_stats": -1,
+        "v6_prefixes_stats": -1,
+        "asns_stats": 467,
+        "stats_date": "2026-08-01T00:00:00"
+      },
+      {
+        "timeline": [
+          {
+            "starttime": "2026-08-01T10:00:00",
+            "endtime": "2026-08-01T10:00:00"
+          }
+        ],
+        "v4_prefixes_ris": 9603.5,
+        "v6_prefixes_ris": 1203,
+        "asns_ris": 244,
+        "v4_prefixes_stats": -1,
+        "v6_prefixes_stats": -1,
+        "asns_stats": 467,
+        "stats_date": "2026-08-01T00:00:00"
+      },
+      {
+        "timeline": [
+          {
+            "starttime": "2026-08-01T15:00:00",
+            "endtime": "2026-08-01T15:00:00"
+          }
+        ],
+        "v4_prefixes_ris": 9604,
+        "v6_prefixes_ris": 1203,
+        "asns_ris": 244,
+        "v4_prefixes_stats": -1,
+        "v6_prefixes_stats": -1,
+        "asns_stats": 467,
+        "stats_date": "2026-08-01T00:00:00"
+      },
+      {
+        "timeline": [
+          {
+            "starttime": "2026-08-01T17:00:00",
+            "endtime": "2026-08-01T17:00:00"
+          }
+        ],
+        "v4_prefixes_ris": 9598,
+        "v6_prefixes_ris": 1203,
+        "asns_ris": 244,
+        "v4_prefixes_stats": -1,
+        "v6_prefixes_stats": -1,
+        "asns_stats": 467,
+        "stats_date": "2026-08-01T00:00:00"
+      },
+      {
+        "timeline": [
+          {
+            "starttime": "2026-08-01T18:00:00",
+            "endtime": "2026-08-01T18:00:00"
+          },
+          {
+            "starttime": "2026-08-01T22:00:00",
+            "endtime": "2026-08-01T22:00:00"
+          }
+        ],
+        "v4_prefixes_ris": 9598,
+        "v6_prefixes_ris": 1203,
+        "asns_ris": 243,
+        "v4_prefixes_stats": -1,
+        "v6_prefixes_stats": -1,
+        "asns_stats": 467,
+        "stats_date": "2026-08-01T00:00:00"
+      },
+      {
+        "timeline": [
+          {
+            "starttime": "2026-08-01T19:00:00",
+            "endtime": "2026-08-01T21:00:00"
+          }
+        ],
+        "v4_prefixes_ris": 9597,
+        "v6_prefixes_ris": 1203,
+        "asns_ris": 243,
+        "v4_prefixes_stats": -1,
+        "v6_prefixes_stats": -1,
+        "asns_stats": 467,
+        "stats_date": "2026-08-01T00:00:00"
+      },
+      {
+        "timeline": [
+          {
+            "starttime": "2026-08-01T23:00:00",
+            "endtime": "2026-08-01T23:00:00"
+          }
+        ],
+        "v4_prefixes_ris": 9602,
+        "v6_prefixes_ris": 1203,
+        "asns_ris": 243,
+        "v4_prefixes_stats": -1,
+        "v6_prefixes_stats": -1,
+        "asns_stats": 467,
+        "stats_date": "2026-08-01T00:00:00"
+      }
+    ]
+  }
+}
