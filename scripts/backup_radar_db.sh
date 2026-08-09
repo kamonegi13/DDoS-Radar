@@ -48,6 +48,40 @@ docker exec "${CONTAINER}" rm -f "${TMP_IN_CONTAINER}"
 gzip -f "${OUT}"
 echo "backup: ${OUT}.gz ($(du -h "${OUT}.gz" | cut -f1))"
 
+# Record completion where the APPLICATION can see it. Backups land here on
+# the host, but the container's database lives in the noroshi_radar-data
+# volume — the app cannot see this directory at all, so without a marker
+# "when did we last back up?" is unanswerable from inside. That is exactly
+# how the 2026-07-04..08-03 outage stayed invisible for a month
+# (S4-NF-053). radar/verification/ops_health.py reads this file's age.
+BACKUP_SIZE="$(wc -c < "${OUT}.gz" | tr -d ' ')"
+if ! docker exec -i "${CONTAINER}" python3 - \
+        "$(basename "${OUT}.gz")" "${BACKUP_SIZE}" <<'EOF'
+import json
+import os
+import sys
+import time
+
+marker = "/app/radar/persistence/backup_state.json"
+payload = {
+    "last_backup_at": time.time(),
+    "backup_file": sys.argv[1],
+    "size_bytes": int(sys.argv[2]),
+}
+tmp = f"{marker}.tmp"
+with open(tmp, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+os.replace(tmp, marker)   # atomic: never leave a half-written marker
+print(f"backup marker updated: {marker}")
+EOF
+then
+    # Non-fatal: the backup itself succeeded. But say so loudly — a stale
+    # marker makes ops_health report the backup as overdue, which is the
+    # correct failure direction (a missing signal must not read as OK).
+    echo "WARNING: backup succeeded but the marker could not be written;" \
+         "ops_health will report the backup as overdue" >&2
+fi
+
 # Rotate: keep newest $KEEP backups.
 ls -1t "${DEST_DIR}"/radar-*.db.gz 2>/dev/null | tail -n "+$((KEEP + 1))" | while IFS= read -r old; do
     rm -f "${old}"

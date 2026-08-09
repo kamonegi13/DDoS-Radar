@@ -68,6 +68,16 @@ step "i18n key audit + untranslated detection (Japanese-only UI, 2026-08-02)"
 # warn-only here — flip to --strict once the unused-key cleanup lands.
 python scripts/check_i18n_keys.py || { echo "FAIL: i18n audit reported issues. See output above." >&2; FAIL=1; }
 
+step "Config reachability (WP-1.2 / S5-VERIF-013)"
+# Static half only — fails when a NEW registered key bypasses the 3-layer
+# resolution chain, or a hardcoded default starts contradicting the
+# registry. The runtime half (import-time frozen constants, "registered but
+# never read") runs daily in-app and surfaces at /api/v2/self_eval.
+if ! python scripts/check_config_reachability.py; then
+    echo "FAIL: config reachability regression. See output above." >&2
+    FAIL=1
+fi
+
 step "Secret scan (Phase 1 audit follow-up)"
 # Pure-Python scanner; no external dependency. Conservative regexes, with
 # placeholder/identifier suppression. Flips fatal so leaked credentials

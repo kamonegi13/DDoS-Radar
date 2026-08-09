@@ -1,10 +1,13 @@
 """radar.sensors.base -- Abstract base sensor class."""
 from __future__ import annotations
 import datetime
+import logging
 import time
 import threading
 from abc import ABC, abstractmethod
 from radar.scenarios import SensorTier
+
+log = logging.getLogger("radar")
 
 
 def _get_db():
@@ -48,6 +51,17 @@ class BaseSensor(ABC):
                 rec_count = sum(len(v) for v in data.values() if isinstance(v, (list, dict)))
                 self._fetch_log.append({"ts": datetime.datetime.now().isoformat(), "success": True, "duration_ms": None, "http_status": None, "records": rec_count, "error": ""})
                 self._fetch_log = self._fetch_log[-10:]
+        # WP-1.1 / S5-VERIF-002: record which detection flags fired in this
+        # payload. Deliberately outside the lock (the monitor takes its own
+        # DB locks) and fully contained: a monitoring failure must never
+        # turn into a sensor outage (NP3). Sensors with no catalog entry
+        # return before touching the DB.
+        try:
+            from radar.verification.firing_monitor import record_evaluation
+            record_evaluation(self.name, data)
+        except Exception as exc:
+            log.warning(
+                "firing-monitor record failed for %s: %s", self.name, exc)
     def set_error(self, error: str):
         with self._lock:
             self._last_error = error
@@ -79,8 +93,7 @@ class BaseSensor(ABC):
         """Record a successful fetch — reset circuit breaker to CLOSED."""
         with self._lock:
             if self._cb_state != "CLOSED":
-                import logging
-                logging.getLogger("radar").info(
+                log.info(
                     f"[CB/{self.name}] {self._cb_state} → CLOSED (recovered)")
             self._cb_state = "CLOSED"
             self._cb_fail_count = 0
@@ -96,16 +109,14 @@ class BaseSensor(ABC):
                 self._cb_opened_at = time.time()
                 self._cb_recovery_delay = min(
                     self._cb_recovery_delay * 2, self.CB_MAX_DELAY)
-                import logging
-                logging.getLogger("radar").warning(
+                log.warning(
                     f"[CB/{self.name}] HALF_OPEN → OPEN (probe failed, "
                     f"next retry in {self._cb_recovery_delay:.0f}s)")
             elif (self._cb_state == "CLOSED"
                   and self._cb_fail_count >= self.CB_FAILURE_THRESHOLD):
                 self._cb_state = "OPEN"
                 self._cb_opened_at = time.time()
-                import logging
-                logging.getLogger("radar").warning(
+                log.warning(
                     f"[CB/{self.name}] CLOSED → OPEN after "
                     f"{self._cb_fail_count} consecutive failures, "
                     f"pausing for {self._cb_recovery_delay:.0f}s")
@@ -123,8 +134,7 @@ class BaseSensor(ABC):
                 if elapsed >= self._cb_recovery_delay:
                     # Transition to HALF_OPEN — allow one probe
                     self._cb_state = "HALF_OPEN"
-                    import logging
-                    logging.getLogger("radar").info(
+                    log.info(
                         f"[CB/{self.name}] OPEN → HALF_OPEN (probing)")
                     return False
                 return True  # Still cooling down
@@ -181,8 +191,7 @@ class BaseSensor(ABC):
         if response.status_code != 429:
             return False
         retry_after = response.headers.get("Retry-After", "60")
-        import logging
-        logging.getLogger("radar").warning(
+        log.warning(
             f"[{self.name}] Rate limited (429). Retry-After: {retry_after}s"
         )
         cached = self.get_cache()
@@ -224,8 +233,31 @@ class BaseSensor(ABC):
             return None
         return res
 
-    def to_config_dict(self) -> dict:
+    def _detection_health(self) -> str:
+        """WP-1.1 / S5-VERIF-004 — the second health axis.
+
+        Independent of `health`, which stays fetch-liveness only because
+        compute_confidence() is calibrated against it. Degrades to
+        "UNKNOWN" rather than "OK" so an unanswerable query never renders
+        as green (S5-VERIF-006).
+        """
+        try:
+            from radar.verification.firing_monitor import detection_health
+            return detection_health(self.name)
+        except Exception as exc:
+            log.warning(
+                "detection_health unavailable for %s: %s", self.name, exc)
+            return "UNKNOWN"
+
+    def to_config_dict(self, detection_health: str | None = None) -> dict:
+        """Admin/config view of this sensor.
+
+        `detection_health` may be supplied by a caller that already
+        resolved it in bulk (SensorRegistry.config_list); when omitted the
+        sensor resolves its own, which costs one query.
+        """
         h = self.health
+        dh = detection_health if detection_health is not None else self._detection_health()
         with self._lock:
             last_error = self._last_error
             cache_time = self._cache_time
@@ -233,7 +265,8 @@ class BaseSensor(ABC):
             cb_fail_count = self._cb_fail_count
         return {
             "name": self.name, "domain": self.domain, "enabled": self.enabled,
-            "health": h, "poll_interval_sec": self.poll_interval,
+            "health": h, "detection_health": dh,
+            "poll_interval_sec": self.poll_interval,
             "last_error": last_error,
             "cache_age_sec": round(time.time() - cache_time) if cache_time else None,
             "last_fetch_ts": cache_time or None,

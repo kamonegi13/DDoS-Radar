@@ -179,8 +179,14 @@ class GpsJammingSensor(BaseSensor):
                 else:
                     jam_ratio = 0.0
 
-                _jam_thr  = float(_os.getenv("GPS_JAM_THRESHOLD",          "3.0"))
-                _crit_thr = float(_os.getenv("GPS_JAM_CRITICAL_THRESHOLD", "7.0"))
+                # Fix 2026-08-07 (F-08): the compared values are fractions
+                # in [0, 1] (bad / total aircraft), but these thresholds
+                # shipped percent-scaled at 3.0 / 7.0 — outside the domain,
+                # so is_jammed and is_critical were mathematically
+                # unreachable while fetch health stayed green. Defaults are
+                # now the same numbers on the ratio scale.
+                _jam_thr  = float(_os.getenv("GPS_JAM_THRESHOLD",          "0.03"))
+                _crit_thr = float(_os.getenv("GPS_JAM_CRITICAL_THRESHOLD", "0.07"))
                 jammed_tiles = sum(1 for t in nearby_tiles
                                    if (t["good"] + t["bad"]) > 0 and
                                    t["bad"] / (t["good"] + t["bad"]) >= _jam_thr)

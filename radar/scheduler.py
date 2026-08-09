@@ -664,6 +664,79 @@ def _cache_cleanup_worker(registry=None):
             except Exception as _drift_exc:
                 log.warning("[DriftWatchdog] run_once failed: %s", _drift_exc)
 
+            # WP-1.1 / S5-VERIF-016: firing-liveness check, one run per day.
+            # Called every hour on purpose — the *job* owns its schedule via
+            # the persisted `next_run_at` in l5_job_state, so an overdue run
+            # is compensated on the first tick after a restart. This is the
+            # replacement for the `_cycle % 24` pattern above, which is
+            # defect F-01: a process restarting inside 24h never reaches the
+            # higher offsets, so those jobs silently never ran.
+            try:
+                from radar.verification.firing_monitor import (
+                    run_daily_check_if_due as _firing_check,
+                )
+                if _firing_check():
+                    log.info("[FiringLiveness] daily detection-liveness check ran")
+            except Exception as _fl_exc:
+                log.warning("[FiringLiveness] daily check failed: %s", _fl_exc)
+
+            # WP-1.2 / S5-VERIF-013+014: config reachability, one run per
+            # day on the same persistent-schedule contract. The job also
+            # flushes the in-process config read tracker, so the "which
+            # registered keys does anything actually read" evidence survives
+            # a restart.
+            try:
+                from radar.verification.config_reachability import (
+                    run_daily_check_if_due as _config_reach_check,
+                )
+                if _config_reach_check():
+                    log.info("[ConfigReachability] daily config reachability "
+                             "check ran")
+            except Exception as _cr_exc:
+                log.warning("[ConfigReachability] daily check failed: %s",
+                            _cr_exc)
+
+            # WP-1.3 / S5-VERIF-007..011: baseline-window health and
+            # threshold/value unit consistency, same persistent-schedule
+            # contract. Detects the F-06 class (a 30-day window that is
+            # really 7.5 hours) and the F-08 class (a ratio compared against
+            # a percent-scaled threshold).
+            try:
+                from radar.verification.window_unit_health import (
+                    run_daily_check_if_due as _window_unit_check,
+                )
+                if _window_unit_check():
+                    log.info("[WindowUnitHealth] daily window/unit check ran")
+            except Exception as _wu_exc:
+                log.warning("[WindowUnitHealth] daily check failed: %s",
+                            _wu_exc)
+
+            # WP-1.4: safety-gate liveness + label lineage. Catches the
+            # class where a guard stopped guarding silently — the recall
+            # gate whose fail-open branch fires on every call (G-07), stored
+            # ATTENTION thresholds nothing reads (G-02), and recall cells
+            # whose value is pinned by construction (G-08 / F-16).
+            try:
+                from radar.verification.gate_lineage import (
+                    run_daily_check_if_due as _gate_lineage_check,
+                )
+                if _gate_lineage_check():
+                    log.info("[GateLineage] daily gate/lineage check ran")
+            except Exception as _gl_exc:
+                log.warning("[GateLineage] daily check failed: %s", _gl_exc)
+
+            # WP-0.3 / S4-NF-053: backup age + capacity trend. The backup
+            # cron failed silently for a month because nothing measured
+            # when it last succeeded; this makes that age a metric.
+            try:
+                from radar.verification.ops_health import (
+                    run_daily_check_if_due as _ops_health_check,
+                )
+                if _ops_health_check():
+                    log.info("[OpsHealth] daily ops-health check ran")
+            except Exception as _oh_exc:
+                log.warning("[OpsHealth] daily check failed: %s", _oh_exc)
+
             # ATTENTION adaptive learning (commit O): hourly observation
             # tick + nightly p95 recompute + nightly cleanup.
             try:
