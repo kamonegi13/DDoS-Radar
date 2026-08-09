@@ -288,6 +288,14 @@ def v2_conclusion_feedback_submit(conclusion_id: str):
     client cannot spoof either. Returns the new id + the post-write
     aggregate so the UI can update its multi-analyst view in one round-trip.
     """
+    # G-01 (2026-08-07): this was the only mutating endpoint here without a
+    # role gate, so a read-only viewer could write the ground-truth labels
+    # that recall metrics and the auto-tune governor calibrate against.
+    # Authorization first, matching the sibling endpoints: an unauthorized
+    # caller must not learn the feature-flag state from a 503.
+    auth_err = _require_analyst()
+    if auth_err is not None:
+        return auth_err
     guard = _v2_enabled_or_503()
     if guard is not None:
         return guard
@@ -758,6 +766,92 @@ def v2_self_eval():
         }
     except Exception as e:  # noqa: BLE001
         out["silent_failures"] = {"error": str(e)}
+
+    # firing_liveness — WP-1.1 / S5-VERIF-003+016. The companion to
+    # silent_failures: that block reports code paths that threw and were
+    # swallowed, this one reports detectors that never threw and never
+    # fired. `anomalies` lists sensor x flag pairs whose detection logic
+    # has been silent far past its expected firing interval — the class of
+    # defect F-08 (gps_jamming) belongs to, where fetch health stayed OK
+    # for the sensor's entire lifetime while nothing was ever detected.
+    # On failure the error is surfaced rather than collapsed into an empty
+    # (green-looking) block: an unanswerable query is not a healthy one
+    # (S5-VERIF-006).
+    try:
+        from radar.verification.firing_monitor import snapshot as _fl_snapshot
+        out["firing_liveness"] = _fl_snapshot()
+    except Exception as e:  # noqa: BLE001
+        out["firing_liveness_error"] = str(e)
+
+    # config_reachability — WP-1.2 / S5-VERIF-013+014. The third member of
+    # the same family: silent_failures reports code that threw, firing_
+    # liveness reports detectors that never fired, this reports *settings
+    # that are never read*. `anomalies` lists registry keys whose value no
+    # running code path resolves through the 3-layer chain — an analyst can
+    # edit them in SETTINGS, get a success response and a new displayed
+    # value, and change nothing (defect G-15). Same S5-VERIF-006 rule: a
+    # lookup that failed is surfaced, not collapsed into an empty block.
+    try:
+        from radar.verification.config_reachability import (
+            snapshot as _cr_snapshot,
+        )
+        out["config_reachability"] = _cr_snapshot()
+    except Exception as e:  # noqa: BLE001
+        out["config_reachability_error"] = str(e)
+
+    # window_unit_health — WP-1.3 / S5-VERIF-007..011. The fourth member of
+    # the family, and the one that explains a subset of the others: a
+    # detector can be alive, its config reachable, and still be measuring
+    # nothing, because its baseline holds 7.5 hours while claiming 30 days
+    # (F-06) or because its threshold is on a different scale than the value
+    # it is compared against (F-08). `window_anomalies` and `unit_anomalies`
+    # name those directly.
+    try:
+        from radar.verification.window_unit_health import (
+            snapshot as _wu_snapshot,
+        )
+        out["window_unit_health"] = _wu_snapshot()
+    except Exception as e:  # noqa: BLE001
+        out["window_unit_health_error"] = str(e)
+
+    # gate_lineage — WP-1.4. Where the other three ask whether the system
+    # is measuring, this asks whether its guards are still participating:
+    # `dead_gates` names a safety gate that takes its fail-open branch on
+    # every call (G-07), `ineffective_overrides` analyst settings nothing
+    # reads (G-02), `degenerate_cells` recall figures pinned to 1.0 by
+    # construction (G-08).
+    try:
+        from radar.verification.gate_lineage import snapshot as _gl_snapshot
+        out["gate_lineage"] = _gl_snapshot()
+    except Exception as e:  # noqa: BLE001
+        out["gate_lineage_error"] = str(e)
+
+    # ops_health — WP-0.3 / S4-NF-053. The operational twin of the four
+    # analytical checks: `backup.age_hours` answers "when did we last have
+    # a restorable copy" (the 04:00 cron failed silently for a month
+    # because nothing asked), and `capacity` tracks the DB growth that
+    # ADR-V3-005's 60-day retention rests on. An unknown backup age is
+    # reported as INSUFFICIENT, never OK — that is what the outage looked
+    # like from inside.
+    try:
+        from radar.verification.ops_health import snapshot as _oh_snapshot
+        out["ops_health"] = _oh_snapshot()
+    except Exception as e:  # noqa: BLE001
+        out["ops_health_error"] = str(e)
+
+    # l5_heartbeat — WP-1.4 condition 3. "When did each self-check last
+    # run" in one glance. A self-evaluation surface that quietly stopped
+    # updating reports yesterday's health with today's confidence, so the
+    # freshness of the checks is itself part of the surface.
+    # Keep this block LAST: checks register their job at module import, and
+    # the four imports above are what guarantees a complete roster here.
+    # (Jobs that have ever run are also recovered from l5_job_state, so a
+    # reorder degrades the roster rather than emptying it.)
+    try:
+        from radar.verification.l5_common import heartbeat_snapshot
+        out["l5_heartbeat"] = heartbeat_snapshot()
+    except Exception as e:  # noqa: BLE001
+        out["l5_heartbeat_error"] = str(e)
 
     # attention metrics collection errors (SF5).
     try:

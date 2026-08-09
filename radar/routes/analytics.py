@@ -2,6 +2,7 @@
 from __future__ import annotations
 import time
 import datetime
+from typing import TYPE_CHECKING
 from flask import jsonify, request
 from radar.auth import require_role
 from radar.config import (
@@ -31,6 +32,31 @@ from radar.routes import bp, _safe_int, _country_param
 # endpoints intentionally accept all three roles.
 _ANALYTICS_READ_ROLES = ("admin", "analyst", "viewer")
 _analytics_read = require_role(*_ANALYTICS_READ_ROLES)
+
+if TYPE_CHECKING:  # import only for typing — radar.scenarios is heavy
+    from radar.scenarios import Scenario
+
+
+def _scenario_label(scenario: "Scenario", lang: str | None = None) -> str:
+    """Display name for a scenario, honouring an explicit `lang` request.
+
+    G-16 (2026-08-07): `/api/analytics/scenario_phases` called this helper
+    but it was never defined anywhere, so the endpoint raised NameError on
+    its first scenario — a guaranteed 500 on an untested route.
+
+    Japanese is the default because the UI is Japanese-only (2026-08-02);
+    `lang=en` is honoured for API consumers. Every branch falls back
+    rather than returning an empty label: an unnamed row in the phase
+    table would be harder to act on than a bare scenario id.
+    """
+    name_ja = getattr(scenario, "name_ja", "") or ""
+    name_en = getattr(scenario, "name_en", "") or ""
+    if (lang or "").lower() == "en":
+        preferred, alternate = name_en, name_ja
+    else:
+        preferred, alternate = name_ja, name_en
+    return preferred or alternate or str(getattr(scenario, "id", ""))
+
 
 @bp.route("/api/data_status", methods=["GET"])
 @_analytics_read

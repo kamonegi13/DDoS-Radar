@@ -9,8 +9,19 @@ through a 3-layer chain:
 
 Every key is registered once with rich metadata (type, default,
 secret/immutable/restart/bootstrap flags, validator, group, impact_level,
-apply timing label). The Settings UI is rendered from the registry; CI
-gates assert no `os.getenv` for registered keys outside this module.
+apply timing label). The Settings UI is rendered from the registry.
+
+Reachability (WP-1.2, corrected 2026-08-06): this module used to claim
+that "CI gates assert no ``os.getenv`` for registered keys outside this
+module". **No such gate has ever existed**, and in its absence almost
+every registered key came to be read through a channel that bypasses the
+chain above (defect G-15 / S1-CONF-008). What exists now is an audit, not
+a prohibition: ``radar.verification.config_static_audit`` classifies each
+key's read channels and ``radar.verification.config_reachability`` joins
+that with the runtime tracker below, reports through ``/api/v2/self_eval``
+and fails ``scripts/check_config_reachability.py`` on regression. Routing
+the bypassing keys back through ``get_config()`` is separate work; until
+then, registration alone does not make a key live.
 
 NP3: never raises on the hot path. NP6: every mutation flows through
 ``set_config()`` which writes to ``config_change_log`` for audit.
@@ -223,6 +234,134 @@ def invalidate_cache(key: Optional[str] = None) -> None:
             _cache.pop(key, None)
 
 
+# ── Runtime read tracker (WP-1.2 / S5-VERIF-014) ───────────────────────────
+#
+# The static audit can prove that a `get_config()` call site *exists*; only
+# this can say whether it was ever *executed*. A registered key that no
+# running process ever reads is a dead knob even when the static classifier
+# is happy — the "registered but never read" direction of S5-VERIF-014.
+#
+# In-process and deliberately cheap: one dict update per read under a
+# dedicated lock. `config_reachability.flush_read_stats()` merges these
+# counters into `config_read_stats` and resets them, so the persisted row
+# accumulates across restarts.
+
+_read_lock = RLock()
+_read_stats: dict[str, dict] = {}
+_unregistered_reads: dict[str, dict] = {}
+_read_tracker_started_at = time.time()
+
+# Unregistered keys are unbounded by construction — any string a caller
+# passes lands here — so the table is capped and overflow is counted rather
+# than silently accepted (a memory leak) or silently dropped (a blind spot).
+_UNREGISTERED_READ_CAP = 512
+_unregistered_dropped = 0
+_unregistered_cap_logged = False
+
+
+def _record_read(key: str, source: Optional[str], now: float) -> None:
+    """Note one resolution of `key`. Never raises — NP3 hot path."""
+    global _unregistered_dropped, _unregistered_cap_logged
+    with _read_lock:
+        registered = key in _REGISTRY
+        table = _read_stats if registered else _unregistered_reads
+        entry = table.get(key)
+        if entry is not None:
+            entry["last_read_at"] = now
+            entry["read_count"] += 1
+            if source is not None:
+                entry["last_source"] = source
+            return
+        if not registered and len(table) >= _UNREGISTERED_READ_CAP:
+            _unregistered_dropped += 1
+            if not _unregistered_cap_logged:
+                _unregistered_cap_logged = True
+                log.warning("config read tracker: unregistered-key table hit "
+                            "its %d-key cap; further distinct keys are "
+                            "counted, not listed", _UNREGISTERED_READ_CAP)
+            return
+        table[key] = {"first_read_at": now, "last_read_at": now,
+                      "read_count": 1, "last_source": source}
+
+
+def _copy_stats(table: dict) -> dict[str, dict]:
+    with _read_lock:
+        return {k: dict(v) for k, v in table.items()}
+
+
+def _merge_into(table: dict, entries: dict) -> None:
+    """Fold `entries` back into a live tracker table (caller holds the lock)."""
+    for key, entry in entries.items():
+        current = table.get(key)
+        if current is None:
+            table[key] = dict(entry)
+            continue
+        current["first_read_at"] = min(current["first_read_at"],
+                                       entry["first_read_at"])
+        current["last_read_at"] = max(current["last_read_at"],
+                                      entry["last_read_at"])
+        current["read_count"] += entry["read_count"]
+
+
+def drain_read_stats(now: Optional[float] = None
+                     ) -> tuple[dict[str, dict], dict[str, dict]]:
+    """Atomically take the counters and start fresh ones.
+
+    One critical section, so a read landing mid-flush is counted in either
+    the drained snapshot or the next one — never lost between a copy and a
+    later clear.
+    """
+    global _read_stats, _unregistered_reads, _read_tracker_started_at
+    with _read_lock:
+        taken = (_read_stats, _unregistered_reads)
+        _read_stats = {}
+        _unregistered_reads = {}
+        _read_tracker_started_at = time.time() if now is None else now
+        return taken
+
+
+def restore_read_stats(registered: dict, unregistered: dict) -> None:
+    """Fold a drained snapshot back in after a failed persist."""
+    with _read_lock:
+        _merge_into(_read_stats, registered)
+        _merge_into(_unregistered_reads, unregistered)
+
+
+def unregistered_read_dropped() -> int:
+    """Distinct unregistered keys refused by the cap since the last reset."""
+    with _read_lock:
+        return _unregistered_dropped
+
+
+def runtime_read_stats() -> dict[str, dict]:
+    """{registered key: {first_read_at, last_read_at, read_count, last_source}}."""
+    return _copy_stats(_read_stats)
+
+
+def unregistered_read_stats() -> dict[str, dict]:
+    """Same shape, for keys resolved without a registry entry.
+
+    These are the silent-fallback class of S1-CONF-007/010: the raw env
+    string (None when unset) is returned with no type coercion, no range
+    check and no DB layer.
+    """
+    return _copy_stats(_unregistered_reads)
+
+
+def read_tracker_started_at() -> float:
+    """When the in-process counters last started from zero."""
+    return _read_tracker_started_at
+
+
+def reset_read_stats(now: Optional[float] = None) -> None:
+    """Drop the in-process counters entirely (test / diagnostic hook)."""
+    global _unregistered_dropped, _unregistered_cap_logged
+    with _read_lock:
+        drain_read_stats(now=now)
+        _unregistered_dropped = 0
+        _unregistered_cap_logged = False
+
+
 # ── Read path ──────────────────────────────────────────────────────────────
 
 
@@ -253,22 +392,28 @@ def _read_env(key: str) -> Any:
     return raw
 
 
-def _resolve_uncached(key: str) -> Any:
+def _resolve_with_source(key: str) -> tuple[Any, str]:
+    """Resolve `key` and report which layer produced the value."""
     meta = _REGISTRY.get(key)
     if meta is None:
-        return _read_env(key)
+        # Unregistered: the raw env string, uncoerced (S1-CONF-007).
+        return (_read_env(key), "unregistered_env")
 
     # Bootstrap & immutable keys skip the DB layer.
     if not meta.immutable and not meta.bootstrap:
         db_v = _coerce(_read_db(key), meta.type_)
         if db_v is not None:
-            return db_v
+            return (db_v, "db")
 
     env_v = _coerce(_read_env(key), meta.type_)
     if env_v is not None:
-        return env_v
+        return (env_v, "env")
 
-    return meta.default
+    return (meta.default, "default")
+
+
+def _resolve_uncached(key: str) -> Any:
+    return _resolve_with_source(key)[0]
 
 
 def get_config(key: str) -> Any:
@@ -276,12 +421,20 @@ def get_config(key: str) -> Any:
 
     Caches results for 30s. Cache is invalidated on every set_config /
     clear_config / register, so analyst writes propagate immediately.
+
+    Every call is recorded by the read tracker — including cache hits,
+    because the audit question is "did anything read this key", not "did
+    anything miss the cache". Only a resolved (uncached) read knows which
+    layer answered, so cache hits leave `last_source` as it was.
     """
+    now = time.time()
     hit, cached = _cache_get(key)
     if hit:
+        _record_read(key, None, now)
         return cached
-    value = _resolve_uncached(key)
+    value, source = _resolve_with_source(key)
     _cache_put(key, value)
+    _record_read(key, source, now)
     return value
 
 
@@ -448,6 +601,10 @@ __all__ = [
     "is_restart_pending",
     "get_value_source",
     "invalidate_cache",
+    # WP-1.2 runtime read tracker
+    "runtime_read_stats", "unregistered_read_stats",
+    "unregistered_read_dropped", "read_tracker_started_at",
+    "drain_read_stats", "restore_read_stats", "reset_read_stats",
     # Group constants
     "GROUP_OPERATE", "GROUP_TUNE", "GROUP_LLM_HEALTH",
     "GROUP_INFRASTRUCTURE", "GROUP_ACCESS", "GROUP_AUDIT", "ALL_GROUPS",

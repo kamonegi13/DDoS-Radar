@@ -79,11 +79,34 @@ def _display_path(p: Path) -> str:
 # ── snapshot ──────────────────────────────────────────────────────────────
 
 
+_DEFAULT_DB_PATH = "radar/persistence/radar.db"
+
+
+def _shared_db_if_in_app(db_path: Optional[str] = None):
+    """The application's own DB handle, when we are running inside it.
+
+    Constructing a second RadarDB against the production file runs a full
+    ``PRAGMA integrity_check`` over ~1.9 GB and leaves a live connection
+    behind. That is acceptable once from the CLI; it is not acceptable
+    several times a day from the calibrators, which is what the recall
+    gate became once its missing function was restored (G-07).
+
+    Only reuses the singleton when the caller is not pointing somewhere
+    else, and never imports radar.database itself — the presence of the
+    module in sys.modules is exactly the "am I inside the app" signal.
+    """
+    if db_path not in (None, _DEFAULT_DB_PATH):
+        return None
+    module = sys.modules.get("radar.database")
+    return None if module is None else getattr(module, "db", None)
+
+
 def _collect_snapshot(
     *,
     db_path: Optional[str] = None,
     exclude_auto: bool = False,
     since: Optional[float] = None,
+    db: Optional[Any] = None,
 ) -> dict[str, Any]:
     """Build a baseline dict from the live DB. Pure data — no rendering.
 
@@ -93,14 +116,19 @@ def _collect_snapshot(
     ``since`` is an absolute unix timestamp; only feedback rows with
     ``observed_at >= since`` participate in the matrix. Lets the gate
     catch seasonal drift without re-baselining the full history.
+
+    ``db`` lets an in-process caller hand over an existing handle; when it
+    is None the CLI path constructs one from ``db_path`` / RADAR_DB_PATH
+    exactly as before.
     """
     sys.path.insert(0, str(_REPO_ROOT / "scripts"))
-    from radar.database import RadarDB  # noqa: E402  (late import after sys.path)
     from report_recall_metrics import collect_metrics  # noqa: E402
 
-    if db_path:
-        os.environ["RADAR_DB_PATH"] = db_path
-    db = RadarDB(os.environ.get("RADAR_DB_PATH", "radar/persistence/radar.db"))
+    if db is None:
+        from radar.database import RadarDB  # noqa: E402  (late import)
+        if db_path:
+            os.environ["RADAR_DB_PATH"] = db_path
+        db = RadarDB(os.environ.get("RADAR_DB_PATH", _DEFAULT_DB_PATH))
 
     cells = collect_metrics(db, exclude_auto=exclude_auto, since=since)
     return {
@@ -189,6 +217,68 @@ def compare(
         messages.append(f"info: new cell {key[0]}/{key[1]} (not in baseline)")
 
     return (not failed), messages
+
+
+# ── programmatic gate API ─────────────────────────────────────────────────
+
+
+def evaluate_against_baseline(
+    *,
+    db_path: Optional[str] = None,
+    tolerance: float = 0.05,
+    baseline_path: Optional[Path] = None,
+) -> dict[str, Any]:
+    """Evaluate the live matrix against the checked-in baseline.
+
+    G-07 (2026-08-07): `auto_tune_governor._recall_gate_is_red()` has
+    always called this function, but it did not exist — the module only
+    exposed `compare()`. The governor wraps the call in
+    `except Exception: return False`, so every invocation took the
+    "cannot evaluate -> allow" branch and the recall gate never once
+    blocked a proposal. Adding the function the caller already expects
+    restores the gate without touching the caller (or its deliberate
+    fail-open, which ADR-V3-006 freezes until cutover).
+
+    Returns a dict with:
+        status   "PASS"   no cell regressed beyond `tolerance`
+                 "FAIL"   at least one cell did
+                 "NO_BASELINE" nothing to compare against yet
+        messages the same human-readable lines the CLI prints
+        plus the window/flags the comparison actually used.
+
+    Never raises for the ordinary "cannot evaluate" cases; the caller's
+    fail-open then applies only to genuinely unexpected failures.
+    """
+    path = _BASELINE_PATH if baseline_path is None else Path(baseline_path)
+    baseline = _load_baseline(path)
+    if baseline is None:
+        return {
+            "status": "NO_BASELINE",
+            "messages": [f"no baseline at {_display_path(path)}"],
+            "baseline_path": str(path),
+        }
+
+    # Window and de-dup flags are inherited from the baseline so the two
+    # sides of the comparison are measured the same way (S5-VERIF-038).
+    current = _collect_snapshot(
+        db_path=db_path,
+        exclude_auto=bool(baseline.get("exclude_auto", False)),
+        since=baseline.get("since"),
+        # In-app callers (the calibrators, several times a day) reuse the
+        # running handle instead of opening the 1.9 GB file again.
+        db=_shared_db_if_in_app(db_path),
+    )
+    ok, messages = compare(baseline, current, max_drop=tolerance)
+    return {
+        "status": "PASS" if ok else "FAIL",
+        "messages": messages,
+        "max_drop": tolerance,
+        "since": baseline.get("since"),
+        "exclude_auto": bool(baseline.get("exclude_auto", False)),
+        "baseline_cells": len(baseline.get("cells", [])),
+        "current_cells": len(current.get("cells", [])),
+        "baseline_path": str(path),
+    }
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────

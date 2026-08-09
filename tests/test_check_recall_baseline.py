@@ -232,3 +232,161 @@ def test_check_inherits_baseline_window(monkeypatch, tmp_path) -> None:
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
+
+
+# ── WP-0.2 G-07: the programmatic gate API the governor calls ──────────────
+class TestEvaluateAgainstBaseline:
+    """`auto_tune_governor._recall_gate_is_red()` has always called this
+    function; until 2026-08-07 it did not exist, so the governor's
+    `except Exception -> False` fail-open fired on every invocation and the
+    recall gate never blocked anything."""
+
+    def _baseline(self, tmp_path, cells, since=None):
+        import json
+        path = tmp_path / "baseline.json"
+        path.write_text(json.dumps({
+            "schema_version": 1, "exclude_auto": False, "since": since,
+            "opt_in": False, "cells": cells,
+        }), encoding="utf-8")
+        return path
+
+    def _cell(self, recall, scenario="s1", ctype="threat_level"):
+        return {"scenario_id": scenario, "conclusion_type": ctype,
+                "tp": 10, "fp": 1, "tn": 5, "fn": 2, "total": 18,
+                "recall": recall, "precision": 0.9, "distinct_analysts": 2}
+
+    def test_the_attribute_the_governor_calls_exists(self):
+        import scripts.check_recall_baseline as mod
+        assert callable(getattr(mod, "evaluate_against_baseline", None))
+
+    def test_missing_baseline_reports_no_baseline(self, tmp_path):
+        from scripts.check_recall_baseline import evaluate_against_baseline
+        report = evaluate_against_baseline(
+            baseline_path=tmp_path / "absent.json")
+        assert report["status"] == "NO_BASELINE"
+        assert report["status"] != "FAIL", "absence must not read as regression"
+
+    def test_pass_when_recall_holds(self, tmp_path, monkeypatch):
+        import scripts.check_recall_baseline as mod
+        path = self._baseline(tmp_path, [self._cell(0.80)])
+        monkeypatch.setattr(mod, "_collect_snapshot",
+                            lambda **kw: {"cells": [self._cell(0.80)]})
+        report = mod.evaluate_against_baseline(baseline_path=path)
+        assert report["status"] == "PASS"
+
+    def test_fail_when_recall_drops_beyond_tolerance(self, tmp_path,
+                                                    monkeypatch):
+        import scripts.check_recall_baseline as mod
+        path = self._baseline(tmp_path, [self._cell(0.80)])
+        monkeypatch.setattr(mod, "_collect_snapshot",
+                            lambda **kw: {"cells": [self._cell(0.50)]})
+        report = mod.evaluate_against_baseline(baseline_path=path,
+                                               tolerance=0.05)
+        assert report["status"] == "FAIL"
+        assert any("recall" in m for m in report["messages"])
+
+    def test_a_drop_inside_tolerance_passes(self, tmp_path, monkeypatch):
+        import scripts.check_recall_baseline as mod
+        path = self._baseline(tmp_path, [self._cell(0.80)])
+        monkeypatch.setattr(mod, "_collect_snapshot",
+                            lambda **kw: {"cells": [self._cell(0.76)]})
+        assert mod.evaluate_against_baseline(
+            baseline_path=path, tolerance=0.05)["status"] == "PASS"
+
+    def test_window_flags_are_inherited_from_the_baseline(self, tmp_path,
+                                                          monkeypatch):
+        # S5-VERIF-038: both sides must be measured the same way.
+        import scripts.check_recall_baseline as mod
+        path = self._baseline(tmp_path, [self._cell(0.80)], since=1234.0)
+        seen = {}
+
+        def _fake(**kw):
+            seen.update(kw)
+            return {"cells": [self._cell(0.80)]}
+
+        monkeypatch.setattr(mod, "_collect_snapshot", _fake)
+        report = mod.evaluate_against_baseline(baseline_path=path)
+        assert seen["since"] == 1234.0
+        assert seen["exclude_auto"] is False
+        assert report["since"] == 1234.0
+
+    def test_report_is_json_serializable(self, tmp_path, monkeypatch):
+        import json
+
+        import scripts.check_recall_baseline as mod
+        path = self._baseline(tmp_path, [self._cell(0.80)])
+        monkeypatch.setattr(mod, "_collect_snapshot",
+                            lambda **kw: {"cells": [self._cell(0.80)]})
+        json.dumps(mod.evaluate_against_baseline(baseline_path=path))
+
+
+class TestDatabaseHandleReuse:
+    """G-07 follow-up: once the gate actually works it runs several times a
+    day from the calibrators. Constructing a second RadarDB against the
+    production file each time means a full PRAGMA integrity_check over
+    ~1.9 GB plus a leaked connection."""
+
+    def test_in_app_calls_reuse_the_running_singleton(self, monkeypatch):
+        import sys
+        import types
+
+        import scripts.check_recall_baseline as mod
+        sentinel = object()
+        fake = types.ModuleType("radar.database")
+        fake.db = sentinel
+        monkeypatch.setitem(sys.modules, "radar.database", fake)
+        assert mod._shared_db_if_in_app() is sentinel
+        assert mod._shared_db_if_in_app("radar/persistence/radar.db") is sentinel
+
+    def test_an_explicit_other_path_is_never_hijacked(self, monkeypatch):
+        import sys
+        import types
+
+        import scripts.check_recall_baseline as mod
+        fake = types.ModuleType("radar.database")
+        fake.db = object()
+        monkeypatch.setitem(sys.modules, "radar.database", fake)
+        assert mod._shared_db_if_in_app("/tmp/other.db") is None
+
+    def test_cli_path_constructs_its_own_handle(self, monkeypatch):
+        import sys
+
+        import scripts.check_recall_baseline as mod
+        monkeypatch.delitem(sys.modules, "radar.database", raising=False)
+        assert mod._shared_db_if_in_app() is None
+
+    def test_the_snapshot_uses_the_handed_over_handle(self, monkeypatch):
+        import scripts.check_recall_baseline as mod
+        sentinel = object()
+        seen = {}
+        monkeypatch.setitem(
+            __import__("sys").modules, "report_recall_metrics",
+            _fake_reporter(seen))
+        mod._collect_snapshot(db=sentinel)
+        assert seen["db"] is sentinel
+
+    def test_the_in_app_path_does_not_touch_radar_db_path_env(self,
+                                                              monkeypatch):
+        import os
+
+        import scripts.check_recall_baseline as mod
+        monkeypatch.delenv("RADAR_DB_PATH", raising=False)
+        monkeypatch.setitem(
+            __import__("sys").modules, "report_recall_metrics",
+            _fake_reporter({}))
+        mod._collect_snapshot(db=object(), db_path="/tmp/should_be_ignored.db")
+        assert os.environ.get("RADAR_DB_PATH") is None, \
+            "handing over a live handle must not rewrite the process env"
+
+
+def _fake_reporter(seen):
+    """Stand-in for scripts/report_recall_metrics with no DB access."""
+    import types
+    module = types.ModuleType("report_recall_metrics")
+
+    def collect_metrics(db, *, exclude_auto=False, since=None):
+        seen["db"] = db
+        return []
+
+    module.collect_metrics = collect_metrics
+    return module

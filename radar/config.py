@@ -462,6 +462,29 @@ OPENSKY_CLIENT_ID     = os.getenv("OPENSKY_CLIENT_ID", "")
 OPENSKY_CLIENT_SECRET = os.getenv("OPENSKY_CLIENT_SECRET", "")
 OPENSKY_TOKEN_URL     = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
 
+# ── WP-0.1: signal-ledger retention (v3 parity prerequisite) ───────────────────
+# S5-VERIF-018: the signal-level ledger must retain >= 2x the 30-day parity
+# window. The old 24h TTL on sensor_observation_ts made 30-day replay
+# physically impossible (D2 G-05). Registered in the declarative registry
+# below; resolved at the scoring-tick call site via signal_ledger_ttl_sec().
+SIGNAL_LEDGER_RETENTION_DAYS_DEFAULT = 60
+
+
+def signal_ledger_ttl_sec() -> float:
+    """Resolve the signal-ledger retention (days -> seconds).
+
+    Goes through the 3-layer resolution chain so a DB override from the
+    Settings UI actually takes effect (anti-G-15). Never raises (NP3).
+    """
+    try:
+        from radar.config_layered import get_config
+        days = float(get_config("SIGNAL_LEDGER_RETENTION_DAYS")
+                     or SIGNAL_LEDGER_RETENTION_DAYS_DEFAULT)
+    except Exception:
+        days = float(SIGNAL_LEDGER_RETENTION_DAYS_DEFAULT)
+    return days * 86400.0
+
+
 # ── State Persistence ──────────────────────────────────────────────────────────
 PERSISTENCE_DIR           = os.path.join(os.path.dirname(os.path.abspath(__file__)), "persistence")
 PERSISTENCE_STATE_FILE    = os.path.join(PERSISTENCE_DIR, "state.json")
@@ -484,8 +507,11 @@ USGS_MIN_MAGNITUDE            = float(os.getenv("USGS_MIN_MAGNITUDE", "4.0"))
 USGS_CABLE_RADIUS_KM          = float(os.getenv("USGS_CABLE_RADIUS_KM", "200"))
 
 # S6: GPS Jamming
-GPS_JAM_THRESHOLD             = float(os.getenv("GPS_JAM_THRESHOLD", "3.0"))
-GPS_JAM_CRITICAL_THRESHOLD    = float(os.getenv("GPS_JAM_CRITICAL_THRESHOLD", "7.0"))
+# F-08 fix (2026-08-07): ratio scale, matching the [0,1] domain of the
+# compared value. Kept identical to the sensor's own getenv defaults so
+# clearing an override cannot resurrect the percent scale.
+GPS_JAM_THRESHOLD             = float(os.getenv("GPS_JAM_THRESHOLD", "0.03"))
+GPS_JAM_CRITICAL_THRESHOLD    = float(os.getenv("GPS_JAM_CRITICAL_THRESHOLD", "0.07"))
 
 # S7: CT Log (signal-model redesign — see ADR-024)
 # Identity-match scoring (untrusted CA / wildcard at gov-TLD) replaces
@@ -745,6 +771,26 @@ try:  # pragma: no cover — registration is best-effort, never fatal
             default=False, type_="bool",
             description="Show background-scenario threat levels in HUD.",
             group=GROUP_OPERATE,
+        ),
+        ConfigKey(
+            key="SIGNAL_LEDGER_RETENTION_DAYS", domain="operate.retention",
+            default=SIGNAL_LEDGER_RETENTION_DAYS_DEFAULT, type_="int",
+            description="Days of per-sensor observation rows kept in "
+                        "sensor_observation_ts.",
+            group=GROUP_OPERATE, min_value=60, max_value=365, unit="d",
+            apply_timing=TIMING_LIVE_NEXT_TICK, impact_level="high",
+            impact_warning="Lowering this below 60 days would make the v3 "
+                           "30-day replay parity gate physically impossible "
+                           "again (D2 G-05). The registry floor rejects it.",
+            what="Retention of the signal-level observation ledger. Rows "
+                 "older than this are pruned opportunistically on each "
+                 "scoring-tick write.",
+            why="WP-0.1 / S5-VERIF-018: parity replay needs a 30-day window "
+                "plus a 30-day comparison margin. The previous 24h TTL made "
+                "signal-level replay physically impossible; the parity-"
+                "eligible date counts from the day this retention started.",
+            when="Do not lower. Raise only after WP-0.3 confirms disk "
+                 "headroom (steady-state estimate 6-8 GB).",
         ),
 
         # ── Notifications (operationally tuned) ──────────────────────────
@@ -1133,15 +1179,15 @@ try:  # pragma: no cover — registration is best-effort, never fatal
         ),
         ConfigKey(
             key="GPS_JAM_THRESHOLD", domain="tune.maritime",
-            default=3.0, type_="float",
-            description="GPS jamming threshold.",
-            group=GROUP_TUNE, min_value=0.5, max_value=20.0,
+            default=0.03, type_="float",
+            description="GPS jamming threshold (fraction of bad aircraft).",
+            group=GROUP_TUNE, min_value=0.005, max_value=0.2, unit="ratio",
         ),
         ConfigKey(
             key="GPS_JAM_CRITICAL_THRESHOLD", domain="tune.maritime",
-            default=7.0, type_="float",
-            description="GPS jamming critical threshold.",
-            group=GROUP_TUNE, min_value=1.0, max_value=30.0,
+            default=0.07, type_="float",
+            description="GPS jamming critical threshold (fraction).",
+            group=GROUP_TUNE, min_value=0.01, max_value=0.5, unit="ratio",
         ),
         ConfigKey(
             key="USGS_MIN_MAGNITUDE", domain="tune.maritime",
