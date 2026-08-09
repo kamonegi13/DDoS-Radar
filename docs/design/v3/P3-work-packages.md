@@ -556,6 +556,68 @@ O→画面トレーサビリティ、AP3 合成チップ、地図の降格とレ
 
 ---
 
+**#134/#135 完了記録（2026-08-09、`d54fcd5`）— warm-up 判定を台帳から導く。ただし判定対象の量は本番・v3 双方で死んでいた**:
+
+§7-2 #134 はオーナー裁定で **(c)「warm-up 中の代替判定を v3 独自に設計する」** が採択され、**#134 は CLOSE、v3 独自挙動は #135 として新設**した。
+
+採ったのは **pooled（全時刻）Z が -3.0 未満、かつ pooled 平均に対する相対低下が 0.15 超**という連言。定数のうち `HOD_MIN_SAME_HOUR=7` / std フロア 1.0 / `BGP_DROP_THRESHOLD=0.15` は本番がまさにこの warm-up 分岐で使う値、**-3.0 のみ v3 の選択**（本番が同じ統計の厳しい段に与える `CHECKHOST_BLACKOUT_Z` と同値）。スコア幅は本番のまま 0-1（`core.py:1148`）。
+
+却下した代替 2 つ。隣接時刻プーリング（h-1, h, h+1）は warm-up 168 時間のうち **112 時間しか覆えず**、新規シナリオ登録直後の 2 日間が空白のまま残る。pooled を本番の -2.0 のまま使う案は、σ_w = σ_b の平常的読み（z_hod=0）でも **z_pooled ≈ -0.71** になり得ることを分散分解で示し、決定論的反例テスト（`test_the_naive_choice_would_have_failed_that_sweep`）で「証拠が少ないほうが先に発火する」ことを固定して却下した。
+
+実測で確認: 同時刻標本 7 件以上の **4,000 世界**で warm-up 側だけが発火する事例 **0 件**（厳格性）。warm 経路が保留になる 8〜160 時間の **4,000 世界**で真の崩落の **50% 超**を捕捉（従来は全て見逃し）。
+
+cold start は合成しない。pooled 標本 7 未満は `hod_verdict = pending_l1_bgp_hod_cold` で保留し `is_anomaly` はキーごと不在。pooled 平均が 0 のとき drop_ratio は **0.0 ではなく None**。
+
+**本 WP でいちばん重い発見**: 判定対象の量自体が本番・v3 双方で死んでいる。RIPE `country-routing-stats` は `announced_prefixes` キーを返さず、本番 `bgp_routing.py:52` の `latest.get("announced_prefixes", 0)` は恒久的に 0 を読む。稼働 DB の `bgp_hod` **全 5,398 行（8 か国 × 672 バケット）がすべて 0.0** で、本番の HOD Z（`(0-0)/max(0,1.0)=0.0`）も drop_ratio も**到達不能**。**修正はせず**、`TestTheMeasuredQuantityIsDead` で pin し #135 として所見登録した（本番側の修正は別裁定）。
+
+検証: 新規 40 件、ミューテーション **29/29 検出・生存 0**、周辺スイート含め **1,591 件 green**。
+
+---
+
+**WP-4.3 完了記録（2026-08-09、`910d441`）— WP-4.2 が置いた画面に、残っていた 4 面を載せる**:
+
+着手時の見立てが 1 点外れていた。websocket はサーバ側専用ではなく、本 WP が `v3/ui/` にクライアントを着地させたことで `composition.WEBSOCKET_ABSENT`（v3 画面が接続チップに平文表示する不在理由）の前提が失効した。文面を「読み手はいない」から「読み手は着地した。残るのは合成の裁定（flask-socketio を requirements-v3.txt から意図的に外し、mount は行っていない）」へ書き換えた。**#112 は範囲縮小**。
+
+地図（Tier 1）は P8 §6 の 4 レイヤ中 **3 つを実装**（participant マーカー、異常事象マーカー、シーケンス連鎖起点）。**4 つめ（チョークポイント・ケーブル・ISR の静的参照）は描画不能** — `Geography`（`v3/runtime/geo.py`）は座標を持つが、API 面に載る経路が 1 本も無い**未登録のサーバ欠落**（P7/D6 にも記述なし）。地理面は国粒度に留め、当該レイヤは `available: false` の第 4 レイヤとして明示する。
+
+SETTINGS は `v3/config/registry.py` の 3 段検査（消費者実在 / AST がキー名を含む / override が出力を変える）を通る **9 キー**（P8 は 20〜30 を見込んでいた）。件数を固定定数の件数と常時併記する。v1 の TIMING/IMPACT バッジは出さない — R14 が申告しておらず、IMPACT の機構的役割は `spec.py` の `requires_reason=True` で無条件に満たされている。
+
+表示モード/遮蔽は純モジュール 2 本。v1 の 4 スコア帯（0.40/0.50/0.85/0.78）の**数値は移植していない** — うち 2 つ（`ATTACK_MARGIN_SPAN`/`VELOCITY_BONUS_SCALE`）は現行 backend 閾値と衝突し、`test_v3_ui_discipline.py` の数値掃引が移植を機械的に検出する。critical はサーバ標識、ヒステリシスは連続静穏回数で表現した。
+
+WebSocket クライアントは push を主データへマージしない（G-13 — payload は NP7 注意文も鮮度フィールドも持たない envelope でない）。`applyMessage` は無効化すべき読取キーのみを返す。接続状態 3 値に **`unmounted`** を追加した。socket.io クライアントライブラリは同梱せず、Engine.IO v4/Socket.IO v5 framing を自前で符号化・復号する。
+
+構造は純モジュール 5 本（geo.js 339 / settings.js 343 / display_mode.js 239 / dim.js 213 / live.js 503）+ 3 本目の DOM ファイル `surfaces.js`（474）。`app.js` は **872 行**で共通スタイル規約の 800 行上限を超過（着手時点で既に 804）— Tier 2 検証面の移設は本 WP の範囲外として記録に留めた。
+
+検証: Node **436 件 green**（新規 118）、targeted Python **224 件** + 別途 98 件、i18n 監査は v3 スコープ undefined/unused/untranslated 各 **0**（定義 368 キー）。
+
+登録: **#112 範囲縮小**。新規 — 地図静的参照レイヤの供給欠落（insensitive 方向ではない。O-4 の地理面が国粒度に留まるだけ）。
+
+---
+
+**WP-2.3 追記（2026-08-09、`7c85f7f`）— 本番実データに対する移行 ETL 初回実行**:
+
+本番 docker volume `noroshi_radar-data` から SQLite online backup API でスナップショットを取得（**84 表 2,796,523 行**、sha256 `b36e9f62…c00e`、ETL 3 回・照合 3 回の後も不変）。移行本体は wall **36.2 秒** / peak RSS 243 MB / **1,193,792 行** / 検疫 **0 件** / 台帳 1.475 GB。判定は BLOCKED → **FAIL**（①④が実 FAIL、⑤は参照 0 件の空集合に対し自動的に真になる偽緑）。
+
+**F-1（最重要）**: 基準①は「レジストリ ⇔ S3_MIGRATE_35（文書の転記）」しか比較しないため、`config_read_stats` / `l5_check_result` / `l5_job_state` / `sensor_flag_fire_log` / `sensor_flag_state` の **5 表が構造上見えない**。いずれも S3 執筆（2026-08-03）より後に**v3 自身の WP-0.3/1.1/1.2/1.3 が本番に作った表**である。ETL は「未分類は FAIL」に変更した（`classify_source_tables()` + `DISCARDED`、`v3/etl/mapping.py`）。分類は所有者裁定事項として残る。
+
+独立照合（サンプルではなく全数）: (scenario_id, conclusion_type, day) の **1,515 セル**と (scenario_id, scoring_mode, day) の **176 セル**を件数・confidence 合計・score 合計・tl 合計・ドメイン合計で突合し**不一致 0**。ベースライン 4 表も国別件数・値合計・bucket 範囲で不一致 0。id 抽出 **500 件**の全カラム値が byte 一致。**ETL は 1 行も失わず、1 値も変えていない**。
+
+検疫 0 件は疑って調べた。実データが ETL の 7 種の拒否条件のいずれにも該当しないことを確認したが、その過程で検査器自身が**宣言 3 列のうち 2 列（`source_urls`/`active_countries`、JSON 配列）で構造的に不動作**だったことが判明した（`isinstance(payload, dict)` 条件が配列を弾いていた）。任意深さ + 配列対応に修正した。
+
+照合コスト: 修正前 **1,052.2 秒**（移行本体の **17.5 倍**）→ 順序付きカーソル 1 走査化（`take_offsets()`、`v3/ledger/store_migration.py`）で **7.3 秒**（**142 倍**高速）、ハッシュ 6 表すべて修正前と bit 一致。
+
+実データの型的事実: `hour_bucket` は 0..23 が **0 件**（18,144/18,144 が 3600 秒境界の epoch 秒 — 「hour-of-day」ではなくローリング epoch 時刻）。`calibration_status` は宣言上 enum 的だが**全 1,047,286 行が JSON オブジェクト**（3,484 種）。`bgp_hod` は **5,398 行の distinct 値が 1（0.0）**（S3-DATA-001 が backfill 不能ゆえ移行必須とする 3 表の 1 つが実質空）。`conclusions.metadata` 全 1,047,286 行 + 他 14 の JSON 列を再帰全走査し `theater` キー残存 **0 件**（**S3 §6-6 を閉じる**）。
+
+**計画数値を動かす 2 件の日付事実**: conclusion 履歴は span **90.96 日**（v1 の 90d prune）— **ADR-V3-005 の 365 日窓はどんなに完璧な移行でも v1 スナップショットからは充足不能**。TL は span **42.97 日**、基準④の要求 42d に対し余裕 **0.98 日**しかなく、v1 が 42d で刈る以上この余裕は構造的に 1 日を超えず、判定は prune タイミング次第で振動する。conclusions 生成レートは **2026-07-05 に 1/19 へ段差**（`e39e191`、change-gated ledger writes）— **S3-DATA-041 の容量見積り**（365d ≒ 4,247,000 行 / 6〜8 GB）は段差前の regime を平均した値であり、現行レートでは **365d ≒ 376,000 行 ≒ 0.5 GB**、**約 11 倍の過大見積り**。訂正は S3-data-migration.md と v3-rebuild.md に別途追記した。
+
+**2026-09-05 のパリティ窓は無影響**: 依存先 `signal_observation` は移行対象外（v1 `time_series` 系は REGENERATE_ONLY）で、v3 が 2026-08-06 から自前で蓄積・60d retention により覆う。
+
+未分類 5 表・NP6 遡及経路の空集合偽緑（`llm_prompt_sha256` 全 1,047,286 行 NULL、`source_urls='[]'` が 294,324 行 = 28.1%）・`tick_id` 粒度差（移行行は 1 tick 1 シナリオ、稼働行は 1 tick 4 シナリオ）は所有者裁定待ちとして S3 register に追記案を残した。
+
+検証: `tests/test_etl_migrate.py` 47→58、`tests/test_etl_reconcile.py` 25→39、`tests/test_etl_boundary.py` 7（不変）— 3 ファイル **104 passed**。
+
+---
+
 ## Phase 5 — shadow 並走と cutover
 
 ### WP-5.1 — shadow 並走とパリティ測定

@@ -491,6 +491,8 @@ tradecraft 統合は 2026-04-30 に棚上げ済で、復活時は v3 上での�
 **閾値**: `CONCLUSIONS_RETENTION_DAYS` = 365（現行 default 90）、`SCENARIO_CONTRIB_RETENTION_DAYS` = 365（現行 default 90）
 **根拠**: `radar/database.py:5443`, `:5411`、D3 §3-3（オーナー推奨: 移行時に 365d 化） ／ **検証**: 未検証 ／ **分類**: CORE（オーナー裁定 D3 §3-3 の実装）
 
+> **2026-08-09 訂正**（WP-2.3 本番実データ ETL、`7c85f7f`）: 上記見積りは 2026-07-04 以前の conclusions 生成レート（1,047,254 行 / 90d ≒ 11,636 行/日）を平均した値である。コミット `e39e191`（change-gated ledger writes）により 2026-07-05 に生成レートが **1/19 へ段差**し、以降の実測は ~1,030 行/日。現行レートでは **365d ≒ 376,000 行 ≒ 0.5 GB**（旧見積りの約 11 分の 1）。retention 拡大の是非（ADR-V3-005）は変わらないが、容量計画・バックアップ保存容量の見積りはこの下方修正を前提にすべき。
+
 #### S3-DATA-042: llm_prompts の retention は conclusions retention + 30 日を下回らない
 **挙動**: `LLM_PROMPTS_RETENTION_DAYS` の実効値は `max(設定値, CONCLUSIONS_RETENTION_DAYS + 30)` **MUST**。この床は運用者がどれだけ低い値を設定しても保たれる **MUST**。S3-DATA-041 で conclusions を 365d にすると、llm_prompts の実効床は自動的に **395 日**に伸びる。
 **理由**: 生存中の conclusion は常に `llm_prompt_sha256` を解決できなければならない（NP6）。
@@ -651,3 +653,8 @@ D5 台帳のうち、データ層（スキーマ・retention・migration）に�
 6. **JSON ペイロード内の `theater` キー残存**（S3-DATA-022）の実態が未調査。
    コード側の書き込み経路を grep した限りでは静的プリセット由来の 1 系統のみだが、
    過去に書き込まれた古い行に残っている可能性は排除できていない。ETL 前に実データ検査が要る
+
+> **2026-08-09 訂正**（WP-2.3 本番実データ ETL、`7c85f7f`）: 調査完了・**本項目は解消**。
+> `conclusions.metadata` 全 1,047,286 行 + 他 14 の JSON 列（`daily_summary.summary_json` /
+> `alert_timeline.data_json` / `sequence_events.meta_json` / `*_json` 群）を深さ無制限で
+> 再帰全走査し、`theater` キー残存 **0 件**を確認した。未決事項から外してよい。
