@@ -63,7 +63,16 @@ services:
     restart: unless-stopped
     stop_grace_period: 60s
     ports:
-      - "8300:8300"
+      # LOOPBACK ONLY. `"8300:8300"` publishes on 0.0.0.0 — every host
+      # interface — so a shadow on a laptop is readable by anything on the
+      # same network. `settings.py`'s DEFAULT_HOST already says why ("a
+      # shadow deployment that binds every interface on first run is a
+      # shadow deployment somebody else can read"); the container must
+      # still bind 0.0.0.0 INSIDE itself to receive forwarded traffic, so
+      # the restriction belongs here, on the publish, and nowhere else.
+      # This is what makes "it is not exposed" a fact rather than an
+      # assumption, which is the premise the shadow's auth posture rests on.
+      - "127.0.0.1:8300:8300"
     volumes:
       # The v3 ledger. A SEPARATE named volume — `radar-data` is not
       # mounted here and must never be.
