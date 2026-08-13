@@ -134,8 +134,20 @@ class TestTheConditionTable:
             [c.condition_id for c in CONDITIONS]
 
     def test_no_condition_silently_passes_on_an_empty_context(self):
-        """An empty run answers nothing; PASS anywhere would be a lie."""
+        """An empty run answers nothing; PASS anywhere would be a lie.
+
+        C-17 is the one licensed exception, and its PASS is not silent:
+        its truth source is the module register mirroring P3's blocker
+        table — data that exists whether or not a run supplied context —
+        and the verdict's evidence names the register and its size. Since
+        2026-08-13 that register is all-resolved (V3-SEC-01), so an empty
+        context legitimately reads 'no open blocker'.
+        """
         for verdict in evaluate(_context()):
+            if verdict.condition_id == "C-17":
+                assert verdict.evidence["register_size"] >= 1
+                assert verdict.evidence["source"].startswith("P3")
+                continue
             assert verdict.status in (BLOCKED, NOT_MEASURED, FAIL), \
                 verdict.condition_id
 
@@ -705,10 +717,14 @@ class TestC16ThirtyDaysOfRunning:
 # ── C-17, the blocker register ───────────────────────────────────────────
 
 class TestC17BlockingDefects:
-    def test_the_module_register_holds_v3_sec_01_unresolved(self):
+    def test_the_register_keeps_v3_sec_01_as_a_resolved_entry(self):
+        """Resolved 2026-08-13 (all three parts — see the register's
+        resolution note). The entry stays: deleting a closed blocker
+        leaves the next reader unable to tell 'never had one' from
+        'had one and fixed it'."""
         by_id = {d.defect_id: d for d in CUTOVER_BLOCKING_DEFECTS}
         defect = by_id["V3-SEC-01"]
-        assert defect.resolved is False
+        assert defect.resolved is True
         assert defect.severity == "CRITICAL"
         assert len(defect.resolution_requirements) == 3
 
@@ -720,14 +736,16 @@ class TestC17BlockingDefects:
         assert "sweep" in joined or "storage" in joined
         assert "rotat" in joined
 
-    def test_it_fails_today(self):
+    def test_it_passes_today_because_the_register_is_all_resolved(self):
         verdict = _verdict("C-17")
-        assert verdict.status == FAIL
-        assert "V3-SEC-01" in verdict.detail
+        assert verdict.status == PASS
 
-    def test_that_failure_cannot_be_waived(self):
+    def test_an_open_blocker_cannot_be_waived(self):
+        verdict = _verdict("C-17", cutover_blocking_defects=[
+            BlockingDefect("V3-NEW-01", "CRITICAL", "something", ("(1)",))])
+        assert verdict.status == FAIL
         with pytest.raises(DomainError, match="override-forbidden"):
-            _verdict("C-17").waive(reason="shadow is loopback-bound")
+            verdict.waive(reason="shadow is loopback-bound")
 
     def test_the_context_can_supply_its_own_register(self):
         verdict = _verdict("C-17", cutover_blocking_defects=[
@@ -741,10 +759,12 @@ class TestC17BlockingDefects:
         assert verdict.status == FAIL
         assert "V3-NEW-01" in verdict.detail
 
-    def test_the_verdict_carries_the_resolution_requirements(self):
-        verdict = _verdict("C-17")
-        assert verdict.evidence["open"]["V3-SEC-01"][
-            "resolution_requirements"]
+    def test_the_verdict_carries_an_open_defects_requirements(self):
+        verdict = _verdict("C-17", cutover_blocking_defects=[
+            BlockingDefect("V3-NEW-01", "CRITICAL", "something",
+                           ("(1) do the thing",))])
+        assert verdict.evidence["open"]["V3-NEW-01"][
+            "resolution_requirements"] == ["(1) do the thing"]
 
     def test_a_register_of_the_wrong_type_is_refused(self):
         with pytest.raises(DomainError, match="BlockingDefect"):

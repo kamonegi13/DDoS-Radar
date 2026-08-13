@@ -129,7 +129,21 @@ CUTOVER_BLOCKING_DEFECTS: tuple[BlockingDefect, ...] = (
          "keeping the projection-side redaction)",
          "(2) re-aim the sweep test at the storage surface",
          "(3) discard the existing ledger — it cannot be amended — and "
-         "rotate the keys")),
+         "rotate the keys"),
+        # RESOLVED 2026-08-13, all three parts, each with evidence:
+        # (1)+(2) commit 1b2da77 — producers derive, the fold refuses a
+        # plaintext key, and TestNoPlaintextReachesTheStorageFace reads
+        # the raw stored bytes of every table; (3) the shadow's
+        # command_record was dropped and rebuilt empty
+        # (scripts/v3_discard_command_ledger.py), the bootstrap password
+        # rotated, and a live sweep of the rebuilt ledger found the
+        # rotated plaintext in NO table while the stored register payload
+        # begins {"credential": {"algorithm": "argon2id", ...}}. The entry
+        # STAYS in the register: C-17's audit trail is that a blocker was
+        # found, named, and closed — deleting it would leave the next
+        # reader unable to tell "never had one" from "had one and fixed
+        # it".
+        resolved=True),
 )
 
 

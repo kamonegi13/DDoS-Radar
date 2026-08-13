@@ -658,14 +658,17 @@ class TestConditionReport:
     def test_the_running_system_conditions_are_not_answered_by_a_replay(
             self, seeded, parity_ledger):
         """P2 §5-D: this harness projects stored rows into the kernel, so
-        it cannot speak for the tick loop, and C-17 is not about it at
-        all. Neither may drift into a PASS because a parity run went
-        well."""
+        it cannot speak for the tick loop — C-16 may never drift into a
+        PASS because a parity run went well. C-17 reads the blocker
+        REGISTER, not the replay: it passes since 2026-08-13 because
+        V3-SEC-01 is resolved there, and its PASS carries the register's
+        size so the evidence says what was consulted."""
         store, _ = seeded
         report = _run(store, parity_ledger).report
         assert report.verdict_for("C-16").status == NOT_MEASURED
-        assert report.verdict_for("C-17").status == FAIL
-        assert "V3-SEC-01" in report.verdict_for("C-17").detail
+        verdict = report.verdict_for("C-17")
+        assert verdict.status == PASS
+        assert verdict.evidence["register_size"] >= 1
 
     def test_cutover_is_not_ready_while_anything_is_blocked(self, seeded,
                                                             parity_ledger):
@@ -673,7 +676,10 @@ class TestConditionReport:
         store, _ = seeded
         report = _run(store, parity_ledger).report
         assert report.is_cutover_ready is False
-        assert "C-17" in report.unmet_override_forbidden
+        # C-17 left this set on 2026-08-13 (V3-SEC-01 resolved); the
+        # remaining unmet override-forbidden rows still hold the gate.
+        assert set(report.unmet_override_forbidden) >= {"C-02", "C-08",
+                                                        "C-14"}
 
     def test_the_scope_limitations_travel_with_the_report(self, seeded,
                                                           parity_ledger):
