@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Noroshi v3</title>
+<!--
+  Leaflet, the same build and SRI pins v1 uses (index.html:7-8 there).
+  P9 §1.3 D-13: the situation map is a REAL map. The library is optional
+  by construction — board_map_view.js falls back to the tile grid when
+  `window.L` never appears (offline deployment, blocked CDN), so these two
+  tags failing costs a nicer map, not a blank pane (S1-UI-008).
+-->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
 <link rel="stylesheet" href="v3.css">
 </head>
 <body>
@@ -191,6 +200,12 @@
           <h3 data-i18n="ui.board_map.title"></h3>
           <p class="lead" data-i18n="ui.board_map.lead"></p>
           <div id="board-map" class="board-map" aria-hidden="true"></div>
+          <!--
+            G-17 under the real map: a country whose centroid the display
+            asset does not know is named here, never silently absent from
+            the pane above.
+          -->
+          <p id="board-map-note" class="hint" hidden></p>
         </div>
         <div id="board-cards" class="cards"></div>
       </div>
@@ -458,6 +473,8 @@
 <script src="terms.js"></script>
 <script src="geo_tiles.js"></script>
 <script src="board_map.js"></script>
+<script src="map_coords.js"></script>
+<script src="board_map_view.js"></script>
 <script src="freshness.js"></script>
 <script src="trust.js"></script>
 <script src="board.js"></script>

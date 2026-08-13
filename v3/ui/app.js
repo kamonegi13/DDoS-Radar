@@ -38,6 +38,8 @@
     var Views = window.NoroshiViews;
     var Terms = window.NoroshiTerms;
     var BoardMap = window.NoroshiBoardMap;
+    var BoardMapView = window.NoroshiBoardMapView;
+    var MapCoords = window.NoroshiMapCoords;
 
     var _t = S.t;
     var esc = Fmt.escHtml;
@@ -102,6 +104,7 @@
         lane: null,             // last lane view model, for the display mode
         dimTimer: null,
         views: null,            // which view is on screen (P9 R-B)
+        boardMapView: null,     // the real-map keeper (P9 §1.3, WP-4.5a)
         //: scenario_id -> the name the analyst reads, as R1 supplies it.
         //: A display lookup, never a source of truth: `scenario_id` stays
         //: the identity everywhere a value is keyed or sent.
@@ -207,16 +210,39 @@
                 return cardHtml(card, now, terms);
             }).join(''));
 
-        // The scenario map (P9 §2.2 R-F) — same R1 rows the cards project,
-        // so it sits behind the same redraw decision: a map that repaints
-        // when the cards were judged unchanged would be two clocks.
+        // The scenario map (P9 §2.2 R-F; real map per §1.3) — same R1 rows
+        // the cards project, so it sits behind the same redraw decision: a
+        // map that repaints when the cards were judged unchanged would be
+        // two clocks. The view keeps the Leaflet instance across renders
+        // and falls back to the tile grid when the library never loaded.
         var mapModel = BoardMap.buildBoardMap({
             scenarios: scenariosResult && scenariosResult.body
                 ? scenariosResult.body.scenarios : null,
         });
-        setHtml('board-map', mapModel.empty
-            ? Render.emptyStateHtml(mapModel.emptyState)
-            : Render.boardMapHtml(mapModel));
+        if (!state.boardMapView) {
+            state.boardMapView = BoardMapView.createBoardMapView({
+                doc: document,
+                leaflet: typeof window.L !== 'undefined' ? window.L : null,
+                containerId: 'board-map',
+                coords: MapCoords,
+                markerHtml: Render.bmMarkerHtml,
+                fallbackHtml: Render.boardMapHtml,
+                emptyHtml: function (emptyState) {
+                    return Render.emptyStateHtml(emptyState
+                        || Fmt.emptyState('board_map',
+                                          'empty.board_map.reason_not_loaded'));
+                },
+            });
+        }
+        var mapOutcome = state.boardMapView.render(mapModel);
+        var noteNode = $('board-map-note');
+        if (noteNode) {
+            var unplacedOnMap = mapOutcome.unplaced || [];
+            noteNode.hidden = unplacedOnMap.length === 0;
+            noteNode.textContent = unplacedOnMap.length === 0 ? ''
+                : _t('ui.board_map.unplaced_on_real',
+                     { list: unplacedOnMap.join(', ') });
+        }
 
         var names = {};
         board.cards.forEach(function (card) {

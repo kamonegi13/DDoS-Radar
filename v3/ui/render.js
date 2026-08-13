@@ -232,18 +232,32 @@
         // The participant strip (P9 §3.7, D-10): which countries this
         // scenario is about, hardest-coupled first. Also the accessible
         // twin of the board map — see `board.js::_participantStrip`.
+        //
+        // Capped at six chips + 「+N」 (P9 §1.3 D-14 — kuebiko's overflow
+        // rule: information density is controlled, not accumulated). The
+        // overflow chip's title carries the rest, so nothing is dropped,
+        // only folded.
         var strip = '';
         if (card.participants && card.participants.length) {
+            var visible = card.participants.slice(0, STRIP_LIMIT);
+            var rest = card.participants.slice(STRIP_LIMIT);
             strip = '<ul class="card-countries" aria-label="'
                 + esc(_t('ui.board.participants_label')) + '">'
-                + card.participants.map(function (p) {
+                + visible.map(function (p) {
                     return '<li class="cc'
                         + (p.isAdversary ? ' cc-adversary' : '')
                         + '" title="' + esc(p.country + ' — ' + _t(p.roleKey))
                         + '"><span class="cc-flag">' + esc(p.flag)
                         + '</span><span class="cc-iso">' + esc(p.country)
                         + '</span></li>';
-                }).join('') + '</ul>';
+                }).join('')
+                + (rest.length > 0
+                    ? '<li class="cc cc-more" title="'
+                      + esc(rest.map(function (p) { return p.country; })
+                            .join(', '))
+                      + '">+' + esc(String(rest.length)) + '</li>'
+                    : '')
+                + '</ul>';
         }
         var name = card.displayName || card.scenarioId;
         return '<article class="card card-' + esc(tl.band)
@@ -293,35 +307,49 @@
             + '</div></div>'
             + strip
             + domainBar
-            + _derivedLineHtml(card)
-            + '<p class="card-coverage">' + esc(_t(card.coverage.labelKey, {
-                mode: card.coverage.scoringMode || Fmt.ABSENT }))
-            + marks.mark('scoring_mode') + '</p>'
+            + _derivedLineHtml(card, marks)
             + '</article>';
     }
 
+    //: P9 §1.3 D-14 (kuebiko's overflow rule): six chips, then 「+N」.
+    var STRIP_LIMIT = 6;
+
     /**
-     * The provenance line (P9 §2.2 R-E, D-11): the TL's origin in one
-     * sentence, with the way into the full derivation beside it. kuebiko
-     * keeps the tier rule printed next to every tier badge; this is that
-     * pattern with Noroshi's three states kept apart — a picture, a tick
-     * that could not build one, and no record at all say different things.
+     * The provenance line (P9 §2.2 R-E, D-11; condensed by §1.3 D-14):
+     * the TL's origin in ONE sentence — scoring scope and per-domain
+     * observation counts together, with the way into the full derivation
+     * beside it. WP-4.4 printed scope and origin as two separate lines and
+     * the third review called the result clutter; the merge loses nothing
+     * (the mode word absorbs the old coverage line, and its ⓘ moves here
+     * with it). Noroshi's three states stay apart — a picture, a tick that
+     * could not build one, and no record at all say different things.
      */
-    function _derivedLineHtml(card) {
-        var df = card.derivedFrom;
-        if (!df) return '';
+    function _derivedLineHtml(card, marks) {
+        var mode = card.coverage
+            ? _t(card.coverage.scoringMode === 'full' ? 'ui.board.mode.full'
+                : (card.coverage.scoringMode ? 'ui.board.mode.lite'
+                    : 'ui.board.mode.unknown'))
+            : _t('ui.board.mode.unknown');
+        var modeMark = marks ? marks.mark('scoring_mode') : '';
         var why = '<button type="button" class="card-why" '
             + 'data-open-scenario="' + esc(card.scenarioId) + '">'
             + esc(_t('ui.board.why')) + '</button>';
+        var df = card.derivedFrom;
+        if (!df) {
+            return '<p class="card-derived">'
+                + esc(_t('ui.board.derived.mode_only', { mode: mode }))
+                + modeMark + ' ' + why + '</p>';
+        }
         if (!df.supplied) {
             return '<p class="card-derived card-derived-absent">'
-                + esc(_t(df.reasonKey)) + ' ' + why + '</p>';
+                + esc(_t(df.reasonKey, { mode: mode }))
+                + modeMark + ' ' + why + '</p>';
         }
         if (df.unavailable) {
             return '<p class="card-derived">'
                 + esc(_t('ui.board.derived.unavailable',
-                         { reason: df.unavailable }))
-                + ' ' + why + '</p>';
+                         { mode: mode, reason: df.unavailable }))
+                + modeMark + ' ' + why + '</p>';
         }
         var parts = df.domains.map(function (d) {
             return _t('ui.board.derived.domain', {
@@ -330,8 +358,8 @@
             });
         }).join(' / ');
         return '<p class="card-derived">'
-            + esc(_t('ui.board.derived.line', { parts: parts }))
-            + ' ' + why + '</p>';
+            + esc(_t('ui.board.derived.line', { mode: mode, parts: parts }))
+            + modeMark + ' ' + why + '</p>';
     }
 
 
@@ -747,12 +775,41 @@
     }
 
     /**
-     * The whole-board scenario map. Same regional skeleton as the scenario
-     * face's `geoTileMapHtml` — one block per region that has a
-     * participant, spillover for countries the placement table does not
-     * know — but the tiles carry scenario membership and TL colour instead
-     * of event dots (events are R2's, and R2 serves the focused scenario
-     * only).
+     * One divIcon on the real map (P9 §1.3, WP-4.5a): a dot in the most
+     * severe scenario's TL colour with the ISO2 under it. Colour rides a
+     * CSS variable and band classes — no colour literal leaves this file.
+     * `data-map-scenarios` keeps the card-hover highlight working
+     * unchanged: the highlighter queries the container, and these nodes
+     * live inside it whether Leaflet drew them or the fallback grid did.
+     */
+    function bmMarkerHtml(tile) {
+        var tip = tile.memberships.map(function (m) {
+            var line = m.tl.tl === null
+                ? _t('ui.board_map.membership_null', { name: m.displayName })
+                : _t('ui.board_map.membership', {
+                    name: m.displayName, tl: String(m.tl.tl) });
+            return line
+                + (m.isAdversary ? _t('ui.board_map.adversary_suffix') : '');
+        }).join('\n');
+        return '<div class="bm-marker bm-band-' + esc(tile.band)
+            + (tile.isAdversary ? ' bm-adversary' : '')
+            + (tile.hasFocused ? ' bm-marker-focused' : '')
+            + '" data-country="' + esc(tile.country) + '"'
+            + ' data-map-scenarios="' + esc(tile.scenarioIds.join(' ')) + '"'
+            + ' style="--bm-color: var(' + esc(tile.cssVar) + ')"'
+            + ' title="' + esc(tip) + '">'
+            + '<span class="bm-dot"></span>'
+            + '<span class="bm-iso">' + esc(tile.country) + '</span>'
+            + '</div>';
+    }
+
+    /**
+     * The tile-grid FALLBACK for the whole-board map (P9 §1.3): what a
+     * browser that could not load Leaflet shows instead of a blank pane
+     * (S1-UI-008). Same regional skeleton as the scenario face's
+     * `geoTileMapHtml`; the tiles carry scenario membership and TL colour
+     * instead of event dots (events are R2's, and R2 serves the focused
+     * scenario only).
      */
     function boardMapHtml(map) {
         var blocks = map.regions.map(function (region) {
@@ -891,6 +948,7 @@
         geoTileHtml: geoTileHtml,
         geoTileMapHtml: geoTileMapHtml,
         bmTileHtml: bmTileHtml,
+        bmMarkerHtml: bmMarkerHtml,
         boardMapHtml: boardMapHtml,
         geoLayerHtml: geoLayerHtml,
         settingsRowHtml: settingsRowHtml,

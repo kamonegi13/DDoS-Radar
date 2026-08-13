@@ -513,7 +513,10 @@ function moduleNames() {
     const found = (shell.match(/<script src="([^"]+)"/g) || [])
         .map(tag => /src="([^"]+)"/.exec(tag)[1]);
     assert.ok(found.indexOf('app.js') !== -1, 'the shell must load app.js');
-    return found.filter(name => name !== 'app.js');
+    // External scripts (Leaflet, WP-4.5a) are CDN-loaded in a browser and
+    // deliberately absent here: the boot must survive without them, which
+    // is exactly the fallback path the map view promises (S1-UI-008).
+    return found.filter(name => name !== 'app.js' && !/^https?:/.test(name));
 }
 
 function loadUi() {
@@ -568,7 +571,9 @@ test('both scenario cards render, focused first', async () => {
         'the focused scenario must render first');
     assert.ok(/card-focused/.test(cards));
     assert.ok(/結論不可/.test(cards), 'the null-zone card declares it');
-    assert.ok(/background のため観測範囲が限定/.test(cards),
+    // WP-4.5b: the scope self-declaration lives in the merged provenance
+    // line now — the lite card names its narrower scoring scope there.
+    assert.ok(/LLM 情勢\+グローバル信号のみ/.test(cards),
         'the background card self-declares its limits');
 });
 

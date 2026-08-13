@@ -250,9 +250,33 @@ test('no record and an unavailable picture say different things', () => {
     assert.ok(/insufficient_data/.test(unavailable), unavailable);
 });
 
-test('a card without the provenance model renders no derivation line', () => {
+test('a card without the provenance model still states its scoring scope', () => {
+    // WP-4.5b merged the coverage line into the provenance line, so the
+    // one origin sentence per card survives even when derived_from is
+    // absent — the scope word is what remains of the old coverage line.
     const html = R.cardHtml(card(), CARD_NOW);
-    assert.ok(!/card-derived/.test(html), html);
+    assert.ok(/card-derived/.test(html), html);
+    assert.ok(/由来: 全センサー採点。/.test(html), html);
+    assert.ok(!/card-coverage/.test(html), 'the separate coverage line is retired');
+});
+
+test('the merged line carries scope AND domains when both exist', () => {
+    const html = R.cardHtml(card({ derivedFrom: {
+        supplied: true, unavailable: null, observedAt: NOW - 60,
+        domains: [
+            { domain: 'cyber', score: 3.1, state: 'ACTIVE', sources: 2 },
+        ],
+    } }), CARD_NOW);
+    assert.ok(/由来: 全センサー採点 — サイバー 2 件。/.test(html), html);
+});
+
+test('the participant strip folds beyond six into a +N chip', () => {
+    const many = ['TW', 'JP', 'US', 'CN', 'KR', 'PH', 'AU', 'GU'].map(
+        (country) => ({ country, flag: '', role: null,
+                        roleKey: 'ui.geo.role.unlisted', isAdversary: false }));
+    const html = R.cardHtml(card({ participants: many }), CARD_NOW);
+    assert.ok(/class="cc cc-more" title="AU, GU">\+2</.test(html), html);
+    assert.ok(!/cc-iso">AU</.test(html), 'folded countries appear only in the title');
 });
 
 // ── the participant strip (P9 §3.7, D-10) ───────────────────────────────
