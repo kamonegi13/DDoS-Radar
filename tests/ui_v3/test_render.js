@@ -101,9 +101,11 @@ test('the chip has an accessible name', () => {
 
 function card(overrides) {
     return Object.assign({
-        scenarioId: 'taiwan_contingency', focused: true,
+        scenarioId: 'taiwan_contingency', displayName: null, focused: true,
         tl: { band: 'high', cssVar: '--color-warning', labelKey: 'ui.tl.3', tl: 3 },
-        availability: { state: 'concluded', labelKey: 'ui.board.availability.concluded' },
+        availability: { state: 'concluded', labelKey: 'ui.board.availability.concluded',
+                        sentenceKey: null },
+        resolution: { hint: null, labelKey: null },
         trend: { direction: 'escalating', delta: 1,
                  labelKey: 'ui.trend.escalating', glyph: '▲' },
         sinceLastCheck: { seen: true, previousTl: 4, severityDelta: 1, seenAt: NOW,
@@ -114,6 +116,10 @@ function card(overrides) {
         domains: null, participantCount: 2, adversaries: ['CN'], roles: {},
     }, overrides || {});
 }
+
+//: Two hours after the card was last displayed, so the change sentence has
+//: an elapsed time to state.
+const CARD_NOW = NOW + 7200;
 
 test('the card renders the TL through a CSS custom property, never a colour', () => {
     const html = R.cardHtml(card());
@@ -179,6 +185,136 @@ test('a hostile domain state word cannot inject a class or a tag', () => {
     assert.ok(!/<script>/.test(html), html);
 });
 
+// ── card: name, sentence, and the way into the scenario face (P9 R-A) ────
+
+test('the display name is the visible name and the id stays traceable', () => {
+    const html = R.cardHtml(card({ displayName: '台湾正面' }), CARD_NOW);
+    assert.ok(/>台湾正面</.test(html), html);
+    assert.ok(/data-scenario="taiwan_contingency"/.test(html));
+    assert.ok(/title="[^"]*taiwan_contingency[^"]*"/.test(html),
+        'the raw id remains reachable in the tooltip');
+});
+
+test('a scenario with no display name shows its id rather than a blank', () => {
+    const html = R.cardHtml(card(), CARD_NOW);
+    assert.ok(/>taiwan_contingency</.test(html), html);
+});
+
+test('the card name opens the scenario face', () => {
+    const html = R.cardHtml(card(), CARD_NOW);
+    assert.ok(/data-open-scenario="taiwan_contingency"/.test(html), html);
+    assert.ok(/<button type="button" class="card-open"/.test(html),
+        'reachable from the keyboard: a clickable <article> is not');
+});
+
+test('a hostile display name cannot break out of the title element', () => {
+    const html = R.cardHtml(card({ displayName: XSS }), CARD_NOW);
+    assert.ok(!/<script>/.test(html), html);
+});
+
+test('the change line is a sentence carrying how long ago that was', () => {
+    const html = R.cardHtml(card(), CARD_NOW);
+    assert.ok(/前回確認（2 時間前）から悪化しました。TL 4 → 3/.test(html), html);
+});
+
+test('a first sighting says so instead of claiming nothing changed', () => {
+    const html = R.cardHtml(card({
+        sinceLastCheck: { seen: false, previousTl: null, severityDelta: null,
+                          seenAt: null, labelKey: 'ui.board.since.first_sighting' },
+    }), CARD_NOW);
+    assert.ok(/初回です/.test(html), html);
+    assert.ok(!/変化はありません/.test(html));
+});
+
+test('an inconclusive card states the state and what would clear it', () => {
+    const html = R.cardHtml(card({
+        tl: { band: 'unknown', cssVar: '--color-muted', labelKey: 'ui.tl.unknown', tl: null },
+        availability: { state: 'inconclusive',
+                        labelKey: 'ui.board.availability.inconclusive',
+                        sentenceKey: 'ui.board.availability.sentence.inconclusive' },
+        resolution: { labelKey: 'ui.board.resolution.days',
+                      hint: { daysRemaining: 12, daysObserved: 18, windowDays: 30 } },
+    }), CARD_NOW);
+    assert.ok(/結論を出せていません/.test(html), html);
+    assert.ok(/あと 12 日/.test(html), html);
+    assert.ok(/30 日のうち 18 日/.test(html), html);
+});
+
+test('an inconclusive card with no hint says the hint was not supplied', () => {
+    const html = R.cardHtml(card({
+        availability: { state: 'inconclusive',
+                        labelKey: 'ui.board.availability.inconclusive',
+                        sentenceKey: 'ui.board.availability.sentence.inconclusive' },
+        resolution: { labelKey: 'ui.board.resolution.unsupplied', hint: null },
+    }), CARD_NOW);
+    assert.ok(/供給されていません/.test(html), html);
+    assert.ok(!/あと — 日/.test(html), 'an absent hint is not rendered as a number');
+});
+
+test('a concluded card carries no inconclusive block', () => {
+    const html = R.cardHtml(card(), CARD_NOW);
+    assert.ok(!/card-inconclusive/.test(html), html);
+    assert.ok(!/card-resolution/.test(html));
+});
+
+// ── the situation sentence ───────────────────────────────────────────────
+
+test('the summary renders the server sentence and its template ref', () => {
+    const html = R.boardSummaryHtml({ supplied: true, text: '変化は 0 件。',
+                                      templateRef: 'board.summary@1',
+                                      unsuppliedKey: null });
+    assert.ok(/変化は 0 件。/.test(html), html);
+    assert.ok(/board\.summary@1/.test(html), 'the sentence is traceable (NP6)');
+});
+
+test('an unsupplied summary says so rather than rendering empty', () => {
+    const html = R.boardSummaryHtml({ supplied: false, text: null,
+                                      templateRef: null,
+                                      unsuppliedKey: 'ui.board.summary.unsupplied' });
+    assert.ok(/供給されていません/.test(html), html);
+});
+
+test('a null summary is still a sentence, never a blank slot', () => {
+    assert.ok(/供給されていません/.test(R.boardSummaryHtml(null)));
+});
+
+test('a hostile summary sentence is escaped like any other server string', () => {
+    const html = R.boardSummaryHtml({ supplied: true, text: XSS,
+                                      templateRef: XSS, unsuppliedKey: null });
+    assert.ok(!/<script>/.test(html), html);
+});
+
+// ── the scenario face heading ────────────────────────────────────────────
+
+test('the scope renders nothing outside the scenario view', () => {
+    assert.strictEqual(R.faceScopeHtml({ present: false }), '');
+    assert.strictEqual(R.faceScopeHtml(null), '');
+});
+
+test('a matching scope names the scenario and raises no notice', () => {
+    const html = R.faceScopeHtml({ present: true, requested: 'x', requestedLabel: '台湾正面',
+                                   served: 'x', servedLabel: '台湾正面', match: true,
+                                   noticeKey: null });
+    assert.ok(/台湾正面/.test(html), html);
+    assert.ok(!/scenario-head-notice/.test(html));
+});
+
+test('a mismatched scope says whose numbers are actually below', () => {
+    const html = R.faceScopeHtml({ present: true, requested: 'baltic_pressure',
+                                   requestedLabel: 'baltic_pressure', served: 'tw',
+                                   servedLabel: '台湾正面', match: false,
+                                   noticeKey: 'ui.scenario.notice.other_scenario' });
+    assert.ok(/台湾正面 のもの/.test(html), html);
+    assert.ok(/baltic_pressure の面/.test(html), html);
+});
+
+test('a hostile scenario label cannot break out of the heading', () => {
+    const html = R.faceScopeHtml({ present: true, requested: XSS, requestedLabel: XSS,
+                                   served: null, servedLabel: '—', match: false,
+                                   noticeKey: 'ui.scenario.notice.not_loaded' });
+    assert.ok(!/<script>/.test(html), html);
+});
+
 // ── lane row ─────────────────────────────────────────────────────────────
 
 function laneRow(overrides) {
@@ -224,6 +360,33 @@ test('a hostile item id cannot inject into the action buttons', () => {
     const html = R.laneRowHtml(laneRow({ itemId: XSS }), LANE);
     assert.ok(!/<script>/.test(html), html);
     assert.strictEqual((html.match(/data-ack="[^"]*"/g) || []).length, 1);
+});
+
+test('the sentence is the row: the narrative comes before the rank', () => {
+    const html = R.laneRowHtml(laneRow(), LANE);
+    assert.ok(html.indexOf('lane-narrative') < html.indexOf('lane-meta'),
+        'P9 R-A: sentence first, ranking basis second');
+    assert.ok(/<p class="lane-narrative">/.test(html),
+        'a block element, so the stylesheet can give it its own weight');
+});
+
+test('the rank keeps its label and its basis tooltip', () => {
+    const html = R.laneRowHtml(laneRow(), LANE);
+    assert.ok(/順位 1/.test(html), html);
+    assert.ok(/title="[^"]*attention\.score@1/.test(html), 'AP1: the basis stays visible');
+});
+
+test('the open button carries the scenario the row belongs to', () => {
+    const html = R.laneRowHtml(laneRow(), LANE);
+    assert.ok(/data-open-scenario="taiwan_contingency"/.test(html), html);
+    assert.ok(/data-item-open="c-1"/.test(html), 'and which item was chosen');
+});
+
+test('a row with no scenario says why it cannot be opened', () => {
+    const html = R.laneRowHtml(laneRow({ scenarioId: null }), LANE);
+    assert.ok(!/data-open-scenario/.test(html), html);
+    assert.ok(/シナリオが特定されていない/.test(html),
+        'a silently missing button is indistinguishable from a broken one');
 });
 
 // ── conclusion row ───────────────────────────────────────────────────────

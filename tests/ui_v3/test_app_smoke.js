@@ -147,6 +147,13 @@ function makeWindow(doc, transport) {
         setInterval() { return 0; },
         clearInterval() {},
         fetch: transport,
+        // Hash routing (P9 R-B). The fake location is a plain object: the
+        // app reads `.hash` and assigns to it, and nothing here pretends
+        // that assigning fires an event — `views.js` applies the route
+        // itself on `go()` for exactly that reason.
+        location: { hash: '' },
+        addEventListener(name, fn) { this.listeners[name] = fn; },
+        listeners: {},
         prompt() { return 'テスト理由'; },
         confirm() { return true; },
         HTMLElement: function HTMLElement() {},
@@ -188,6 +195,12 @@ const PAYLOADS = {
         scenario_count: 2,
         focused_scenario: 'taiwan_contingency',
         focus_source: 'command_log',
+        board_summary: {
+            text: '監視中 2 シナリオのうち、直近 24 時間で変化があったのは 1 件。',
+            template_ref: 'board.summary@1',
+            inputs: { changed_count: 1, unchanged_count: 1 },
+        },
+        board_summary_templates: { 'board.summary@1': { template_id: 'board.summary' } },
     }),
     '/api/v3/attention': envelope('__tool__', {
         attention: [{
@@ -462,6 +475,9 @@ function settle(times) {
  * `options.signedIn === false` removes the CSRF companion cookie, which is
  * what an analyst who has never signed in (or who signed out) actually
  * has: no readable half, so the gate locks without a round trip.
+ *
+ * `options.hash` boots at a route other than the board, which is what a
+ * bookmark or a reload on the verification view is (P9 R-B).
  */
 function boot(options) {
     options = options || {};
@@ -470,23 +486,39 @@ function boot(options) {
     if (options.signedIn === false) doc.cookie = '';
     if (options.refreshStatus) transport.refreshStatus = options.refreshStatus;
     const win = makeWindow(doc, transport);
+    if (options.hash) win.location.hash = options.hash;
 
     global.window = win;
     global.document = doc;
     Object.keys(require.cache).forEach(k => {
         if (k.indexOf(path.join('v3', 'ui')) !== -1) delete require.cache[k];
     });
-    // The same order index.html loads them in. `surfaces.js` must come
-    // after everything it composes and before `app.js`, which constructs it.
-    ['strings', 'format', 'freshness', 'trust', 'board', 'lane',
-     'conclusions', 'auth', 'gate', 'client', 'render',
-     'geo', 'settings', 'display_mode', 'dim', 'live',
-     'surfaces'].forEach(name => {
-        require(path.join(UI_DIR, name + '.js'));
-    });
-    require(path.join(UI_DIR, 'app.js'));
+    // The shell's own order: `surfaces.js` must come after everything it
+    // composes and before `app.js`, which constructs it.
+    loadUi();
 
     return settle().then(() => ({ doc, win, transport }));
+}
+
+/**
+ * Every module the shell loads, in the shell's order, minus `app.js`.
+ *
+ * Read from `index.html` rather than restated here: a hand-kept copy of a
+ * script list drifts the first time a module is added, and the failure is
+ * a boot-time TypeError in every case at once rather than in the one case
+ * that cares.
+ */
+function moduleNames() {
+    const shell = fs.readFileSync(path.join(UI_DIR, 'index.html'), 'utf8');
+    const found = (shell.match(/<script src="([^"]+)"/g) || [])
+        .map(tag => /src="([^"]+)"/.exec(tag)[1]);
+    assert.ok(found.indexOf('app.js') !== -1, 'the shell must load app.js');
+    return found.filter(name => name !== 'app.js');
+}
+
+function loadUi() {
+    moduleNames().forEach(name => require(path.join(UI_DIR, name)));
+    require(path.join(UI_DIR, 'app.js'));
 }
 
 function html(doc, id) {
@@ -641,6 +673,74 @@ test('deferred surfaces announce themselves instead of showing nothing', async (
         `got: ${node && node.textContent}`);
 });
 
+// ── the view split (P9 §2 R-B) ───────────────────────────────────────────
+
+test('the audit view is off screen at boot, and the board is on it', async () => {
+    const { doc } = await boot();
+    assert.strictEqual(doc.getElementById('view-situation').hidden, false);
+    assert.strictEqual(doc.getElementById('view-verify').hidden, true,
+        'D-1: seven audit tables under a ten-second board is the defect');
+    assert.strictEqual(doc.getElementById('view-scenario').hidden, true);
+});
+
+test('a hidden view still renders, so switching to it is not a fetch', async () => {
+    const { doc } = await boot();
+    assert.ok(/ripe_bgp/.test(html(doc, 'sensor-rows')), html(doc, 'sensor-rows'));
+    assert.ok(/face-section/.test(html(doc, 'face-sections')));
+});
+
+test('the navigation names the view an analyst is looking at', async () => {
+    const { doc } = await boot();
+    assert.strictEqual(
+        doc.getElementById('nav-situation').getAttribute('aria-current'), 'page');
+    assert.strictEqual(
+        doc.getElementById('nav-verify').getAttribute('aria-current'), 'false');
+});
+
+test('the situation view opens on #/verify when the URL says so', async () => {
+    const { doc } = await boot({ hash: '#/verify' });
+    assert.strictEqual(doc.getElementById('view-verify').hidden, false);
+    assert.strictEqual(doc.getElementById('view-situation').hidden, true);
+});
+
+test('the scenario view names the scenario it was asked for', async () => {
+    const { doc } = await boot({ hash: '#/scenario/taiwan_contingency' });
+    assert.strictEqual(doc.getElementById('view-scenario').hidden, false);
+    assert.ok(/taiwan_contingency/.test(html(doc, 'scenario-view-head')),
+        html(doc, 'scenario-view-head'));
+    assert.ok(!/scenario-head-notice/.test(html(doc, 'scenario-view-head')),
+        'the served face matches the route, so there is nothing to warn about');
+});
+
+test('asking for a face the server has not served says whose face this is',
+     async () => {
+    const { doc } = await boot({ hash: '#/scenario/baltic_pressure' });
+    assert.ok(/focus 中の taiwan_contingency/.test(html(doc, 'scenario-view-head')),
+        html(doc, 'scenario-view-head'));
+});
+
+test('an unknown route lands on the board rather than on nothing', async () => {
+    const { doc } = await boot({ hash: '#/does-not-exist' });
+    assert.strictEqual(doc.getElementById('view-situation').hidden, false);
+});
+
+test('the onboarding card is open by default and says it is not stored',
+     async () => {
+    const { doc } = await boot();
+    assert.strictEqual(doc.getElementById('onboarding-body').hidden, false);
+    assert.strictEqual(
+        doc.getElementById('onboarding-toggle').getAttribute('aria-expanded'), 'true');
+});
+
+test('the summary is the server sentence and carries its template ref',
+     async () => {
+    const { doc } = await boot();
+    assert.ok(/直近 24 時間で変化があったのは 1 件/.test(html(doc, 'board-summary')),
+        html(doc, 'board-summary'));
+    assert.ok(/board\.summary@1/.test(html(doc, 'board-summary')),
+        'a sentence an analyst cannot trace is not a disclosure (NP6)');
+});
+
 // ── the login gate (S1-UI-001..005, §7-2 #99) ────────────────────────────
 
 test('a browser with a live refresh cookie never sees the gate', async () => {
@@ -757,11 +857,7 @@ test('no render path throws on an entirely empty server', async () => {
     Object.keys(require.cache).forEach(k => {
         if (k.indexOf(path.join('v3', 'ui')) !== -1) delete require.cache[k];
     });
-    ['strings', 'format', 'freshness', 'trust', 'board', 'lane',
-     'conclusions', 'auth', 'gate', 'client', 'render',
-     'geo', 'settings', 'display_mode', 'dim', 'live', 'surfaces'].forEach(
-        n => require(path.join(UI_DIR, n + '.js')));
-    require(path.join(UI_DIR, 'app.js'));
+    loadUi();
     await settle();
 
     // Empty everywhere, but every empty says why (S1-UI-008: no blank screens).
@@ -769,6 +865,8 @@ test('no render path throws on an entirely empty server', async () => {
         html(doc, 'board-cards'));
     assert.ok(/順位付けの対象となる結論がありません/.test(html(doc, 'lane-rows')),
         html(doc, 'lane-rows'));
+    assert.ok(/供給されていません/.test(html(doc, 'board-summary')),
+        html(doc, 'board-summary'));
     // The WP-4.3 surfaces obey the same rule. An empty settings table that
     // said nothing would read as "there is nothing to configure", which is
     // the claim G-15 made for months.

@@ -49,6 +49,25 @@
         'ui.stage.verify': '検証',
         'ui.stage.verify_q': 'この系は生きているか。過去の判断は妥当だったか。',
 
+        // ── ビュー切替（P9 §3.2 — トップレベルは 2 項だけ） ───────────────
+        'ui.nav.situation': '状況',
+        'ui.nav.verify': '検証',
+        'ui.nav.back_to_situation': '← 状況ビューへ戻る',
+        'ui.scenario.head': 'シナリオ面: {scenario}',
+        'ui.scenario.notice.not_loaded': 'このシナリオの結論（R2）をまだ取得していません。結論の取得は focus 中のシナリオに限られます。',
+        'ui.scenario.notice.other_scenario': '以下の結論・地理面は focus 中の {served} のものです。{requested} の面を見るには、状況ビューのカードで focus を移してください。',
+
+        // ── 初回オンボード（P9 §3.6） ────────────────────────────────────
+        'ui.onboarding.title': 'この画面は 5 つの問いに答えます',
+        'ui.onboarding.expand': '案内を開く',
+        'ui.onboarding.collapse': '案内を閉じる',
+        'ui.onboarding.q1': '① 何か変わったか — [状況] 冒頭のサマリ文とシナリオカード（目標 10 秒）',
+        'ui.onboarding.q2': '② 次に何を見るべきか — [状況] の注目レーン。上から順に見る（目標 30 秒）',
+        'ui.onboarding.q3': '③ なぜそう言えるか — カード名または注目レーンの「開く」でシナリオ面へ。各結論の「なぜ?」で [検証] の導出ビューへ',
+        'ui.onboarding.q4': '④ ツールの判断は正しかったか — シナリオ面の下部でラベルを投稿する',
+        'ui.onboarding.q5': '⑤ この系は生きているか — [検証] ビュー（自己評価・センサー・判断台帳・設定）',
+        'ui.onboarding.persistence_note': 'この案内の開閉状態は保存されません。利用者ごとの設定を保存する面が未供給のためで、[検証] ビュー末尾の「未着地の機能」に登録しています。',
+
         // ── TL bands (band words stay English — ja-localization §2) ──────
         'ui.tl.1': 'CRITICAL',
         'ui.tl.2': 'SEVERE',
@@ -107,16 +126,27 @@
         'ui.board.focused': 'focus 中',
         'ui.board.focus_here': 'このシナリオを focus',
         'ui.board.score': 'スコア {score}',
+        'ui.board.tl_caption': '脅威レベル',
+        'ui.board.open_face': 'シナリオ面を開く（scenario_id: {id}）',
         'ui.board.availability.concluded': '結論あり',
-        'ui.board.availability.inconclusive': '結論不可（詳細はドリルダウン）',
+        'ui.board.availability.inconclusive': '結論不可',
         'ui.board.availability.never_observed': '観測実績なし',
+        // 結論不可カードは「なぜ出せないか」と「何があれば出せるか」を文で
+        // 言う（P9 §3.1 / O-7）。文はサーバが送った状態の言語化であって、
+        // 判断の再構成ではない。
+        'ui.board.availability.sentence.inconclusive': '結論を出せていません。採点は走りましたが、この時点の結論に足りる根拠がありません（故障ではありません）。',
+        'ui.board.availability.sentence.never_observed': 'このシナリオの観測が台帳にまだ 1 件もありません。センサーが観測を書き込むと採点が始まります。',
+        'ui.board.resolution.days': '解消の見込み: あと {days} 日（較正窓 {window} 日のうち {observed} 日を観測済）。',
+        'ui.board.resolution.unsupplied': '解消条件はこのカードには供給されていません。シナリオ面の結論不可欄（R2）に理由と解消条件が出ます。',
         'ui.board.coverage.full': '全センサー稼働（scoring_mode: {mode}）',
         'ui.board.coverage.limited': 'background のため観測範囲が限定されています（scoring_mode: {mode}）',
-        'ui.board.since.first_sighting': '前回確認の記録がありません（この画面での初回表示）',
-        'ui.board.since.worsened': '前回確認から悪化（severity {delta}、前回 TL{previous}）',
-        'ui.board.since.improved': '前回確認から改善（severity {delta}、前回 TL{previous}）',
-        'ui.board.since.unchanged': '前回確認から変化なし（前回 TL{previous}）',
-        'ui.board.since.unknown': '前回確認との比較ができません（前回 TL{previous}）',
+        'ui.board.since.first_sighting': 'この画面でこのシナリオを表示するのは初回です。次回からは前回表示との差を文で出します。',
+        'ui.board.since.worsened': '前回確認（{ago}前）から悪化しました。TL {previous} → {current}（severity {delta}）。',
+        'ui.board.since.improved': '前回確認（{ago}前）から改善しました。TL {previous} → {current}（severity {delta}）。',
+        'ui.board.since.unchanged': '前回確認（{ago}前）から変化はありません（TL {previous}）。',
+        'ui.board.since.unknown': '前回確認（{ago}前）との比較ができません（前回 TL {previous}、現在は結論不可）。',
+        'ui.board.summary.unsupplied': '状況サマリ文がサーバから供給されていません（R1 の board_summary 未供給）。下のカードと注目レーンを直接読んでください。',
+        'ui.board.summary.template': '文の生成テンプレート: {ref}',
         'ui.board.empty.no_scenarios': '登録されたシナリオがありません。',
         'ui.board.empty.not_loaded': 'シナリオ台帳をまだ取得していません。',
 
@@ -133,6 +163,8 @@
 
         // ── attention lane ──────────────────────────────────────────────
         'ui.lane.open': '開く',
+        'ui.lane.open_absent': 'シナリオが特定されていないため、この行からは開けません。',
+        'ui.lane.rank_label': '順位 {n}',
         'ui.lane.ack': '確認済',
         'ui.lane.snooze': '一時保留',
         'ui.lane.dismiss': '却下',
@@ -180,6 +212,7 @@
 
         // ── derivation ──────────────────────────────────────────────────
         'ui.derivation.title': '導出ビュー',
+        'ui.derivation.lead': 'この結論は、どの式・どの実効閾値・どの観測・どの一次ソースから出たのか。',
         'ui.derivation.section.formula': '計算式',
         'ui.derivation.section.inputs': '入力値',
         'ui.derivation.section.thresholds': '実効閾値',
@@ -195,6 +228,7 @@
 
         // ── self-evaluation and sensors ─────────────────────────────────
         'ui.selfeval.title': '自己評価の内訳',
+        'ui.selfeval.lead': '今このツールの結論をどこまで信じてよいか。合成信頼度を作っている要素の全数。',
         'ui.selfeval.col.component': '要素',
         'ui.selfeval.col.state': '状態',
         'ui.selfeval.col.value': '実効値',
@@ -202,6 +236,7 @@
         'ui.selfeval.col.source': '境界の出所',
         'ui.selfeval.col.detail': '詳細',
         'ui.sensors.title': 'センサー健全性',
+        'ui.sensors.lead': 'どの観測源が生きていて、どれが沈黙しているか。',
         'ui.sensors.col.sensor': 'センサー',
         'ui.sensors.col.domain': 'ドメイン',
         'ui.sensors.col.observations': '観測数',
@@ -212,6 +247,7 @@
 
         // ── decision ledger (AP4) ───────────────────────────────────────
         'ui.decisions.title': '判断台帳',
+        'ui.decisions.lead': '自動化と人が、いつ・何を・どの理由で決めたか（追記のみ・読み取り専用）。',
         'ui.decisions.col.at': '時刻 (UTC)',
         'ui.decisions.col.type': '種別',
         'ui.decisions.col.action': 'アクション',
@@ -223,6 +259,7 @@
 
         // ── proposals ───────────────────────────────────────────────────
         'ui.proposals.title': '提案レビュー',
+        'ui.proposals.lead': 'ツールが自分で出した変更提案のうち、まだ裁定されていないものは何か。',
         'ui.proposals.change': '{from} → {to}（標本数 {n}）',
         'ui.proposals.apply': '適用',
         'ui.proposals.dismiss': '却下',
@@ -231,6 +268,7 @@
 
         // ── what-if (server dry-run) ────────────────────────────────────
         'ui.whatif.title': '反実仮想（サーバ dry-run）',
+        'ui.whatif.lead': '入力をこう変えたら結論は動くのか。動かないなら、その結論は何に支えられているのか。',
         'ui.whatif.hint': '採点はサーバの L2 カーネルが行います。この画面は baseline と counterfactual の差分を表示するだけで、ブラウザ側では一切採点しません。',
         'ui.whatif.placeholder': '{"weights": {"scenario_id": {"TW": 0.8}}}',
         'ui.whatif.run': 'dry-run を実行',
@@ -294,6 +332,16 @@
         'ui.deferred.human_anchor': '人間アンカー: 指令 API (C10) が未実装です。',
         'ui.deferred.scenario_admin': 'シナリオ管理: 指令 API (C11) が未実装です。',
         'ui.deferred.llm_ops': 'LLM 運用: 指令 API (C12) が未実装です。',
+        // 未着地面（P9 §3.3）。断片を本番ビューに散らす代わりに、検証ビュー
+        // 末尾の 1 表へ集約する。「まだ無い」と「データが無い」は別の状態で
+        // あり、前者は 1 か所で全数を数えられなければならない。
+        'ui.deferred.title': '未着地の機能',
+        'ui.deferred.lead': 'この配備にまだ無い面の全数。空の画面ではなく、未着地であることをここで一括して申告します。',
+        'ui.deferred.col.id': '繰延 ID',
+        'ui.deferred.col.reason': '理由',
+        'ui.deferred.col.landing': '着地予定 WP',
+        'ui.deferred.landing.unplanned': '未登録（P3 の作業表に着地先の記載なし）',
+        'ui.deferred.onboarding_persistence': '案内カードの開閉状態を利用者ごとに保存する面がありません。R14 は配備設定の registry であって利用者設定ではなく、利用者設定を持つ API はどの面にも供給されていません。localStorage 単独での保存は S1-UI-035 が禁じるため、開閉状態は保存していません。',
 
         // ── login gate (S1-UI-001〜005) ─────────────────────────────────
         'ui.auth.title': 'Noroshi v3 — サインイン',
@@ -380,6 +428,7 @@
 
         // ── SETTINGS（S1-UI-067〜070 / G-15 の恒久化） ───────────────────
         'ui.settings.title': '設定',
+        'ui.settings.lead': 'この配備で運用可変なキーは何で、いまどの層の値が効いているか。',
         'ui.settings.lede': '本画面に出るのは、3 段テスト（読み手が実在する / 読み手の AST がキー名を含む / override が出力を変える）を通過したキーだけです。本番の設定面は 98 キーを並べ、うち 95 キーは DB override 層に届いていませんでした（G-15）。数が少ないことは欠落ではなく、可変であると検証できたキーがこれだけであるという事実です。',
         'ui.settings.summary': '可変キー {variable} 件（本画面で変更可）／固定定数 {pinned} 件（R10 が開示。変更はコード変更）',
         'ui.settings.col.key': 'キーと可変である理由',
@@ -401,6 +450,7 @@
         'ui.settings.save': '保存',
         'ui.settings.clear': 'override 解除',
         'ui.settings.gt_title': 'ground truth 一覧（読み取り専用）',
+        'ui.settings.gt_lead': 'どの時点のどのシナリオに、人がどの正解ラベルを与えたか（較正の入力）。',
         'ui.settings.gt.scenario': 'シナリオ',
         'ui.settings.gt.observed_at': '観測時刻 (UTC)',
         'ui.settings.gt.label': 'ラベル',

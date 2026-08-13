@@ -798,6 +798,31 @@ class TestDeliberateAbsences:
         finally:
             built.close()
 
+    def test_the_display_name_reaches_the_api_from_the_geography(
+            self, tmp_path, registry):
+        """P9 §5. The API does not read `geo_data.json`; the composition
+        root does, exactly as it already does for participants and roles."""
+        document = json.loads(json.dumps(GEO_DOC))
+        document["SCENARIOS"][SCENARIO]["display_name_ja"] = "台湾正面"
+        built = composition.compose(
+            _settings(tmp_path), environment={}, registry=registry,
+            geography=geo_module.from_document(document),
+            client=_Client(), clock=lambda: NOW, barrier=False)
+        try:
+            ref = built.scenario_refs()[0]
+            assert ref.display_name_ja == "台湾正面"
+            assert ref.display_name_source == "display_name_ja"
+        finally:
+            built.close()
+
+    def test_an_undeclared_display_name_reaches_it_as_a_named_fallback(
+            self, deployment):
+        """Not silently identical to the id — the fixture geography
+        declares no name, and the ref says which is which."""
+        ref = deployment.scenario_refs()[0]
+        assert ref.display_name_ja == SCENARIO
+        assert ref.display_name_source == "scenario_id"
+
 
 # ── 7. the invocation guards ──────────────────────────────────────────────
 def _invoke(args, env_extra=None):

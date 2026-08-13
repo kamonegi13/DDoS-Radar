@@ -36,6 +36,16 @@
     --radius-sm: 3px;
     --radius-md: 6px;
 
+    /* Typographic scale (P9 D-3). WP-4.2 drew every element at one weight
+     * and one size, so nothing on the screen said "read me first" — which
+     * is why a ten-second board took a minute. Four steps, used for one
+     * thing each: the TL numeral, the sentences that answer a question,
+     * body text, and the numbers that support a sentence. */
+    --text-hero: 56px;   /* the TL numeral — the dominant element of a card */
+    --text-lead: 18px;   /* the situation sentence, the lane narrative */
+    --text-body: 14px;
+    --text-meta: 12px;   /* score, rank, deltas: support, not headline */
+
     /* Semantic aliases: the trust bands and freshness levels name a colour
      * once here rather than repeating a palette entry at each use. */
     --trust-trusted:  var(--color-info);
@@ -93,13 +103,23 @@ textarea, input {
     max-width: 640px;
 }
 
+/* A hidden view must not be reachable by a display rule that outranks the
+ * attribute. Every container below sets `display` explicitly, and one of
+ * them winning over `hidden` would put two views on screen at once — which
+ * is D-1 with extra steps. */
+[hidden] { display: none !important; }
+
 .empty, .hint { color: var(--color-text-dim); font-style: italic; }
+
+/* The one-line lead above a Tier 2 table: what question it answers
+ * (P9 §3.3). Not italic — it is a statement, not an aside. */
+.lead { color: var(--color-text-dim); margin: 0 0 var(--space-2); }
 .warn:not(:empty) { color: var(--color-warning); }
-.deferred:not(:empty) {
-    color: var(--color-muted);
-    border-left: 2px solid var(--color-muted);
-    padding-left: var(--space-2);
-}
+/* The unlanded surfaces. Since P9 §3.3 they exist only as rows of the
+ * 未着地の機能 table at the end of the verification view, so the rule is
+ * attached to the attribute the registry fills rather than to a class an
+ * operational view could wear again. */
+td[data-deferred] { color: var(--color-muted); }
 
 /* ── NP7: permanent, unconditional, first ────────────────────────────── */
 #np7-bar {
@@ -131,6 +151,71 @@ textarea, input {
     top: 40px;
     z-index: 19;
 }
+
+/* ── views and the two-item navigation (P9 §3.2) ─────────────────────── */
+.view-nav {
+    display: flex;
+    gap: var(--space-2);
+    margin-bottom: var(--space-4);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.nav-item {
+    display: inline-block;
+    padding: var(--space-2) var(--space-4);
+    color: var(--color-text-dim);
+    text-decoration: none;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    font-size: 16px;
+    letter-spacing: 0.08em;
+}
+.nav-item:hover { color: var(--color-text); }
+
+/* The current view, and the board while one of its children is open. The
+ * branch state is dimmer than the current state on purpose: it says "you
+ * came from here", not "you are here". */
+.nav-current {
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+    background: var(--color-surface);
+    font-weight: 700;
+}
+.nav-branch { color: var(--color-info); border-color: var(--color-border); }
+
+.view-back { margin: 0 0 var(--space-3); }
+
+.scenario-head:not(:empty) {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin: 0 0 var(--space-3);
+}
+.scenario-head-name { font-size: var(--text-lead); font-weight: 700; }
+.scenario-head-notice {
+    color: var(--color-warning);
+    border-left: 3px solid var(--color-warning);
+    padding-left: var(--space-2);
+}
+
+/* ── onboarding (P9 §3.6) ────────────────────────────────────────────── */
+.onboarding {
+    border: 1px solid var(--color-info);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    margin-bottom: var(--space-5);
+    background: var(--color-surface);
+}
+.onboarding-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+}
+.onboarding-head h2 { margin: 0; font-size: 16px; color: var(--color-info); }
+.onboarding-list { margin: var(--space-3) 0 var(--space-2); padding-left: var(--space-5); }
+.onboarding-list li { margin-bottom: var(--space-1); }
 
 /* ── loop stages ─────────────────────────────────────────────────────── */
 .stage {
@@ -197,10 +282,24 @@ tr.trust-trusted  td:first-child { border-left: 3px solid var(--trust-trusted); 
 tr.trust-reserved td:first-child { border-left: 3px solid var(--trust-reserved); }
 tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust); }
 
+/* ── the situation sentence (P9 R-A) ─────────────────────────────────── */
+.board-summary:not(:empty) {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin: var(--space-3) 0;
+    padding: var(--space-3);
+    border-left: 3px solid var(--color-accent);
+    background: var(--color-bg);
+}
+.summary-text { font-size: var(--text-lead); line-height: 1.5; }
+.summary-unsupplied { color: var(--color-text-dim); font-style: italic; }
+.summary-ref { font-size: var(--text-meta); color: var(--color-muted); }
+
 /* ── scenario cards ──────────────────────────────────────────────────── */
 .cards {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
     gap: var(--space-3);
     margin-top: var(--space-3);
 }
@@ -215,22 +314,77 @@ tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust);
 
 .card-head { display: flex; justify-content: space-between; align-items: center;
              gap: var(--space-2); }
-.card-title { margin: 0; font-size: 14px; }
+.card-title { margin: 0; font-size: 16px; }
+
+/* The name is the way into the face, so it is a button — but it must read
+ * as a title, not as a form control. */
+.card-open {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    font-weight: 700;
+    color: var(--color-text);
+    text-align: left;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+.card-open:hover:not(:disabled) { color: var(--color-accent); border: none; }
 
 .chip-focus {
     border: 1px solid var(--color-accent);
     border-radius: var(--radius-sm);
     color: var(--color-accent);
     padding: 0 var(--space-1);
+    white-space: nowrap;
 }
 
-.card-tl { display: flex; align-items: baseline; gap: var(--space-2);
-           margin: var(--space-2) 0; }
-.tl-value { font-size: 34px; font-weight: 700; color: var(--tl-color); }
-.tl-label { color: var(--tl-color); }
+/* The TL block is the dominant element and takes about a third of the card
+ * (P9 §3.1). Everything else on the card is a sentence or a supporting
+ * number, and both are quieter than this. */
+.card-body {
+    display: grid;
+    grid-template-columns: minmax(96px, 1fr) 2fr;
+    gap: var(--space-3);
+    align-items: start;
+    margin: var(--space-3) 0;
+}
 
-.card p { margin: var(--space-1) 0; }
-.card-availability, .card-coverage { color: var(--color-text-dim); }
+.card-tl {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-2);
+    border: 1px solid var(--tl-color);
+    border-radius: var(--radius-md);
+}
+.tl-value {
+    font-size: var(--text-hero);
+    font-weight: 700;
+    line-height: 1;
+    color: var(--tl-color);
+}
+.tl-label { color: var(--tl-color); font-weight: 700; letter-spacing: 0.06em; }
+.tl-caption { color: var(--color-text-dim); font-size: var(--text-meta); }
+
+.card-lines { display: flex; flex-direction: column; gap: var(--space-2); }
+.card p { margin: 0; }
+
+/* Sentence first. */
+.card-since { font-size: var(--text-lead); line-height: 1.5; }
+.card-inconclusive { color: var(--color-warning); }
+.card-resolution { color: var(--color-text-dim); }
+
+/* Numbers second: one quiet line carrying availability, trend and score. */
+.card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    font-size: var(--text-meta);
+    color: var(--color-text-dim);
+}
+.card-coverage { color: var(--color-text-dim); font-size: var(--text-meta); }
 .trend-glyph { color: var(--color-accent); }
 
 .domain-bar { list-style: none; margin: var(--space-2) 0; padding: 0; }
@@ -247,18 +401,40 @@ tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust);
 
 /* ── attention lane ──────────────────────────────────────────────────── */
 .lane { list-style: none; margin: var(--space-2) 0 0; padding: 0; }
+
+/* The narrative is the row (P9 §3.1). The rank and the scenario id sit on
+ * a second, quieter line: they say why the sentence is HERE, which is a
+ * different question from what the sentence says. */
 .lane-row {
     display: grid;
-    grid-template-columns: 3.5em 12em 1fr auto;
-    gap: var(--space-2);
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "narrative actions" "meta actions";
+    gap: var(--space-1) var(--space-3);
     align-items: center;
-    padding: var(--space-1) 0;
+    padding: var(--space-2) 0;
     border-bottom: 1px solid var(--color-border);
+}
+.lane-narrative {
+    grid-area: narrative;
+    margin: 0;
+    font-size: var(--text-lead);
+    line-height: 1.5;
+}
+.lane-meta {
+    grid-area: meta;
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    font-size: var(--text-meta);
+    color: var(--color-text-dim);
 }
 .lane-rank { font-weight: 700; color: var(--color-accent); }
 .lane-rank-fallback { font-style: normal; color: var(--color-warning); }
 .lane-scenario { color: var(--color-text-dim); }
-.lane-actions { display: flex; gap: var(--space-1); }
+.lane-open-absent { color: var(--color-muted); font-size: var(--text-meta); }
+.lane-actions { grid-area: actions; display: flex; gap: var(--space-1);
+                align-items: center; }
 .lane-summary, .lane-suppressed { color: var(--color-text-dim); margin: var(--space-1) 0; }
 .lane-suppressed:not(:empty) { color: var(--color-warning); }
 

@@ -95,9 +95,64 @@
             + '</button>';
     }
 
-    function cardHtml(card) {
+    /**
+     * The situation sentence (P9 §2 R-A), or the admission that none came.
+     *
+     * The template reference travels with the sentence, because a sentence
+     * an analyst cannot trace is not a disclosure (NP6). Nothing is
+     * composed here — see `board.js` `_summary`.
+     */
+    function boardSummaryHtml(summary) {
+        if (!summary || !summary.supplied) {
+            return '<span class="summary-unsupplied">'
+                + esc(_t((summary && summary.unsuppliedKey)
+                    || 'ui.board.summary.unsupplied')) + '</span>';
+        }
+        return '<span class="summary-text">' + esc(summary.text) + '</span>'
+            + (summary.templateRef
+                ? '<span class="summary-ref">' + esc(_t('ui.board.summary.template',
+                    { ref: summary.templateRef })) + '</span>'
+                : '');
+    }
+
+    /**
+     * Which scenario the face below actually belongs to (P9 §3.2).
+     *
+     * Empty outside the scenario view. Inside it, the heading names the
+     * scenario that was ASKED for and the notice — when there is one —
+     * names the scenario that was SERVED. Never one label over the other's
+     * numbers.
+     */
+    function faceScopeHtml(scope) {
+        if (!scope || !scope.present) return '';
+        return '<span class="scenario-head-name">'
+            + esc(_t('ui.scenario.head', { scenario: scope.requestedLabel }))
+            + '</span>'
+            + (scope.noticeKey
+                ? '<span class="scenario-head-notice">'
+                  + esc(_t(scope.noticeKey, { requested: scope.requestedLabel,
+                                              served: scope.servedLabel }))
+                  + '</span>'
+                : '');
+    }
+
+    /**
+     * One scenario card (P9 §3.1).
+     *
+     * The TL block is the dominant element and the change line is a
+     * sentence, in that order, because ① asks "has anything changed" and a
+     * grid of equally-weighted chips answers it only after the analyst has
+     * decoded twelve fields. Score, trend delta and coverage stay — they
+     * are demoted, not dropped: P9 §7 is explicit that this slice adds no
+     * display and removes none.
+     *
+     * `now` is a parameter rather than a call to the clock so the sentence
+     * "last checked 2 hours ago" is reproducible under test.
+     */
+    function cardHtml(card, now) {
         var tl = card.tl;
         var since = card.sinceLastCheck;
+        var clock = typeof now === 'number' ? now : Date.now() / 1000;
         var domainBar = '';
         if (card.domains) {
             domainBar = '<ul class="domain-bar">' + card.domains.domains.map(function (d) {
@@ -111,29 +166,61 @@
                     + '</li>';
             }).join('') + '</ul>';
         }
+        var ago = Fmt.duration(since.seenAt === null || since.seenAt === undefined
+            ? null : clock - since.seenAt);
+        var resolution = card.resolution || null;
+        var hint = resolution ? resolution.hint : null;
+        var unavailableBlock = card.availability.sentenceKey
+            ? '<p class="card-inconclusive">'
+              + esc(_t(card.availability.sentenceKey)) + '</p>'
+              + (resolution && resolution.labelKey
+                  ? '<p class="card-resolution">' + esc(_t(resolution.labelKey, {
+                      days: hint ? Fmt.num(hint.daysRemaining) : Fmt.ABSENT,
+                      observed: hint ? Fmt.num(hint.daysObserved) : Fmt.ABSENT,
+                      window: hint ? Fmt.num(hint.windowDays) : Fmt.ABSENT,
+                  })) + '</p>'
+                  : '')
+            : '';
+        var name = card.displayName || card.scenarioId;
         return '<article class="card card-' + esc(tl.band)
             + (card.focused ? ' card-focused' : '') + '" data-scenario="'
             + esc(card.scenarioId) + '">'
             + '<header class="card-head">'
-            + '<h3 class="card-title">' + esc(card.scenarioId) + '</h3>'
+            // The name is the way into the scenario face: the thing an
+            // analyst points at to ask "what is going on here" is its name,
+            // and a button is reachable from the keyboard where a clickable
+            // <article> is not.
+            + '<h3 class="card-title"><button type="button" class="card-open" '
+            + 'data-open-scenario="' + esc(card.scenarioId) + '" title="'
+            + esc(_t('ui.board.open_face', { id: card.scenarioId })) + '">'
+            + esc(name) + '</button></h3>'
             + (card.focused
                 ? '<span class="chip chip-focus">' + esc(_t('ui.board.focused')) + '</span>'
                 : '<button type="button" class="focus-btn" data-focus="'
                   + esc(card.scenarioId) + '">' + esc(_t('ui.board.focus_here')) + '</button>')
             + '</header>'
+            + '<div class="card-body">'
             + '<div class="card-tl" style="--tl-color: var(' + esc(tl.cssVar) + ')">'
             + '<span class="tl-value">' + esc(tl.tl === null ? Fmt.ABSENT : String(tl.tl))
-            + '</span><span class="tl-label">' + esc(_t(tl.labelKey)) + '</span></div>'
-            + '<p class="card-availability">' + esc(_t(card.availability.labelKey)) + '</p>'
-            + '<p class="card-trend"><span class="trend-glyph">' + esc(card.trend.glyph)
-            + '</span> ' + esc(_t(card.trend.labelKey)) + ' '
-            + esc(Fmt.signed(card.trend.delta)) + '</p>'
+            + '</span><span class="tl-label">' + esc(_t(tl.labelKey)) + '</span>'
+            + '<span class="tl-caption">' + esc(_t('ui.board.tl_caption')) + '</span></div>'
+            + '<div class="card-lines">'
             + '<p class="card-since">' + esc(_t(since.labelKey, {
+                ago: _t(ago.key, ago.vars),
                 delta: Fmt.signed(since.severityDelta),
+                current: tl.tl === null ? Fmt.ABSENT : String(tl.tl),
                 previous: since.previousTl === null ? Fmt.ABSENT : String(since.previousTl),
             })) + '</p>'
-            + '<p class="card-score">' + esc(_t('ui.board.score', { score: Fmt.num(card.score, 2) }))
-            + '</p>'
+            + unavailableBlock
+            + '<p class="card-meta">'
+            + '<span class="card-availability">' + esc(_t(card.availability.labelKey))
+            + '</span> <span class="card-trend"><span class="trend-glyph">'
+            + esc(card.trend.glyph) + '</span> ' + esc(_t(card.trend.labelKey)) + ' '
+            + esc(Fmt.signed(card.trend.delta)) + '</span> '
+            + '<span class="card-score">'
+            + esc(_t('ui.board.score', { score: Fmt.num(card.score, 2) }))
+            + '</span></p>'
+            + '</div></div>'
             + domainBar
             + '<p class="card-coverage">' + esc(_t(card.coverage.labelKey, {
                 mode: card.coverage.scoringMode || Fmt.ABSENT })) + '</p>'
@@ -151,20 +238,32 @@
             formula: basis.formulaRef || Fmt.ABSENT,
             snapshot: basis.snapshotId || Fmt.ABSENT,
         });
+        // The sentence is the row (P9 §3.1 point 4). Rank and score are the
+        // basis for the sentence being HERE rather than lower down, which
+        // is a different question from what the row says — so they go to
+        // the secondary line and the tooltip, where AP1's "the basis is
+        // always visible" is still satisfied.
         return '<li class="lane-row" data-item="' + esc(row.itemId) + '">'
+            + '<p class="lane-narrative">'
+            + esc(row.narrative === null ? _t(row.narrativeMissingKey) : row.narrative)
+            + '</p>'
+            + '<p class="lane-meta">'
             + '<span class="lane-rank" title="' + esc(tip) + '">'
-            + esc(row.rankPosition === null ? Fmt.ABSENT : String(row.rankPosition))
+            + esc(_t('ui.lane.rank_label', {
+                n: row.rankPosition === null ? Fmt.ABSENT : String(row.rankPosition) }))
             + (row.rankFallback
                 ? '<em class="lane-rank-fallback">'
                   + esc(_t('ui.lane.rank_fallback')) + '</em>' : '')
             + '</span>'
             + '<span class="lane-scenario">' + esc(row.scenarioId || Fmt.ABSENT) + '</span>'
-            + '<span class="lane-narrative">'
-            + esc(row.narrative === null ? _t(row.narrativeMissingKey) : row.narrative)
-            + '</span>'
+            + '</p>'
             + '<span class="lane-actions">'
-            + '<button type="button" data-open="' + esc(row.itemId) + '">'
-            + esc(_t('ui.lane.open')) + '</button>'
+            + (row.scenarioId
+                ? '<button type="button" data-open-scenario="' + esc(row.scenarioId)
+                  + '" data-item-open="' + esc(row.itemId) + '">'
+                  + esc(_t('ui.lane.open')) + '</button>'
+                : '<span class="lane-open-absent">'
+                  + esc(_t('ui.lane.open_absent')) + '</span>')
             + '<button type="button" data-ack="' + esc(row.itemId) + '">'
             + esc(_t('ui.lane.ack')) + '</button>'
             + '<button type="button" data-snooze="' + esc(row.itemId) + '">'
@@ -523,6 +622,8 @@
     return {
         freshnessBadge: freshnessBadge,
         trustChipHtml: trustChipHtml,
+        boardSummaryHtml: boardSummaryHtml,
+        faceScopeHtml: faceScopeHtml,
         geoMarkerHtml: geoMarkerHtml,
         geoLayerHtml: geoLayerHtml,
         settingsRowHtml: settingsRowHtml,

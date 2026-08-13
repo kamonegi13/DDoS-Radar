@@ -35,6 +35,7 @@
     var Gate = window.NoroshiGate;
     var Surfaces = window.NoroshiSurfaces;
     var Dim = window.NoroshiDim;
+    var Views = window.NoroshiViews;
 
     var _t = S.t;
     var esc = Fmt.escHtml;
@@ -98,6 +99,11 @@
         surfaces: null,
         lane: null,             // last lane view model, for the display mode
         dimTimer: null,
+        views: null,            // which view is on screen (P9 R-B)
+        //: scenario_id -> the name the analyst reads, as R1 supplies it.
+        //: A display lookup, never a source of truth: `scenario_id` stays
+        //: the identity everywhere a value is keyed or sent.
+        names: {},
     };
 
     // ── DOM helpers ─────────────────────────────────────────────────────
@@ -186,9 +192,19 @@
         if (!decision.render) return;
 
         setHtml('trust-slot', trustChipHtml(fold));
+        // The sentence first, then the cards it summarises (P9 R-A).
+        setHtml('board-summary', Render.boardSummaryHtml(board.summary));
+        var now = Date.now() / 1000;
         setHtml('board-cards', board.empty
             ? '<p class="empty">' + esc(_t(board.emptyKey)) + '</p>'
-            : board.cards.map(cardHtml).join(''));
+            : board.cards.map(function (card) { return cardHtml(card, now); }).join(''));
+
+        var names = {};
+        board.cards.forEach(function (card) {
+            if (card.displayName) names[card.scenarioId] = card.displayName;
+        });
+        state.names = names;
+        renderScopeHead();
 
         state.store = Object.assign({}, state.store, {
             lastSeen: Board.rememberSeen(state.store.lastSeen, board.cards,
@@ -243,6 +259,24 @@
 
     // ── section 3: the conclusion face ──────────────────────────────────
 
+    /**
+     * Whose face is on screen (P9 §3.2).
+     *
+     * Written outside the redraw gate and re-run on every route change,
+     * because the heading is a function of the ROUTE as well as of the
+     * payload: a gate that folds only the payload would leave the previous
+     * scenario's name above the next scenario's face, which is precisely
+     * the mislabel S1-UI-048 exists to prevent.
+     */
+    function renderScopeHead() {
+        var result = state.results.R2;
+        var scope = Views.faceScope(
+            state.views ? state.views.route() : null,
+            (result && result.body) ? result.body.scenario_id : null,
+            state.names);
+        setHtml('scenario-view-head', Render.faceScopeHtml(scope));
+    }
+
     function renderFace() {
         var result = state.results.R2;
         var thresholds = state.results.R10;
@@ -253,6 +287,7 @@
                 ? thresholds.body.unavailable_reason_registry : null,
         });
         setHtml('face-freshness', freshnessBadge(result));
+        renderScopeHead();
         var decision = state.detector.shouldRender('face', {
             view: face, result: result, thresholds: thresholds,
         });
@@ -670,8 +705,16 @@
             .then(function () { if (button) button.disabled = false; });
     }
 
+    /**
+     * The "なぜ?" trail (D-7): a conclusion leads to the derivation view.
+     *
+     * The route moves BEFORE the read, so the analyst is looking at the
+     * surface the answer will land on rather than watching a section they
+     * cannot see refresh itself.
+     */
     function openDerivation(conclusionId, button) {
         state.openConclusionId = conclusionId;
+        if (state.views) state.views.go(Views.hashFor(Views.VERIFY, null));
         if (button) button.disabled = true;
         Promise.all([
             state.client.reads.derivation(conclusionId).then(record),
@@ -693,6 +736,16 @@
         var target = event.target;
         if (!(target instanceof window.HTMLElement)) return;
         if (target.disabled) return;
+
+        // Navigation before commands: opening a scenario face changes only
+        // what is on screen. It sends nothing, writes nothing to the
+        // ledger, and does not move focus — moving focus is C1, and it
+        // asks for a reason because it is a decision (S1-UI-035).
+        var openScenario = target.getAttribute('data-open-scenario');
+        if (openScenario && state.views) {
+            state.views.go(Views.hashFor(Views.SCENARIO, openScenario));
+            return;
+        }
 
         for (var i = 0; i < COMMANDS.length; i += 1) {
             var id = target.getAttribute(COMMANDS[i].attr);
@@ -845,6 +898,16 @@
             ask: askReason,
             confirm: function (key, vars) { return window.confirm(_t(key, vars)); },
         });
+        // The view split (P9 R-B). Created before the first render so the
+        // Tier 2 tables are already off screen when they first draw: a
+        // frame of the audit view under the situation board is D-1 again,
+        // however briefly.
+        state.views = Views.createViews({
+            doc: document,
+            win: window,
+            onRoute: function () { renderScopeHead(); },
+        });
+        state.views.bind();
         bind();
         state.surfaces.bind();
         // The dim's timeouts are the only thing in this layer that needs a

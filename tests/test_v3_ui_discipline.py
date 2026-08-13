@@ -568,8 +568,9 @@ class TestTheWiringResolves:
     #: accumulation P8 §7 retired wearing a different spelling. The check
     #: follows the DOM rather than following one filename — `surfaces.js`
     #: joined on the same argument in WP-4.3 (the map, SETTINGS, the two
-    #: presentation state machines and the live chip).
-    DOM_FILES = ("app.js", "gate.js", "surfaces.js")
+    #: presentation state machines and the live chip), and `views.js` on
+    #: the same argument again in WP-4.3a (which view is on screen).
+    DOM_FILES = ("app.js", "gate.js", "surfaces.js", "views.js")
 
     def test_every_id_the_dom_layer_touches_is_declared_in_the_shell(self):
         declared = self._declared_ids()
@@ -603,3 +604,96 @@ class TestTheWiringResolves:
             f"these P7 entries are declared deferred but the shell gives them "
             f"nowhere to say so: {missing}. An unserved surface that says "
             f"nothing is indistinguishable from one with no data.")
+
+
+class TestTheViewSplitIsStructural:
+    """P9 §2 R-B: one view, one question — enforced from the markup.
+
+    WP-4.2 satisfied every clause in this file and still produced a screen
+    an analyst could not read, because "the situation board is Tier 0" was
+    a claim about intent rather than about structure: all five stages were
+    siblings under one `<main>`, so nothing stopped an audit table from
+    sitting under the ten-second board (D-1). These gates make the split a
+    property of the document.
+
+    The second gate is D-6's. WP-4.2 scattered `data-deferred` fragments
+    through the operational views, where "this is not built yet" and "there
+    is nothing to report" render identically; P9 §3.3 collects them into
+    one table at the end of the verification view, and this is what keeps
+    them there.
+    """
+
+    #: (element id, the view that must contain it). Ids rather than
+    #: classes: an id is what the DOM layer writes into, so a surface that
+    #: moved without its gate being updated fails here rather than
+    #: appearing in the wrong view.
+    HOMES = (
+        ("board-summary", "view-situation"),
+        ("board-cards", "view-situation"),
+        ("lane-rows", "view-situation"),
+        ("onboarding-card", "view-situation"),
+        ("face-sections", "view-scenario"),
+        ("geo-markers", "view-scenario"),
+        ("feedback-slot", "view-scenario"),
+        ("proposal-rows", "view-scenario"),
+        ("derivation-body", "view-verify"),
+        ("selfeval-components", "view-verify"),
+        ("sensor-rows", "view-verify"),
+        ("decision-rows", "view-verify"),
+        ("whatif-body", "view-verify"),
+        ("settings-rows", "view-verify"),
+        ("groundtruth-rows", "view-verify"),
+    )
+
+    def _spans(self) -> dict[str, tuple[int, int]]:
+        """Where each view container starts and ends in the document.
+
+        The three containers are siblings and the last one ends at
+        `</main>`, so their extents are the gaps between their opening
+        tags. Crude on purpose: a real parser would also accept a nested
+        view, and a nested view is not a thing this design has.
+        """
+        html = (UI_DIR / "index.html").read_text(encoding="utf-8")
+        starts = [(m.start(), m.group(1))
+                  for m in re.finditer(r'<div id="(view-[\w-]+)"', html)]
+        assert len(starts) == 3, (
+            f"expected exactly three view containers, found {starts}")
+        end_of_main = html.index("</main>")
+        bounds = {}
+        for index, (offset, name) in enumerate(starts):
+            end = starts[index + 1][0] if index + 1 < len(starts) else end_of_main
+            bounds[name] = (offset, end)
+        return bounds
+
+    @pytest.mark.parametrize("element_id,view", HOMES)
+    def test_each_surface_is_inside_the_view_that_answers_its_question(
+            self, element_id, view):
+        html = (UI_DIR / "index.html").read_text(encoding="utf-8")
+        spans = self._spans()
+        assert view in spans, f"{view} is not a view container any more"
+        position = html.index(f'id="{element_id}"')
+        start, end = spans[view]
+        assert start < position < end, (
+            f'#{element_id} is not inside #{view}. P9 R-B: one view answers '
+            f'one question, and a Tier 2 table under the ten-second board is '
+            f'diagnosis D-1 rather than an arrangement.')
+
+    def test_no_deferred_fragment_survives_outside_the_verification_view(self):
+        html = (UI_DIR / "index.html").read_text(encoding="utf-8")
+        start, end = self._spans()["view-verify"]
+        stray = [m.group(1) for m in re.finditer(r'data-deferred="([^"]+)"', html)
+                 if not start < m.start() < end]
+        assert not stray, (
+            f"these deferred slots are outside the verification view: {stray}. "
+            f"P9 §3.3 collects them into 未着地の機能 — a placeholder in an "
+            f"operational view reads as a broken feature (D-6).")
+
+    def test_the_navigation_offers_exactly_two_destinations(self):
+        html = (UI_DIR / "index.html").read_text(encoding="utf-8")
+        nav = html[html.index('<nav id="view-nav"'):html.index("</nav>")]
+        links = re.findall(r'<a id="(nav-[\w-]+)"', nav)
+        assert links == ["nav-situation", "nav-verify"], (
+            f"the top navigation is {links}. P9 §3.2 fixes it at two items; "
+            f"the scenario face is entered from a card or a lane row, "
+            f"because a view ABOUT something is reached through the thing "
+            f"it is about.")

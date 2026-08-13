@@ -261,6 +261,124 @@ test('focus source is carried through so "who chose this focus" is visible', () 
     assert.strictEqual(board.focusedScenario, 'taiwan_contingency');
 });
 
+// ── the situation sentence (P9 R-A) ──────────────────────────────────────
+
+test('the summary is the server sentence, verbatim', () => {
+    const envelope = r1([scenario()]);
+    envelope.board_summary = { text: '監視中 2 件のうち変化は 0 件。',
+                               template_ref: 'board.summary@1', inputs: {} };
+    const board = B.buildBoard({ scenarios: envelope });
+    assert.strictEqual(board.summary.supplied, true);
+    assert.strictEqual(board.summary.text, '監視中 2 件のうち変化は 0 件。');
+    assert.strictEqual(board.summary.templateRef, 'board.summary@1');
+    assert.strictEqual(board.summary.unsuppliedKey, null);
+});
+
+test('an unsupplied summary says so and composes nothing (G-09)', () => {
+    const board = B.buildBoard({ scenarios: r1([scenario()]) });
+    assert.strictEqual(board.summary.supplied, false);
+    assert.strictEqual(board.summary.text, null);
+    assert.strictEqual(board.summary.unsuppliedKey, 'ui.board.summary.unsupplied');
+});
+
+test('an empty summary string is not a sentence', () => {
+    const envelope = r1([scenario()]);
+    envelope.board_summary = { text: '', template_ref: 'x' };
+    assert.strictEqual(B.buildBoard({ scenarios: envelope }).summary.supplied, false);
+});
+
+test('a board with no envelope at all still has a summary slot', () => {
+    assert.strictEqual(B.buildBoard({}).summary.supplied, false);
+});
+
+// ── display name (P9 §5) ─────────────────────────────────────────────────
+
+test('the display name is carried when the server supplies one', () => {
+    const board = B.buildBoard({
+        scenarios: r1([scenario({ display_name_ja: '台湾正面' })]),
+    });
+    assert.strictEqual(board.cards[0].displayName, '台湾正面');
+    assert.strictEqual(board.cards[0].scenarioId, 'taiwan_contingency',
+        'the id remains the identity');
+});
+
+test('a missing display name is null rather than the id', () => {
+    const board = B.buildBoard({ scenarios: r1([scenario()]) });
+    assert.strictEqual(board.cards[0].displayName, null,
+        'the fallback is the renderer\'s choice, not a value invented here');
+});
+
+// ── what would clear 結論不可 (O-7) ───────────────────────────────────────
+
+function pendingEnvelope(scenarioId, extra) {
+    return Object.assign({
+        scenario_id: scenarioId, conclusions: [],
+        calibration_pending: { days_remaining: 12, days_observed: 18,
+                               window_days: 30, types: ['threat_level'] },
+    }, extra || {});
+}
+
+test('an inconclusive card states the state and what would clear it', () => {
+    const board = B.buildBoard({
+        scenarios: r1([scenario({ threat_level: null, in_null_zone: true })]),
+        conclusions: pendingEnvelope('taiwan_contingency'),
+    });
+    const card = board.cards[0];
+    assert.strictEqual(card.availability.sentenceKey,
+                       'ui.board.availability.sentence.inconclusive');
+    assert.strictEqual(card.resolution.labelKey, 'ui.board.resolution.days');
+    assert.strictEqual(card.resolution.hint.daysRemaining, 12);
+    assert.strictEqual(card.resolution.hint.windowDays, 30);
+});
+
+test('a never-observed card says that, not that it is inconclusive', () => {
+    const board = B.buildBoard({
+        scenarios: r1([scenario({ threat_level: null, never_observed: true })]),
+    });
+    assert.strictEqual(board.cards[0].availability.sentenceKey,
+                       'ui.board.availability.sentence.never_observed');
+});
+
+test('a card with no resolution served says the hint is unsupplied', () => {
+    const board = B.buildBoard({
+        scenarios: r1([scenario({ threat_level: null, in_null_zone: true })]),
+        conclusions: { scenario_id: 'taiwan_contingency', conclusions: [] },
+    });
+    assert.strictEqual(board.cards[0].resolution.hint, null);
+    assert.strictEqual(board.cards[0].resolution.labelKey,
+                       'ui.board.resolution.unsupplied');
+});
+
+test('another scenario\'s calibration state never lands on this card', () => {
+    const board = B.buildBoard({
+        scenarios: r1([scenario({ scenario_id: 'baltic_pressure',
+                                  threat_level: null, in_null_zone: true })],
+                      'taiwan_contingency'),
+        conclusions: pendingEnvelope('taiwan_contingency'),
+    });
+    assert.strictEqual(board.cards[0].resolution.hint, null,
+        'cross-scenario attribution is the 2026-08-02 calibration incident');
+    assert.strictEqual(board.cards[0].resolution.labelKey,
+                       'ui.board.resolution.unsupplied');
+});
+
+test('an envelope with no scenario id cannot claim any card', () => {
+    const board = B.buildBoard({
+        scenarios: r1([scenario({ threat_level: null, in_null_zone: true })]),
+        conclusions: pendingEnvelope(null),
+    });
+    assert.strictEqual(board.cards[0].resolution.hint, null);
+});
+
+test('a concluded card carries neither sentence nor resolution', () => {
+    const card = B.buildBoard({
+        scenarios: r1([scenario()]),
+        conclusions: pendingEnvelope('taiwan_contingency'),
+    }).cards[0];
+    assert.strictEqual(card.availability.sentenceKey, null);
+    assert.strictEqual(card.resolution.labelKey, null);
+});
+
 // ── purity ───────────────────────────────────────────────────────────────
 
 test('buildBoard does not mutate its input', () => {

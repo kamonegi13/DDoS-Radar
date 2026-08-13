@@ -126,18 +126,91 @@
         };
     }
 
-    /** Availability, as the card must show it (O-7). */
+    /**
+     * Availability, as the card must show it (O-7).
+     *
+     * Two keys, not one: the short word labels the state next to the TL
+     * block, and `sentenceKey` is the plain-Japanese sentence P9 §3.1 asks
+     * for on a card that cannot conclude. A card whose only statement is
+     * the token 結論不可 tells an analyst the tool's word for the state and
+     * nothing about what the state is — R-A's whole point. A concluded card
+     * needs no such sentence: the TL and the change line are the sentence.
+     */
     function _availability(scenario) {
         if (scenario.never_observed === true) {
-            return { state: NEVER_OBSERVED, labelKey: 'ui.board.availability.never_observed' };
+            return { state: NEVER_OBSERVED,
+                     labelKey: 'ui.board.availability.never_observed',
+                     sentenceKey: 'ui.board.availability.sentence.never_observed' };
         }
-        if (scenario.in_null_zone === true) {
-            return { state: INCONCLUSIVE, labelKey: 'ui.board.availability.inconclusive' };
+        if (scenario.in_null_zone === true || typeof scenario.threat_level !== 'number') {
+            return { state: INCONCLUSIVE,
+                     labelKey: 'ui.board.availability.inconclusive',
+                     sentenceKey: 'ui.board.availability.sentence.inconclusive' };
         }
-        if (typeof scenario.threat_level !== 'number') {
-            return { state: INCONCLUSIVE, labelKey: 'ui.board.availability.inconclusive' };
+        return { state: CONCLUDED, labelKey: 'ui.board.availability.concluded',
+                 sentenceKey: null };
+    }
+
+    /**
+     * What would clear a card's 結論不可, when the server has said.
+     *
+     * R1 carries no resolution hint at all; R2 carries one, as the
+     * envelope-level `calibration_pending` block (days remaining against
+     * the calibration window). R2 is fetched for the focused scenario
+     * ONLY, so the block is attached to the card whose id matches the
+     * envelope's `scenario_id` and to no other. That equality test is the
+     * whole guard: attaching one scenario's calibration state to another
+     * scenario's card is the shape of the 2026-08-02 calibration incident
+     * (cross-scenario attribution), and it is silent when it happens.
+     *
+     * When no hint was served the card says THAT, rather than implying the
+     * state is unexplained (O-7 / S1-UI-008).
+     */
+    function _calibrationPending(conclusionsEnvelope) {
+        var pending = conclusionsEnvelope
+            ? conclusionsEnvelope.calibration_pending : null;
+        if (!pending || typeof pending.days_remaining !== 'number') return null;
+        return {
+            scenarioId: conclusionsEnvelope.scenario_id || null,
+            daysRemaining: pending.days_remaining,
+            daysObserved: typeof pending.days_observed === 'number'
+                ? pending.days_observed : null,
+            windowDays: typeof pending.window_days === 'number'
+                ? pending.window_days : null,
+        };
+    }
+
+    function _resolution(scenario, availability, pending) {
+        if (availability.state === CONCLUDED) {
+            return { hint: null, labelKey: null };
         }
-        return { state: CONCLUDED, labelKey: 'ui.board.availability.concluded' };
+        var applies = pending && pending.scenarioId !== null
+            && pending.scenarioId === scenario.scenario_id;
+        return applies
+            ? { hint: pending, labelKey: 'ui.board.resolution.days' }
+            : { hint: null, labelKey: 'ui.board.resolution.unsupplied' };
+    }
+
+    /**
+     * The situation sentence (P9 §2 R-A, §5), rendered by the server.
+     *
+     * The browser NEVER composes this. Counting how many scenarios moved
+     * and naming the most urgent is a derivation, and a derivation done in
+     * the browser is one the ledger cannot replay and the audit cannot
+     * reach (G-09 / NP6). When R1 serves no `board_summary`, the slot says
+     * it was not supplied — exactly as a lane row does for a missing
+     * narrative — and the analyst reads the cards instead.
+     */
+    function _summary(envelope) {
+        var raw = envelope ? envelope.board_summary : null;
+        var text = (raw && typeof raw.text === 'string' && raw.text) ? raw.text : null;
+        return {
+            supplied: text !== null,
+            text: text,
+            templateRef: (raw && typeof raw.template_ref === 'string'
+                          && raw.template_ref) ? raw.template_ref : null,
+            unsuppliedKey: text === null ? 'ui.board.summary.unsupplied' : null,
+        };
     }
 
     /**
@@ -163,12 +236,22 @@
     function _card(scenario, options) {
         var focused = scenario.scenario_id === options.focusedScenario;
         var participants = scenario.participants || {};
+        var availability = _availability(scenario);
         return {
             scenarioId: scenario.scenario_id,
+            // The analyst's vocabulary, when the server has one for this
+            // scenario (P9 §5). `scenario_id` remains the identity — the
+            // card keeps it in the tooltip and in `data-scenario` — but a
+            // raw id is not what a person calls a theatre.
+            displayName: (typeof scenario.display_name_ja === 'string'
+                          && scenario.display_name_ja)
+                ? scenario.display_name_ja : null,
             focused: focused,
             tl: F.tlBand(typeof scenario.threat_level === 'number'
                 ? scenario.threat_level : null),
-            availability: _availability(scenario),
+            availability: availability,
+            resolution: _resolution(scenario, availability,
+                                    options.calibrationPending),
             trend: F.trendOf(typeof scenario.severity_delta_24h === 'number'
                 ? scenario.severity_delta_24h : null),
             sinceLastCheck: _sinceLastCheck(scenario, options.lastSeen),
@@ -240,10 +323,12 @@
             focusedScenario: focusedScenario,
             lastSeen: input.lastSeen || null,
             perDomain: perDomainOf(input.conclusions),
+            calibrationPending: _calibrationPending(input.conclusions),
         };
         var cards = _sortCards(scenarios.map(function (s) { return _card(s, options); }));
         return {
             cards: cards,
+            summary: _summary(envelope),
             focusedScenario: focusedScenario,
             focusSource: envelope ? (envelope.focus_source || null) : null,
             scenarioCount: cards.length,
