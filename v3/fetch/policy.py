@@ -41,10 +41,23 @@ _PINNED: dict[str, Threshold] = {
     # requests takes (connect, read) separately, and a single value applies
     # the same budget to both. Connecting should be fast or fail; reading a
     # large feed legitimately is not.
+    #
+    # 15, not 5, and the difference is a measured fact: urllib3 applies
+    # this budget to the TLS handshake as well as the TCP connect, and
+    # api.gdeltproject.org completes TCP in 0.2s but TLS in 9.0-10.3s
+    # (three runs, 2026-08-13, from the shadow container). At 5s every
+    # gdelt fetch died in the handshake — 108 of 108 in six hours — while
+    # urllib3 labelled the failure "Read timed out (read timeout=5.0)",
+    # which pointed a day's diagnosis at the wrong half of the tuple. The
+    # cost of the raise is bounded and priced into FETCH_BUDGET_REQUESTS
+    # below: one dead host now burns 108s across the retry ladder, not 78s.
     "HTTP_CONNECT_TIMEOUT_SEC": Threshold.pinned(
-        5.0, unit="s",
-        provenance_ref="S4-NF-002: connect budget. A TCP handshake that "
-                       "has not completed in 5s is not going to."),
+        15.0, unit="s",
+        provenance_ref="S4-NF-002: connect budget, which urllib3 also "
+                       "applies to the TLS handshake; sized above the "
+                       "measured 9.0-10.3s TLS handshake of "
+                       "api.gdeltproject.org (2026-08-13), which 5s "
+                       "classified as permanently dead"),
     "HTTP_MAX_ATTEMPTS": Threshold.pinned(
         3, unit="count",
         provenance_ref="S1-PIPE-042's startup ladder is 3 attempts; the "
@@ -75,10 +88,11 @@ _PINNED: dict[str, Threshold] = {
     # late, and the shadow ledger's measured cost is ~2.5s per request
     # across the whole sweep (311 requests in >25 min; the healthy-only p95
     # is 0.6s, so the average is carried by the timeout and retry paths —
-    # 3 attempts x (5s connect + 20s read) + backoff is 78s for one dead
-    # host). 120 x 2.5s = 300s, so one tick's fetch stage is sized to the
-    # same budget the monitor judges it by, and the 772-step cold sweep
-    # completes in seven ticks — well inside `first_tick_grace` (1800s).
+    # 3 attempts x (15s connect + 20s read) + backoff is 108s for one dead
+    # host, up from 78s when the connect budget was 5s). 120 x 2.5s = 300s,
+    # so one tick's fetch stage is sized to the same budget the monitor
+    # judges it by, and the 772-step cold sweep completes in seven ticks —
+    # well inside `first_tick_grace` (1800s).
     "FETCH_BUDGET_REQUESTS": Threshold.pinned(
         120, unit="count",
         provenance_ref="G-19 / ops_health.LOOP_MIN_OVERDUE_SEC (300s) at "
