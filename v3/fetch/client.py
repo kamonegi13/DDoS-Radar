@@ -282,7 +282,23 @@ class HttpClient:
 
             status = int(getattr(response, "status_code", 0))
             response_headers = getattr(response, "headers", {}) or {}
-            body, oversized, seen = _read_capped(response, max_body_bytes)
+            try:
+                body, oversized, seen = _read_capped(response, max_body_bytes)
+            except requests.RequestException as exc:
+                # The socket died MID-BODY (ChunkedEncodingError et al).
+                # This read sat outside the try above, so one upstream
+                # closing its chunked body early escaped as an unhandled
+                # exception and took the whole tick with it — measured on
+                # the shadow's first post-redeploy tick, 2026-08-13. Same
+                # ladder as a failed connect: the request did not answer.
+                last_detail = f"{type(exc).__name__}: {exc}"
+                if attempt < self._max_attempts:
+                    self._sleep(policy.backoff_delay(attempt))
+                    continue
+                return FetchOutcome(
+                    outcome=CONNECTION_ERROR, url=spec.url, requested_at=now,
+                    latency_ms=(time.perf_counter() - started) * 1000.0,
+                    attempts=attempt, detail=last_detail)
 
             if oversized:
                 # The read is ABANDONED at the cap, not measured after the

@@ -468,6 +468,39 @@ class TestClient:
         with pytest.raises(DomainError, match="timeout"):
             client.HttpClient(session=_Session(), timeout_sec=0)
 
+    def test_a_body_that_dies_mid_read_is_an_outcome_not_an_exception(self):
+        """Shadow, 2026-08-13, first tick after the redeploy: one upstream
+        closed its chunked body early and the whole tick died with an
+        unhandled ChunkedEncodingError — the try around the fetch covered
+        `session.request` and left `_read_capped` outside it. The same
+        family as every other one-bad-source-takes-the-cycle defect."""
+        import requests as _requests
+
+        class _DyingBody(_Response):
+            def iter_content(self, chunk_size=65536):
+                yield b'{"da'
+                raise _requests.exceptions.ChunkedEncodingError(
+                    "Response ended prematurely")
+
+        http = self._client(_DyingBody(), _DyingBody(), _DyingBody())
+        outcome = http.fetch(RequestSpec(url="https://x.test/a"), now=T0)
+        assert outcome.outcome == client.CONNECTION_ERROR
+        assert outcome.succeeded is False
+        assert "ChunkedEncodingError" in outcome.detail
+
+    def test_a_mid_read_death_retries_before_giving_up(self):
+        import requests as _requests
+
+        class _DyingBody(_Response):
+            def iter_content(self, chunk_size=65536):
+                raise _requests.exceptions.ChunkedEncodingError("early end")
+
+        good = _Response(200, b'{"data": []}')
+        http = self._client(_DyingBody(), good)
+        outcome = http.fetch(RequestSpec(url="https://x.test/a"), now=T0)
+        assert outcome.succeeded is True
+        assert outcome.attempts == 2
+
     def test_an_http_error_is_reported_not_raised(self):
         http = self._client(_Response(404, b"nope"))
         outcome = http.fetch(RequestSpec(url="https://x.test/a"), now=T0)
