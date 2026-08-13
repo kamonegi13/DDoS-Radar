@@ -97,7 +97,31 @@ REASON_CAPACITY_UNREADABLE = "capacity_unreadable"
 #: blip into an alarm — hence the floors.
 LOOP_OVERDUE_INTERVALS = 3.0
 LOOP_STALLED_INTERVALS = 10.0
-LOOP_MIN_OVERDUE_SEC = 300.0
+#: The overdue floor is the tick's DESIGNED worst case, stage by stage —
+#: not a round number. It was 300s, which was the FETCH stage's budget
+#: alone (policy.FETCH_BUDGET_REQUESTS 120 × the measured ~2.5s/request
+#: the budget was derived from), and it was honest until 2026-08-13,
+#: when the tick gained an LLM stage. After that, a tick doing exactly
+#: its designed work — a full fetch stage plus a full article budget —
+#: was reported late every time, and the shadow's healthz sat at 503
+#: for most of every healthy cycle (measured: 57×503 / 4×200 in 30 min
+#: at a ~525s cadence). A late-alarm that fires on the designed
+#: workload is the crying-wolf failure the first-tick grace already
+#: names.
+#:
+#:   fetch stage      300s  policy.FETCH_BUDGET_REQUESTS × ~2.5s
+#:   LLM stage        155s  availability probe worst case (5s connect
+#:                          + 30s read) + LLM_ARTICLES_PER_TICK (4)
+#:                          × LLM_TIMEOUT default (30s), one attempt
+#:   score + write     60s  margin; measured well under this
+#:   ─────────────────────
+#:                    515s
+#:
+#: `tests/test_runtime_ops_health.py` recomputes this sum from the
+#: source constants, so a future budget change that forgets this floor
+#: fails a test instead of resurrecting the flapping (D2 F-13: a pin
+#: that imports only itself checks nothing).
+LOOP_MIN_OVERDUE_SEC = 515.0
 LOOP_MIN_STALLED_SEC = 1800.0
 
 #: The FIRST tick gets its own, much larger budget, and the number is

@@ -291,7 +291,10 @@ def _fold_ct_log(drafts: Sequence[ObservationDraft],
     known = baselines.get("ct_log_known_ca_per_domain")
     first_seen = baselines.get("ct_log_domain_first_observed")
     if known is None or first_seen is None:
-        return list(drafts)
+        # No baseline, no untrusted-CA verdict — but the per-country
+        # merge is not optional: this early return once skipped it and
+        # the two-domain rotation hit L1's UNIQUE key anyway.
+        return _merge_ct_log_countries(list(drafts))
     reduced = []
     for draft in drafts:
         candidates = list(draft.flags.get("untrusted_ca_candidates", ()))
@@ -322,7 +325,48 @@ def _fold_ct_log(drafts: Sequence[ObservationDraft],
             value=(f"untrusted={len(untrusted)} wildcard={int(wildcard)}"
                    + (" (warmup)" if in_warmup else "")),
             flags=flags))
-    return reduced
+    return _merge_ct_log_countries(reduced)
+
+
+def _merge_ct_log_countries(
+        reduced: Sequence[ObservationDraft]) -> list[ObservationDraft]:
+    """One row per country, however many domains the rotation asked.
+
+    Measured on the shadow, 2026-08-13, hours after the country-
+    resolution fix: the rotation asks 2 domains per country, both drafts
+    carried country='JP', and L1's UNIQUE (tick_id, sensor,
+    signal_source, country) raised inside the write — the tick died
+    whole. This fold never saw two same-country rows before that fix,
+    because normalize returned () for every one of them.
+
+    Production's shape: ONE add_rat per theater per cycle, carrying the
+    verdict ladder's maximum across the theater's domains. The base row
+    is the highest-scoring domain's (ties break on domain order for
+    reproducibility — NP6); what every domain contributed survives in
+    `domain_contributions`, the `_fold_named_sources` rule.
+    """
+    by_country: dict[str, list[ObservationDraft]] = {}
+    for draft in reduced:
+        by_country.setdefault(draft.country, []).append(draft)
+    merged: list[ObservationDraft] = []
+    for country, group in by_country.items():
+        if len(group) == 1:
+            merged.append(group[0])
+            continue
+        base = max(group, key=lambda d: (
+            d.raw_score, -group.index(d)))
+        domains = sorted({str(name) for d in group
+                          for name in d.flags.get("watched_domains", ())})
+        contributions = [{
+            "domain": (list(d.flags.get("watched_domains", ())) or [""])[0],
+            "raw_score": d.raw_score, "status": d.status,
+            "value": d.value} for d in group]
+        merged.append(replace(
+            base,
+            flags={**base.flags, "watched_domains": domains,
+                   "domain_contributions": contributions,
+                   "merged_rows": len(group)}))
+    return merged
 
 
 def _fold_named_sources(signal_source: str, prefix_of,

@@ -224,3 +224,32 @@ class TestR7ServesIt:
         ).as_dict()["self_eval"]
         for key in ("calibration", "null_zone", "data", "ops_health"):
             assert key in body, key
+
+
+class TestTheOverdueFloorIsTheDesignedTickWorstCase:
+    """LOOP_MIN_OVERDUE_SEC must equal the sum of the tick's stage
+    budgets, recomputed here from the SOURCE constants (never from
+    ops_health's own copy — D2 F-13). When it was the fetch budget alone
+    (300s), a tick doing exactly its designed work — full fetch plus a
+    full LLM article budget — was reported late every time, and the
+    shadow's healthz sat at 503 through healthy ~525s cycles
+    (2026-08-13: 57×503 / 4×200 in 30 minutes).
+    """
+
+    def test_the_floor_equals_the_stage_budget_sum(self):
+        from v3.fetch import llm as llm_module
+        from v3.fetch import policy
+        from v3.runtime import llm_stage
+        from v3.server.settings import ServerSettings
+
+        fetch_stage = policy.FETCH_BUDGET_REQUESTS * 2.5  # measured s/req
+        probe_worst = (llm_module.AVAILABILITY_TIMEOUT_SEC
+                       + ServerSettings.__dataclass_fields__[
+                           "llm_timeout_sec"].default)
+        llm_stage_budget = (probe_worst
+                            + llm_stage.LLM_ARTICLES_PER_TICK
+                            * ServerSettings.__dataclass_fields__[
+                                "llm_timeout_sec"].default)
+        scoring_margin = 60.0
+        assert O.LOOP_MIN_OVERDUE_SEC == \
+            fetch_stage + llm_stage_budget + scoring_margin

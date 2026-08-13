@@ -983,3 +983,63 @@ class TestTheSplitDidNotShrinkWhatIsReasonedAbout:
         import v3.runtime.reduce as module
         assert "REDUCTIONS" in module.__dict__, \
             "REDUCTIONS must be DEFINED here, not re-exported from elsewhere"
+
+
+# ── ct_log: two domains, one country, ONE row ───────────────────────────
+
+def _ct(country: str, domain: str, *, wildcard=0, candidates=()):
+    return ObservationDraft(
+        signal_source="ct_log", domain=CYBER, country=country,
+        status=STATUS_FIRED if wildcard else STATUS_OK,
+        raw_score=2.0 if wildcard else 0.0,
+        value=f"wildcard={wildcard}",
+        reason="Gov-TLD wildcard certificate" if wildcard else "",
+        flags={"watched_domains": [domain], "wildcard_count": wildcard,
+               "untrusted_ca_candidates": list(candidates)})
+
+
+class TestCtLogFoldsToOneRowPerCountry:
+    """Measured on the shadow, 2026-08-13, hours after the country fix:
+    the rotation asks 2 domains per country, both drafts carried
+    country='JP', and L1's UNIQUE (tick_id, sensor, signal_source,
+    country) raised inside the write — the tick died whole. Before the
+    country fix this fold never saw two same-country rows, because
+    normalize returned () for every one of them.
+
+    Production's shape: ONE add_rat per theater per cycle, the verdict
+    ladder's maximum across the theater's domains.
+    """
+
+    def test_two_domains_one_country_fold_to_the_maximum(self):
+        folded = _reduce("ct_log", [_ct("JP", "go.jp", wildcard=1),
+                                    _ct("JP", "mofa.go.jp")])
+        assert len(folded) == 1
+        row = folded[0]
+        assert row.country == "JP"
+        assert row.raw_score == 2.0
+        assert row.status == STATUS_FIRED
+        assert sorted(row.flags["watched_domains"]) == \
+            ["go.jp", "mofa.go.jp"]
+
+    def test_what_each_domain_contributed_survives_the_fold(self):
+        """The _fold_named_sources rule: an analyst asking 'which domain'
+        needs an answer that survived the fold."""
+        folded = _reduce("ct_log", [_ct("JP", "go.jp", wildcard=1),
+                                    _ct("JP", "mofa.go.jp")])
+        contributions = folded[0].flags["domain_contributions"]
+        assert {c["domain"] for c in contributions} == \
+            {"go.jp", "mofa.go.jp"}
+        assert all("raw_score" in c for c in contributions)
+
+    def test_countries_do_not_fold_into_each_other(self):
+        folded = _reduce("ct_log", [_ct("JP", "go.jp"),
+                                    _ct("TW", "gov.tw", wildcard=2)])
+        assert sorted(row.country for row in folded) == ["JP", "TW"]
+
+    def test_the_folded_set_is_writable(self):
+        """The property the tick died on: reduce_drafts must never return
+        a set L1's UNIQUE key refuses."""
+        folded = _reduce("ct_log", [_ct("JP", "a.jp"), _ct("JP", "b.jp"),
+                                    _ct("TW", "gov.tw")])
+        keys = [(row.signal_source, row.country) for row in folded]
+        assert len(keys) == len(set(keys))
