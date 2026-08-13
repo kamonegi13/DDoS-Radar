@@ -261,7 +261,11 @@
         }
         var name = card.displayName || card.scenarioId;
         return '<article class="card card-' + esc(tl.band)
-            + (card.focused ? ' card-focused' : '') + '" data-scenario="'
+            // Background scenarios wear the compact form (P9 §1.6 D-21):
+            // same DOM, same facts, a fraction of the height — so four
+            // scenarios and the attention lane share one viewport.
+            + (card.focused ? ' card-focused' : ' card-compact')
+            + '" data-scenario="'
             + esc(card.scenarioId) + '">'
             + '<header class="card-head">'
             // The name is the way into the scenario face: the thing an
@@ -363,7 +367,18 @@
     }
 
 
-    function laneRowHtml(row, lane) {
+    /**
+     * One attention row (P9 §1.6 D-23a). The sixth review read
+     * `korean_peninsula` and `novelty 1.000` in the row body and called
+     * it what it was: raw data. The header is now the rank chip and the
+     * scenario's JAPANESE name (`names`, R1's display_name_ja lookup —
+     * the id stays in `data-item`/`data-open-scenario` where machines
+     * read it); the server sentence is the body; every number of the
+     * ranking basis lives in the chip's tooltip. AP1's "the basis is
+     * always visible" is satisfied by the tooltip being one hover away
+     * on the chip that IS the rank.
+     */
+    function laneRowHtml(row, lane, names) {
         var basis = Lane.rankBasis(row, lane);
         var tip = _t('ui.lane.basis', {
             score: Fmt.num(basis.score, 3),
@@ -373,24 +388,24 @@
             formula: basis.formulaRef || Fmt.ABSENT,
             snapshot: basis.snapshotId || Fmt.ABSENT,
         });
-        // The sentence is the row (P9 §3.1 point 4). Rank and score are the
-        // basis for the sentence being HERE rather than lower down, which
-        // is a different question from what the row says — so they go to
-        // the secondary line and the tooltip, where AP1's "the basis is
-        // always visible" is still satisfied.
+        var label = row.scenarioId
+            ? ((names && typeof names[row.scenarioId] === 'string'
+                && names[row.scenarioId])
+                ? names[row.scenarioId] : row.scenarioId)
+            : Fmt.ABSENT;
         return '<li class="lane-row" data-item="' + esc(row.itemId) + '">'
-            + '<p class="lane-narrative">'
-            + esc(row.narrative === null ? _t(row.narrativeMissingKey) : row.narrative)
-            + '</p>'
-            + '<p class="lane-meta">'
-            + '<span class="lane-rank" title="' + esc(tip) + '">'
-            + esc(_t('ui.lane.rank_label', {
-                n: row.rankPosition === null ? Fmt.ABSENT : String(row.rankPosition) }))
+            + '<p class="lane-head">'
+            + '<span class="lane-rank-chip" title="' + esc(tip) + '">'
+            + esc(row.rankPosition === null
+                ? Fmt.ABSENT : String(row.rankPosition))
+            + '</span>'
+            + '<strong class="lane-scenario">' + esc(label) + '</strong>'
             + (row.rankFallback
                 ? '<em class="lane-rank-fallback">'
                   + esc(_t('ui.lane.rank_fallback')) + '</em>' : '')
-            + '</span>'
-            + '<span class="lane-scenario">' + esc(row.scenarioId || Fmt.ABSENT) + '</span>'
+            + '</p>'
+            + '<p class="lane-narrative">'
+            + esc(row.narrative === null ? _t(row.narrativeMissingKey) : row.narrative)
             + '</p>'
             + '<span class="lane-actions">'
             + (row.scenarioId

@@ -416,8 +416,24 @@ const LANE = { formulaRef: 'attention.score@1', snapshotId: 'snap-1',
 
 test('the lane row shows the ledger rank and the three factors in its tooltip', () => {
     const html = R.laneRowHtml(laneRow(), LANE);
-    assert.ok(/class="lane-rank" title="[^"]*novelty 1[^"]*"/.test(html), html);
+    assert.ok(/class="lane-rank-chip" title="[^"]*novelty 1[^"]*"/.test(html), html);
     assert.ok(/snap-1/.test(html), 'the snapshot the rank came from');
+});
+
+test('the header names the scenario in the analyst\'s language', () => {
+    // P9 §1.6 D-23a: the sixth review read `korean_peninsula` in a row
+    // body and called it raw data. The id stays in the data attributes.
+    const html = R.laneRowHtml(laneRow(), LANE,
+                               { taiwan_contingency: '台湾正面' });
+    assert.ok(/<strong class="lane-scenario">台湾正面<\/strong>/.test(html), html);
+    assert.ok(/data-open-scenario="taiwan_contingency"/.test(html),
+        'machines keep reading the id');
+});
+
+test('a scenario with no display name falls back to its id, visibly', () => {
+    const html = R.laneRowHtml(laneRow(), LANE, {});
+    assert.ok(/<strong class="lane-scenario">taiwan_contingency<\/strong>/
+        .test(html), html);
 });
 
 test('an unranked row says its position is a fallback', () => {
@@ -443,17 +459,17 @@ test('a hostile item id cannot inject into the action buttons', () => {
     assert.strictEqual((html.match(/data-ack="[^"]*"/g) || []).length, 1);
 });
 
-test('the sentence is the row: the narrative comes before the rank', () => {
+test('the head line comes first and the sentence under it', () => {
     const html = R.laneRowHtml(laneRow(), LANE);
-    assert.ok(html.indexOf('lane-narrative') < html.indexOf('lane-meta'),
-        'P9 R-A: sentence first, ranking basis second');
+    assert.ok(html.indexOf('lane-head') < html.indexOf('lane-narrative'),
+        'P9 §1.6 D-23a: who and where first, then the sentence');
     assert.ok(/<p class="lane-narrative">/.test(html),
         'a block element, so the stylesheet can give it its own weight');
 });
 
-test('the rank keeps its label and its basis tooltip', () => {
+test('the rank chip carries the position and its basis tooltip', () => {
     const html = R.laneRowHtml(laneRow(), LANE);
-    assert.ok(/順位 1/.test(html), html);
+    assert.ok(/lane-rank-chip[^>]*>1</.test(html), html);
     assert.ok(/title="[^"]*attention\.score@1/.test(html), 'AP1: the basis stays visible');
 });
 

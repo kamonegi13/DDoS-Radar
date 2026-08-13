@@ -69,8 +69,7 @@
         'ui.onboarding.q2': '次に何を見るべきか — 注目レーンが優先度順に並べます',
         'ui.onboarding.q3': 'なぜそう言えるのか — カード名を選ぶとそのシナリオの結論と根拠へ、各結論の「なぜ?」で導出へ',
         'ui.onboarding.q4': 'ツールの判断は正しかったか — シナリオ面の下部でラベルを投稿できます',
-        'ui.onboarding.q5': 'この系は生きているか — [検証] に自己評価・センサー・判断台帳・設定があります',
-        'ui.onboarding.persistence_note': 'この案内の開閉状態は保存されません。利用者ごとの設定を保存する面が未供給のためで、[検証] ビュー末尾の「未着地の機能」に登録しています。',
+        'ui.onboarding.q5': 'この系は生きているか — [信頼性] に自己評価とセンサー、[判断履歴] に判断台帳があります',
 
         // ── TL bands (band words stay English — ja-localization §2) ──────
         'ui.tl.1': 'CRITICAL',
@@ -188,7 +187,6 @@
         // ── attention lane ──────────────────────────────────────────────
         'ui.lane.open': '開く',
         'ui.lane.open_absent': 'シナリオが特定されていないため、この行からは開けません。',
-        'ui.lane.rank_label': '順位 {n}',
         'ui.lane.ack': '確認済',
         'ui.lane.snooze': '一時保留',
         'ui.lane.dismiss': '却下',

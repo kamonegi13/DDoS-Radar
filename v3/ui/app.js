@@ -278,7 +278,9 @@
         var rows = showAll ? lane.rows : lane.tier0;
         setHtml('lane-rows', lane.empty
             ? Render.emptyStateHtml(lane.emptyState, { tag: 'li' })
-            : rows.map(function (row) { return laneRowHtml(row, lane); }).join(''));
+            : rows.map(function (row) {
+                return laneRowHtml(row, lane, state.names);
+            }).join(''));
         setHtml('lane-summary', _t('ui.lane.summary', {
             shown: rows.length, total: lane.total,
             considered: lane.considered === null ? Fmt.ABSENT : lane.considered,
