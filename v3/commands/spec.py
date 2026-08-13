@@ -46,6 +46,7 @@ TARGET_KINDS: frozenset = frozenset({S.TARGET_SCENARIO, S.TARGET_CONCLUSION,
 #: through R9 looking for the material rather than trusting the list.
 SECRET_FIELD_NAMES: frozenset = frozenset({
     "password", "new_password", "old_password", "credential",
+    "new_credential",
     "password_hash", "hash", "salt", "secret", "token", "access_token",
     "refresh_token", "key"})
 

@@ -29,7 +29,7 @@ revokes the user's standing rather than one device.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Mapping, Optional
 
 from v3.kernel.roles import ROLES, ROLE_VIEWER
 from v3.auth import password as P
@@ -136,6 +136,33 @@ def _touched(state: dict, *, actor_id: str, at: float) -> dict:
     return state
 
 
+def _require_credential(payload, *, key: str,
+                        forbidden: tuple[str, ...]) -> dict:
+    """The DERIVED credential from the payload — never a plaintext.
+
+    V3-SEC-01: the fold used to derive here from `payload["password"]`,
+    which meant the append-only command ledger stored the plaintext
+    forever (byte-identical to NOROSHI_V3_BOOTSTRAP_PASSWORD, measured
+    2026-08-09) — and, because `derive` re-salts, two replays of the same
+    history disagreed about the credential. Derivation now happens at the
+    command PRODUCER; a payload still carrying a plaintext key is refused
+    outright rather than tolerated, because tolerating it keeps the
+    write path alive.
+    """
+    for name in forbidden:
+        if name in payload:
+            raise DomainError(
+                f"V3-SEC-01: コマンド payload が平文 {name!r} を運んでいます。"
+                f"資格情報はコマンド生成側で導出し {key!r} として渡すこと"
+                f"（追記専用台帳は削除できず、平文が永久保存される）")
+    credential = payload.get(key)
+    if not isinstance(credential, Mapping) or not credential.get("hash"):
+        raise DomainError(
+            f"{key!r} には導出済み資格情報（algorithm/hash を持つ Mapping）"
+            f"が必要です")
+    return dict(credential)
+
+
 def apply_register(before, *, target_id, payload, actor_id, at, config=None):
     """Create the identity and its first credential in ONE row.
 
@@ -148,7 +175,8 @@ def apply_register(before, *, target_id, payload, actor_id, at, config=None):
             f"利用者 {target_id} は既に登録されています"
             f"（重複登録は現行系でも 409）")
     role = _require_role(payload.get("role", ROLE_VIEWER))
-    credential = P.derive(payload.get("password"), at=float(at))
+    credential = _require_credential(payload, key="credential",
+                                     forbidden=("password",))
     return _touched({
         "user_id": str(target_id), "role": role, "active": True,
         "created_at": float(at), "created_by": str(actor_id),
@@ -170,7 +198,9 @@ def apply_password_set(before, *, target_id, payload, actor_id, at,
     password does not log themselves out.
     """
     state = _require_existing(before, target_id)
-    state["credential"] = P.derive(payload.get("new_password"), at=float(at))
+    state["credential"] = _require_credential(
+        payload, key="new_credential",
+        forbidden=("new_password", "old_password", "password"))
     state["sessions_not_before"] = float(at)
     state["access_not_before"] = float(at)
     return _touched(state, actor_id=actor_id, at=at)

@@ -644,6 +644,84 @@ class TestNoCredentialReachesAProjection:
             "redaction must not mutate its input")
 
 
+class TestNoPlaintextReachesTheStorageFace:
+    """V3-SEC-01. The class above sweeps the R9 PROJECTION — and it was
+    green while the STORED `user.register` payload held the bootstrap
+    password in cleartext, byte-identical to NOROSHI_V3_BOOTSTRAP_PASSWORD,
+    in a ledger whose triggers refuse UPDATE and DELETE. A sweep of the
+    projection verifies the surface adjacent to the claim; this class
+    reads the stored bytes themselves.
+    """
+
+    @staticmethod
+    def _stored_text(store) -> str:
+        import sqlite3
+        con = sqlite3.connect(f"file:{store.path}?mode=ro", uri=True)
+        try:
+            chunks = []
+            tables = [row[0] for row in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")]
+            for table in tables:
+                for row in con.execute(f'SELECT * FROM "{table}"'):
+                    chunks.append(repr(row))
+            return "\n".join(chunks)
+        finally:
+            con.close()
+
+    def test_registration_stores_no_plaintext(self, store):
+        _register(store, "kamo")
+        assert GOOD not in self._stored_text(store)
+
+    def test_a_password_change_stores_no_plaintext_either(self, store):
+        _register(store, "kamo")
+        provider = _provider()
+        principal = SESSION.principal_for(
+            ReadOnlyLedger(store), provider,
+            access_token=_login(store, "kamo", GOOD, now=NOW + 1,
+                                provider=provider
+                                ).as_dict()["session"]["access_token"],
+            now=NOW + 2)
+        handle(ApiRequest(method="POST", path="/api/v3/auth/password",
+                          body={"old_password": GOOD,
+                                "new_password": "another-long-password"},
+                          principal=principal),
+               _write(store, principal, now=NOW + 3, provider=provider))
+        stored = self._stored_text(store)
+        assert GOOD not in stored
+        assert "another-long-password" not in stored
+
+    def test_bootstrap_material_never_reaches_storage(self, store):
+        from v3.runtime import auth as RA
+        RA.bootstrap(store, source={SESSION.BOOTSTRAP_KEY_ID: GOOD}, now=NOW)
+        assert GOOD not in self._stored_text(store)
+
+    def test_the_fold_refuses_a_plaintext_register_payload(self):
+        with pytest.raises(DomainError, match="V3-SEC-01"):
+            US.apply_register(
+                None, target_id="x",
+                payload={"password": GOOD, "role": ROLE_ANALYST},
+                actor_id="root", at=NOW)
+
+    def test_the_fold_refuses_a_plaintext_password_set(self, store):
+        _register(store, "kamo")
+        state = US.user_state(ReadOnlyLedger(store), "kamo", until=NOW + 1)
+        with pytest.raises(DomainError, match="V3-SEC-01"):
+            US.apply_password_set(
+                state, target_id="kamo",
+                payload={"new_password": "another-long-password"},
+                actor_id="kamo", at=NOW + 1)
+
+    def test_the_fold_is_replay_deterministic(self, store):
+        """Deriving inside the fold re-salts on every replay, so two reads
+        of the same append-only history disagreed about the credential.
+        The stored payload now carries the derived value; the fold copies."""
+        _register(store, "kamo")
+        ledger = ReadOnlyLedger(store)
+        first = US.user_state(ledger, "kamo", until=NOW + 1)["credential"]
+        second = US.user_state(ledger, "kamo", until=NOW + 1)["credential"]
+        assert first == second
+
+
 class TestEveryUserCommandHasAReader:
     """A command with no reader is not shipped (the standing rule)."""
 

@@ -28,6 +28,7 @@ from v3.auth import password as P
 from v3.auth import session as SESSION
 from v3.auth import store as US
 from v3.commands import spec as SPEC
+from v3.kernel.errors import DomainError
 from v3.api.write import Change
 
 _ABSENT = ("この配備は認証機構なしで構成されています。"
@@ -132,11 +133,28 @@ def logout(context) -> ApiResponse:
 
 
 def register(context) -> ApiResponse:
-    """C13 — create an identity and its first credential."""
+    """C13 — create an identity and its first credential.
+
+    The credential is derived HERE, before the command is built, for the
+    same reason `change_password` verifies here: the payload is what the
+    append-only ledger stores forever, and a payload carrying the
+    plaintext was V3-SEC-01. The fold refuses one outright.
+    """
+    try:
+        derived = P.derive(context.body.get("password"), at=context.now)
+    except DomainError as refused:
+        # Pre-commit derivation moves the length rule ahead of the fold;
+        # the refusal must still read as a 400, not a 500.
+        raise E.bad_request(str(refused), field="password")
+    # Everything else forwards wholesale — this module holds no standing
+    # vocabulary (G-01); only the plaintext is withheld and replaced.
+    payload = {key: value for key, value in context.body.items()
+               if key not in ("password", "user_id", "reason")}
+    payload["credential"] = derived
     committed = context.commit(Change(
         action=US.USER_REGISTER,
         target=_target(context.body.get("user_id")),
-        payload=dict(context.body), reason=_reason(context)))
+        payload=payload, reason=_reason(context)))
     return tool_response(observed_at=context.now,
                          user=US.public_view(committed.effective),
                          command=committed.record.as_dict()["command_id"])
@@ -155,9 +173,16 @@ def change_password(context) -> ApiResponse:
     if not P.verify(US.credential_of(state),
                     context.body.get("old_password")):
         raise E.unauthenticated("現在のパスワードが正しくありません")
+    # Derived here, verified above — neither secret enters the payload
+    # the ledger keeps (V3-SEC-01: the old `dict(context.body)` stored
+    # BOTH the old and the new plaintext in an undeletable row).
+    try:
+        derived = P.derive(context.body.get("new_password"), at=context.now)
+    except DomainError as refused:
+        raise E.bad_request(str(refused), field="new_password")
     committed = context.commit(Change(
         action=US.USER_PASSWORD_SET, target=_target(context.actor_id),
-        payload=dict(context.body), reason=_reason(context)))
+        payload={"new_credential": derived}, reason=_reason(context)))
     return tool_response(
         observed_at=context.now, user=US.public_view(committed.effective),
         command=committed.record.as_dict()["command_id"],

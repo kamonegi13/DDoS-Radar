@@ -35,6 +35,7 @@ from v3.api.request import Principal, ReadContext
 from v3.api.readonly import ReadOnlyLedger
 from v3.api.write import Change, WriteContext
 from v3.api.writeonly import CommandLedger
+from v3.auth import password as P
 from v3.auth import session as SESSION
 from v3.auth import store as US
 from v3.auth import tokens as T
@@ -105,10 +106,14 @@ def bootstrap(store, *, source: Optional[Mapping[str, str]] = None,
     context = WriteContext(
         read=ReadContext(ledger=reader, now=at),
         ledger=CommandLedger(store), principal=BOOTSTRAP_ACTOR)
+    # Derived BEFORE the command exists: the payload is what the
+    # append-only ledger stores forever, and this exact call once stored
+    # NOROSHI_V3_BOOTSTRAP_PASSWORD byte-identical (V3-SEC-01).
     committed = context.commit(Change(
         action=US.USER_REGISTER,
         target=SPEC.Target(kind=US.TARGET_USER, id=user_id),
-        payload={"password": material, "role": ROLE_ADMIN},
+        payload={"credential": P.derive(material, at=at),
+                 "role": ROLE_ADMIN},
         reason="composition root bootstrap: 利用者 0 件のため"))
     return {"created": True, "reason": "bootstrapped",
             "user": US.public_view(committed.effective),
