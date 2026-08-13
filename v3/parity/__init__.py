@@ -2,7 +2,7 @@
 
 Drives the legacy system and v3 from the SAME window of the same
 observation ledger, compares their conclusions in severity space, and
-answers P2 §5's fourteen cutover conditions mechanically.
+answers P2 §5's seventeen cutover conditions mechanically (ADR-V3-011).
 
     run_parity(...)     one window, both systems, a ParityReport
     ParityLedger        the isolated append-only result store
@@ -23,9 +23,11 @@ Three properties are structural rather than promised:
     raw TL integers is not reachable through this API (S5-VERIF-024).
 
 Conditions whose layer does not exist yet report BLOCKED naming the work
-package that will supply them — never PASS by default. Nine of the
-fourteen are in that state today, which is the honest position for a
-harness built ahead of L0, L3 and L4.
+package that will supply them — never PASS by default; a condition that
+ran against an empty denominator reports NOT_MEASURED. Neither is a pass,
+which is the honest position for a harness built ahead of L0, L3 and L4
+and one that never crosses the fold, the tick loop or the container
+(P2 §5-D — the layer C-16 and C-17 cover).
 
 The 30-day run procedure is documented in `PROCEDURE`; the parity window
 opens once the signal ledger holds 30 days (WP-0.1 + 30 days).
@@ -37,8 +39,13 @@ from v3.parity.compare import (ANOMALY, ATTACK_MODE, INSENSITIVE, MATCH,
                                SENSITIVE, THREAT_LEVEL, TREND, Contributor,
                                Reading, TickComparison, TickKey, compare_tick,
                                compare_transitions, extract_transitions)
-from v3.parity.conditions import (BLOCKED, CONDITIONS, FAIL, PASS, Condition,
-                                  ConditionVerdict, evaluate)
+from v3.parity.conditions import (BLOCKED, CONDITIONS,
+                                  CUTOVER_BLOCKING_DEFECTS, FAIL,
+                                  NOT_MEASURED, OVERRIDE_FORBIDDEN, PASS,
+                                  BlockingDefect, Condition, ConditionVerdict)
+from v3.parity.judges import evaluate
+from v3.parity.void import (VOID_BY_ID, VOID_REGISTER, CellClassification,
+                            VoidReference, classify_cell, classify_cells)
 from v3.parity.ledger import (MismatchEvidence, ParityLedger, RunIdentity)
 from v3.parity.procedure import PROCEDURE
 from v3.parity.report import ParityContext, ParityReport, build_report
@@ -84,6 +91,18 @@ __all__ = [
     "PASS",
     "FAIL",
     "BLOCKED",
+    "NOT_MEASURED",
+    "OVERRIDE_FORBIDDEN",
+    # §5-0's void register and the valid-cell predicate it feeds
+    "VoidReference",
+    "VOID_REGISTER",
+    "VOID_BY_ID",
+    "CellClassification",
+    "classify_cell",
+    "classify_cells",
+    # C-17's blocker register
+    "BlockingDefect",
+    "CUTOVER_BLOCKING_DEFECTS",
     "ParityContext",
     "ParityReport",
     "build_report",

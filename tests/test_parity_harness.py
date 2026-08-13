@@ -22,7 +22,8 @@ from v3.kernel.errors import DomainError
 from v3.ledger import LedgerStore, SignalObservation
 from v3.parity import (ParityLedger, RunIdentity, SCOPE_NOTES, run_parity)
 from v3.parity.compare import MATCH, THREAT_LEVEL, TickKey, compare_tick
-from v3.parity.conditions import BLOCKED, CONDITIONS, FAIL, PASS
+from v3.parity.conditions import (BLOCKED, CONDITIONS, FAIL, NOT_MEASURED,
+                                  PASS)
 from v3.parity.ledger import MismatchEvidence
 from v3.scoring import Participant, Scenario
 
@@ -268,7 +269,7 @@ class TestDisagreementIsDetected:
         return summarise(comparisons)
 
     def _report(self, legacy_levels, v3_levels, *, extra=None,
-                null_zone=None):
+                null_zone=None, attribution=None):
         from v3.parity.report import ParityContext, build_report
         from v3.parity.summary import summarise
         summaries = {"taiwan_contingency": self._summary_for(
@@ -280,7 +281,8 @@ class TestDisagreementIsDetected:
         return build_report(ParityContext(
             tick_interval_sec=TICK,
             threat_level_summary=summarise([]),
-            scenario_summaries=summaries, null_zone=zones))
+            scenario_summaries=summaries, null_zone=zones,
+            difference_attribution=attribution))
 
     def test_a_quieter_v3_fails_c03_however_high_the_rate(self):
         """NP1: one insensitive disagreement blocks at 0.99 agreement."""
@@ -294,12 +296,31 @@ class TestDisagreementIsDetected:
         assert verdict.status == FAIL
         assert "insensitive" in verdict.detail
 
-    def test_a_louder_v3_does_not_fail_c03(self):
+    def test_a_louder_v3_fails_only_as_an_unregistered_difference(self):
+        """NP1's asymmetry survives ADR-V3-011, in its new shape.
+
+        A sensitive difference still has to be ATTRIBUTED — §5-C rule 1
+        leaves exactly two options, revert the code or register the entry
+        in §7-2, and "leave it silently" is not one of them. What the
+        direction buys is that the resulting failure is waivable, because
+        sensitive and neutral entries take batch approval.
+        """
         legacy = [3] * 99 + [4]
         v3 = [3] * 99 + [2]
         report = self._report(legacy, v3)
         scoped = report.context.scenario_summaries["taiwan_contingency"]
         assert scoped.sensitive == 1
+        verdict = report.verdict_for("C-03")
+        assert verdict.status == FAIL
+        assert verdict.evidence["unregistered_insensitive"] == 0
+        assert verdict.waive(reason="§7-2 batch approval").waived is True
+
+    def test_a_registered_louder_v3_passes(self):
+        legacy = [3] * 99 + [4]
+        v3 = [3] * 99 + [2]
+        report = self._report(legacy, v3, attribution={
+            "taiwan_contingency": {"unregistered": 0,
+                                   "insensitive_unjustified": 0}})
         assert report.verdict_for("C-03").status == PASS
 
     def test_a_low_agreement_rate_fails_c03(self):
@@ -340,12 +361,13 @@ class TestDisagreementIsDetected:
         assert set(verdict.evidence["per_scenario_agreement"]) == {
             "taiwan_contingency", "korea"}
 
-    def test_a_worse_v3_null_zone_cannot_hide_behind_another_scenario(self):
-        """C-09 pairs within a scenario, not across the pool.
+    def test_c09_no_longer_measures_against_the_legacy_null_zone(self):
+        """ADR-V3-011 replaced 「旧系と同等以下」 with an absolute bar.
 
-        Pooling maxima compares v3's worst (korea, 1000s) against legacy's
-        worst (taiwan, 5000s) and calls it an improvement, while korea's
-        v3 null zone is ten times its own legacy figure.
+        v1's null zone is the artefact of having ONE unavailable reason
+        (F-12), so matching it is agreement with a defect rather than a
+        health property. korea's v3 zone is ten times its own legacy
+        figure here and still passes: seven days is the bar.
         """
         healthy = self._summary_for("korea", [3] * 20, [3] * 20)
         report = self._report(
@@ -355,11 +377,20 @@ class TestDisagreementIsDetected:
                                        "v3_longest_sec": 0.0},
                 "korea": {"legacy_longest_sec": 100.0,
                           "v3_longest_sec": 1000.0}})
+        assert report.verdict_for("C-09").status == PASS
+
+    def test_a_null_zone_past_the_absolute_bar_fails(self):
+        healthy = self._summary_for("korea", [3] * 20, [3] * 20)
+        report = self._report(
+            [3] * 20, [3] * 20, extra={"korea": healthy},
+            null_zone={
+                "taiwan_contingency": {"v3_longest_sec": 0.0},
+                "korea": {"v3_longest_sec": 8 * 86_400.0}})
         verdict = report.verdict_for("C-09")
         assert verdict.status == FAIL
         assert "korea" in verdict.detail
-        assert verdict.evidence["per_scenario"]["korea"][
-            "v3_longest_sec"] == 1000.0
+        assert verdict.evidence["per_series"]["korea"][
+            "v3_longest_sec"] == 8 * 86_400.0
 
     def test_a_uniformly_better_null_zone_passes(self):
         healthy = self._summary_for("korea", [3] * 20, [3] * 20)
@@ -374,14 +405,19 @@ class TestDisagreementIsDetected:
 
 
 class TestWaivers:
-    """P2 §5 marks three conditions override-forbidden; the type enforces it."""
+    """P2 §5 marks four conditions override-forbidden; the type enforces it.
+
+    The directional refusal (C-03's insensitive half, C-17's register)
+    lives in `test_parity_conditions.py`.
+    """
 
     def _failed(self, condition_id):
         from v3.parity.conditions import ConditionVerdict
         return ConditionVerdict(condition_id, FAIL, "for the test")
 
-    @pytest.mark.parametrize("condition_id", ["C-02", "C-08", "C-14"])
-    def test_the_forbidden_three_cannot_be_waived(self, condition_id):
+    @pytest.mark.parametrize("condition_id",
+                             ["C-02", "C-08", "C-14", "C-17"])
+    def test_the_forbidden_four_cannot_be_waived(self, condition_id):
         with pytest.raises(DomainError, match="override-forbidden"):
             self._failed(condition_id).waive(reason="we accept the risk")
 
@@ -527,28 +563,30 @@ class TestParityLedgerRecording:
                         legacy_code_version="a", v3_code_version="b")
 
 
-# ── the fourteen conditions ──────────────────────────────────────────────
+# ── the seventeen conditions (ADR-V3-011) ────────────────────────────────
 
 class TestConditionReport:
-    def test_all_fourteen_are_judged(self, seeded, parity_ledger):
+    def test_all_seventeen_are_judged(self, seeded, parity_ledger):
         store, _ = seeded
         report = _run(store, parity_ledger).report
-        assert len(report.verdicts) == 14
+        assert len(report.verdicts) == 17
         assert {v.condition_id for v in report.verdicts} == \
             {c.condition_id for c in CONDITIONS}
 
-    def test_every_verdict_is_one_of_three_states(self, seeded,
-                                                  parity_ledger):
+    def test_every_verdict_is_one_of_the_four_states(self, seeded,
+                                                     parity_ledger):
         store, _ = seeded
         report = _run(store, parity_ledger).report
-        assert all(v.status in (PASS, FAIL, BLOCKED) for v in report.verdicts)
+        assert all(v.status in (PASS, FAIL, BLOCKED, NOT_MEASURED)
+                   for v in report.verdicts)
 
-    def test_nine_conditions_are_blocked_on_missing_layers(self, seeded,
-                                                           parity_ledger):
+    def test_ten_conditions_are_blocked_on_missing_layers(self, seeded,
+                                                          parity_ledger):
         store, _ = seeded
         report = _run(store, parity_ledger).report
         assert set(report.blocked) >= {"C-01", "C-02", "C-05", "C-06",
-                                       "C-07", "C-08", "C-12", "C-13", "C-14"}
+                                       "C-07", "C-08", "C-12", "C-13",
+                                       "C-14", "C-15"}
 
     def test_layer_blocked_conditions_name_the_work_package(self, seeded,
                                                             parity_ledger):
@@ -556,7 +594,7 @@ class TestConditionReport:
         store, _ = seeded
         report = _run(store, parity_ledger).report
         for condition_id in ("C-01", "C-02", "C-05", "C-06", "C-07", "C-08",
-                             "C-12", "C-13", "C-14"):
+                             "C-12", "C-13", "C-14", "C-15"):
             verdict = report.verdict_for(condition_id)
             assert verdict.status == BLOCKED
             assert "WP-" in verdict.evidence["blocked_on"]
@@ -590,18 +628,44 @@ class TestConditionReport:
             self, seeded, parity_ledger):
         store, _ = seeded
         report = _run(store, parity_ledger, migration_report={
-            "row_count_mismatches": [], "sample_hash_mismatches": []}).report
+            "row_count_mismatches": [], "tables_compared": 40,
+            "unclassified_tables": [],
+            "census_rows_compared": 1_691, "census_mismatches": []}).report
         assert report.verdict_for("C-10").status == PASS
         assert report.verdict_for("C-11").status == PASS
+
+    def test_a_sampled_migration_report_no_longer_answers_c10_or_c11(
+            self, seeded, parity_ledger):
+        """The pre-ADR-V3-011 report shape: a fixed table count and a
+        sample hash. Both are now NOT_MEASURED rather than PASS — the
+        first cannot see a table that appeared after it was written
+        (WP-2.3 F-1), the second was superseded by a full census."""
+        store, _ = seeded
+        report = _run(store, parity_ledger, migration_report={
+            "row_count_mismatches": [], "sample_hash_mismatches": []}).report
+        assert report.verdict_for("C-10").status == NOT_MEASURED
+        assert report.verdict_for("C-11").status == NOT_MEASURED
 
     def test_a_migration_mismatch_fails_the_condition(self, seeded,
                                                       parity_ledger):
         store, _ = seeded
         report = _run(store, parity_ledger, migration_report={
-            "row_count_mismatches": ["conclusions"],
-            "sample_hash_mismatches": []}).report
+            "row_count_mismatches": ["conclusions"], "tables_compared": 40,
+            "unclassified_tables": []}).report
         verdict = report.verdict_for("C-10")
         assert verdict.status == FAIL and "conclusions" in verdict.detail
+
+    def test_the_running_system_conditions_are_not_answered_by_a_replay(
+            self, seeded, parity_ledger):
+        """P2 §5-D: this harness projects stored rows into the kernel, so
+        it cannot speak for the tick loop, and C-17 is not about it at
+        all. Neither may drift into a PASS because a parity run went
+        well."""
+        store, _ = seeded
+        report = _run(store, parity_ledger).report
+        assert report.verdict_for("C-16").status == NOT_MEASURED
+        assert report.verdict_for("C-17").status == FAIL
+        assert "V3-SEC-01" in report.verdict_for("C-17").detail
 
     def test_cutover_is_not_ready_while_anything_is_blocked(self, seeded,
                                                             parity_ledger):
@@ -609,6 +673,7 @@ class TestConditionReport:
         store, _ = seeded
         report = _run(store, parity_ledger).report
         assert report.is_cutover_ready is False
+        assert "C-17" in report.unmet_override_forbidden
 
     def test_the_scope_limitations_travel_with_the_report(self, seeded,
                                                           parity_ledger):
@@ -622,8 +687,10 @@ class TestConditionReport:
         store, _ = seeded
         report = _run(store, parity_ledger).report
         payload = json.loads(report.to_json())
-        assert len(payload["conditions"]) == 14
+        assert len(payload["conditions"]) == 17
         assert payload["cutover_ready"] is False
+        assert "not_measured" in payload
+        assert "unmet_override_forbidden" in payload
 
 
 class TestProcedureIsDocumented:

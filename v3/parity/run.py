@@ -2,7 +2,7 @@
 
 Drives both systems from the same window of the same ledger, compares in
 severity space, records every verdict to the isolated parity ledger, and
-judges P2 §5's fourteen conditions.
+judges P2 §5's seventeen conditions (ADR-V3-011).
 
 The v3 side is driven with NO focused scenario. That is deliberate and it
 is the harness's main scope limitation: the legacy focused-only bonus fold
@@ -25,7 +25,7 @@ from v3.parity import driver_v2, driver_v3
 from v3.parity.adapter import LedgerInputAdapter
 from v3.parity.compare import (compare_tick, compare_transitions,
                                extract_transitions)
-from v3.parity.conditions import MIN_SEVERITY_AGREEMENT
+from v3.parity.conditions import SEVERITY_AGREEMENT_WATCH_LEVEL
 from v3.parity.ledger import MismatchEvidence, ParityLedger, RunIdentity
 from v3.parity.report import ParityContext, ParityReport, build_report
 from v3.parity.summary import summarise
@@ -49,6 +49,12 @@ SCOPE_NOTES: tuple[str, ...] = (
     "the same rows, so S5-VERIF-022's determinism requirement is met "
     "structurally at this level. Replay of recorded LLM RESPONSES by "
     "prompt_sha256 is an L3 concern and is reported BLOCKED.",
+    "This run projects STORED L1 rows into the kernel. It does not cross "
+    "the adapter fold, the tick loop, the scheduler, the DB handles' thread "
+    "affinity, the container, or the storage face of authentication. P2 §5-D "
+    "exists because 13/13 fixture agreement and 7,403 green tests coexisted "
+    "with a system that could not complete one tick: C-16 and C-17 cover "
+    "that layer and a parity result cannot substitute for them.",
 )
 
 
@@ -120,9 +126,24 @@ def run_parity(*, store: LedgerStore, parity_ledger: ParityLedger,
                legacy_code_version: str = "unknown",
                v3_code_version: str = "unknown",
                migration_report: Optional[Mapping] = None,
+               calibration_cells: Optional[Sequence[Mapping]] = None,
+               bgp_repair_at: Optional[float] = None,
+               difference_attribution: Optional[Mapping] = None,
+               insensitive_transition_p95_sec: Optional[Mapping] = None,
+               running_evidence: Optional[Mapping] = None,
+               last_tick_path_change_at: Optional[float] = None,
+               cutover_blocking_defects: Optional[Sequence] = None,
                now: Optional[float] = None,
                timeout_sec: int = driver_v2.DEFAULT_TIMEOUT_SEC) -> ParityRun:
-    """Drive both systems over one window and judge the result."""
+    """Drive both systems over one window and judge the result.
+
+    Everything from `migration_report` down is a measurement this harness
+    cannot make for itself — the ETL census, L4's calibration cells, the
+    §7-2 attribution of each difference, and the running system's own
+    record. They are parameters rather than lookups so that a condition
+    can never reach past the context to find an answer, and so that an
+    absent one reports BLOCKED or NOT_MEASURED instead of passing.
+    """
     if not isinstance(parity_ledger, ParityLedger):
         raise DomainError(
             f"parity results go to a ParityLedger, got "
@@ -190,7 +211,9 @@ def run_parity(*, store: LedgerStore, parity_ledger: ParityLedger,
         inputs={"tick_interval_sec": tick_interval_sec,
                 "scenarios": len(scenarios),
                 "ticks": len(adapter.tick_timestamps(start, end)),
-                "min_agreement_required": MIN_SEVERITY_AGREEMENT})
+                # Disclosed, not required: ADR-V3-011 removed the
+                # agreement threshold and replaced it with attribution.
+                "agreement_watch_level": SEVERITY_AGREEMENT_WATCH_LEVEL})
     run_id = parity_ledger.open_run(identity, started_at=sampled_at,
                                     provenance=disclosure)
     parity_ledger.record_comparisons(
@@ -199,7 +222,10 @@ def run_parity(*, store: LedgerStore, parity_ledger: ParityLedger,
          for comparison in comparisons),
         sampled_at=sampled_at)
 
-    # ── null zone, PER SCENARIO (C-09 pairs within a scenario) ──────────
+    # ── null zone, PER SCENARIO ─────────────────────────────────────────
+    # C-09 is now an absolute bar (<= 7 days), so the legacy figure is
+    # disclosed rather than compared: v1's null zone is the product of
+    # having one unavailable reason (F-12) and cannot be a baseline.
     null_zone = {
         scenario.scenario_id: {
             "legacy_longest_sec": driver_v3.null_zone_seconds(
@@ -217,6 +243,13 @@ def run_parity(*, store: LedgerStore, parity_ledger: ParityLedger,
         scenario_summaries=scenario_summaries,
         null_zone=null_zone,
         migration=migration_report,
+        calibration_cells=calibration_cells,
+        bgp_repair_at=bgp_repair_at,
+        difference_attribution=difference_attribution,
+        insensitive_transition_p95_sec=insensitive_transition_p95_sec,
+        running_evidence=running_evidence,
+        last_tick_path_change_at=last_tick_path_change_at,
+        cutover_blocking_defects=cutover_blocking_defects,
         window_start=start, window_end=end, parity_run_id=run_id)
     return ParityRun(
         report=build_report(context, notes=SCOPE_NOTES),

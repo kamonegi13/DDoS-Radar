@@ -1,33 +1,60 @@
-"""P2 §5's fourteen cutover conditions, as code that can answer for itself.
+"""P2 §5's seventeen cutover conditions, as code that can answer for itself.
 
-WP-2.8's fourth completion condition is that these become mechanically
-judgeable. That means more than "a human can check them": each condition
-carries its numeric criterion, the evaluator that applies it, and — where
-the condition depends on a layer that does not exist yet — the specific
-dependency, so the report says BLOCKED-on-what instead of quietly omitting
-a row.
+Each condition carries its criterion, the evaluator that applies it, and —
+where the condition depends on a layer that does not exist yet — the
+specific dependency, so the report says BLOCKED-on-what instead of quietly
+omitting a row. An unmet precondition is a stated result.
 
-That distinction matters because WP-2.8 has been pulled ahead of WP-2.5,
-2.6, 2.7, 3.1 and 3.2. Nine of the fourteen conditions ask about layers
-those packages will build. A harness that reported those as PASS because
-nothing contradicted them would be worse than useless at exactly the
-moment somebody is deciding whether to cut over. The same reasoning as the
-ETL's acceptance criteria: an unmet precondition is a stated result.
+**ADR-V3-011 (2026-08-09) rewrote what this gate measures.** The old
+fourteen asked for numerical identity against v1. v1 is measurably wrong —
+D2 §H names seven defects found by reading it during the port (H-05's BGP
+detector reading a key RIPE never returns, so all 5,398 rows are 0.0;
+H-01's direction confidence that changes across restarts; H-02's dual-core
+attribution the docstring forbids; H-03's 27 families excluded from
+anomalies; H-06's ISO2 sweep whose misattribution a test fixture froze as
+expected; H-07's Defer that is really Dismiss; H-04's non-associative IDF
+sum) — and a gate demanding agreement with that is the wrong SHAPE, not
+merely a strict one.
 
-Three conditions are marked override-forbidden in P2 §5 (C-02, C-08,
-C-14). The type refuses to let those be waived — `Condition.override_ok`
-is False and `ConditionVerdict.waive()` raises for them.
+So the gate now asks: is every difference ATTRIBUTED, is every
+*insensitive* difference (v1 saw it, v3 did not) individually justified,
+is the comparison standing on a valid reference point, and is the layer
+this harness does not cover covered by something else.
+
+Four properties exist because of specific defects:
+
+  * **Direction is asymmetric.** A louder v3 is a note; a quieter v3
+    blocks. NP1 written as an acceptance condition.
+  * **NOT_MEASURED is a status.** WP-2.3 measured the false green: 100%
+    NP6 resolution over an empty set (`llm_prompt_sha256` NULL on all
+    1,047,286 rows). An empty denominator is never a PASS (§5-D rule 3).
+  * **VOID exclusions are named.** §5-0 registers the reference points a
+    v1 defect invalidated. They leave the denominator BY NAME, never
+    silently, and V-1 is time-limited so H-05's repair restores it.
+  * **The type refuses forbidden waives.** C-02, C-08, C-14 and C-17 are
+    override-forbidden outright; C-03 is overridable EXCEPT on its
+    insensitive side, which the verdict enforces from its own evidence.
+
+This module is the DECLARATIVE half: statuses, the two types, the
+seventeen rows and C-17's blocker register. `judges` holds the evaluators
+and `evaluate`; `void` holds §5-0's register and the valid-cell
+predicate. The split is so that the table reads as a specification
+without the arithmetic interleaved, and it runs one way — `judges`
+imports this module, never the reverse.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Mapping, Optional
+from typing import Mapping, Optional
 
 from v3.kernel.errors import DomainError
 
 PASS = "PASS"
 FAIL = "FAIL"
 BLOCKED = "BLOCKED"
+#: The criterion RAN and had nothing to run on. Distinct from BLOCKED (a
+#: layer is missing) and from PASS (nothing contradicted it) — §5-D rule 3.
+NOT_MEASURED = "NOT_MEASURED"
 
 # ── the layers that do not exist yet, named once ──────────────────────────
 L0_ADAPTERS = "WP-2.5/2.6/2.7 (L0 fetch kernel and sensor adapters)"
@@ -35,10 +62,78 @@ L3_CONCLUSIONS = "WP-3.1 (L3 conclusion layer)"
 L4_CALIBRATION = "WP-3.2 (L4 calibration layer)"
 L5_VERIFICATION = "WP-1.x rebuilt against v3 (L5 self-verification)"
 
-# ── numeric criteria (P2 §5) ─────────────────────────────────────────────
-MIN_SEVERITY_AGREEMENT = 0.95
+# ── numeric criteria (P2 §5, as revised 2026-08-09) ──────────────────────
+#: No longer a gate. C-03 discloses the per-scenario severity agreement
+#: rate without a threshold; a sudden drop below this level is a SYMPTOM
+#: of unregistered differences, not the finding itself.
+SEVERITY_AGREEMENT_WATCH_LEVEL = 0.95
 MAX_TRANSITION_LAG_TICKS = 1.0
+#: C-15. P2 §5 keeps 4 from S5 CUT-07 and records that its derivation was
+#: never written down; carrying an underived threshold is the shape G-18
+#: (the climate freeze) already forbade, so the note travels in the text.
+MIN_VALID_CELLS = 4
+#: C-09(a), NP5+8's design-failure line (CHRONIC_INCONCLUSIVE_THRESHOLD_DAYS).
+MAX_NULL_ZONE_DAYS = 7
+#: C-16(e). Counted from the last change to the tick path, not from boot.
+REQUIRED_RUNNING_DAYS = 30
+#: C-16(d), absorbing the old CUT-14.
+MAX_UNHANDLED_EXCEPTIONS_PER_TICK = 0.001
+#: C-16(c): starting / healthy / degraded / unhealthy.
+REQUIRED_HEALTHZ_STATES = 4
+SECONDS_PER_DAY = 86_400.0
 
+#: C-16's explicitly inadmissible evidence. All three were simultaneously
+#: TRUE in a system that had not completed a single tick (P2 §5-D).
+INADMISSIBLE_RUNNING_EVIDENCE: tuple[str, ...] = (
+    "container_up", "tests_green", "parity_pass")
+
+#: The evidence key that makes a verdict unwaivable regardless of which
+#: condition it belongs to. P2 §5 group A adds "C-03's insensitive
+#: disagreements" to S5-VERIF-043's override-forbidden set; C-09(b) is the
+#: same clause about a different series, so the rule is written about the
+#: DIRECTION rather than about one condition id.
+UNREGISTERED_INSENSITIVE = "unregistered_insensitive"
+
+
+# ── C-17's register: v3 defects that block the cutover ───────────────────
+
+@dataclass(frozen=True, slots=True)
+class BlockingDefect:
+    """One entry of P3's 「cutover 阻害」 table, which is the single source."""
+
+    defect_id: str
+    severity: str
+    summary: str
+    resolution_requirements: tuple[str, ...]
+    resolved: bool = False
+
+    def as_dict(self) -> dict:
+        return {"defect_id": self.defect_id, "severity": self.severity,
+                "summary": self.summary,
+                "resolution_requirements": list(self.resolution_requirements),
+                "resolved": self.resolved}
+
+
+CUTOVER_BLOCKING_DEFECTS: tuple[BlockingDefect, ...] = (
+    BlockingDefect(
+        "V3-SEC-01", "CRITICAL",
+        "the plaintext administrator password is stored forever in the "
+        "append-only ledger: user.register's command payload holds "
+        "{\"password\": \"<plaintext>\", \"role\": \"admin\"}, byte-equal to "
+        "NOROSHI_V3_BOOTSTRAP_PASSWORD, and L1's triggers refuse UPDATE and "
+        "DELETE. The shape is the defect: v3's sweep asserted that no "
+        "plaintext appears anywhere, and that claim was true of the "
+        "PROJECTION and false of the STORAGE — the check tested the surface "
+        "adjacent to its own claim (D2 F-13's family)",
+        ("(1) eliminate the plaintext at write time (argon2 hash only, "
+         "keeping the projection-side redaction)",
+         "(2) re-aim the sweep test at the storage surface",
+         "(3) discard the existing ledger — it cannot be amended — and "
+         "rotate the keys")),
+)
+
+
+# ── the condition and verdict types ──────────────────────────────────────
 
 @dataclass(frozen=True, slots=True)
 class Condition:
@@ -51,10 +146,6 @@ class Condition:
     override_ok: bool = True
     blocked_on: Optional[str] = None
 
-    @property
-    def is_judgeable_now(self) -> bool:
-        return self.blocked_on is None
-
 
 @dataclass(frozen=True, slots=True)
 class ConditionVerdict:
@@ -65,19 +156,41 @@ class ConditionVerdict:
     waived: bool = False
     waiver_reason: Optional[str] = None
 
+    @property
+    def unregistered_insensitive(self) -> int:
+        """How many v1-saw-it/v3-did-not differences carry no justification."""
+        if not self.evidence:
+            return 0
+        return int(self.evidence.get(UNREGISTERED_INSENSITIVE) or 0)
+
+    @property
+    def is_override_forbidden(self) -> bool:
+        condition = BY_ID.get(self.condition_id)
+        if condition is not None and not condition.override_ok:
+            return True
+        return self.unregistered_insensitive > 0
+
     def as_dict(self) -> dict:
         return {"condition_id": self.condition_id, "status": self.status,
                 "detail": self.detail, "evidence": dict(self.evidence),
-                "waived": self.waived, "waiver_reason": self.waiver_reason}
+                "waived": self.waived, "waiver_reason": self.waiver_reason,
+                "override_forbidden": self.is_override_forbidden}
 
     def waive(self, *, reason: str) -> "ConditionVerdict":
         """Accept a FAIL deliberately, where P2 §5 permits it.
 
-        Three conditions may never be waived: C-02 (a v3-only miss), C-08
-        (an unreachable unavailable-reason) and C-14 (a broken NP6 trail)
-        are marked override-forbidden because each one is a recurrence of
-        a defect that already shipped. The type refuses rather than
+        Four conditions may never be waived: C-02 (a v3-only miss), C-08
+        (an unreachable unavailable-reason), C-14 (a broken NP6 trail) and
+        C-17 (a registered cutover-blocking defect). Each is a recurrence
+        of something that already shipped, so the type refuses rather than
         trusting the operator to remember which is which.
+
+        A fifth refusal is DIRECTIONAL rather than per-condition: any
+        verdict whose evidence records unregistered insensitive
+        differences is unwaivable, whatever its id. P2 §5 adds "C-03's
+        insensitive disagreements" to the forbidden set, and C-09(b) is
+        the same clause about the null zone — writing the rule about the
+        direction keeps it true when a third series appears.
 
         A waiver never becomes a PASS. It stays FAIL and carries its
         reason, so a report can show what was overridden and by what
@@ -89,6 +202,13 @@ class ConditionVerdict:
             raise DomainError(
                 f"{self.condition_id} cannot be waived: P2 §5 marks it "
                 f"override-forbidden. {condition.text}")
+        if self.unregistered_insensitive > 0:
+            raise DomainError(
+                f"{self.condition_id} cannot be waived: it carries "
+                f"{self.unregistered_insensitive} unregistered insensitive "
+                f"difference(s) — v1 concluded and v3 did not. P2 §5 marks "
+                f"the insensitive direction override-forbidden (NP1); "
+                f"register and justify each one in §7-2 instead")
         if not isinstance(reason, str) or not reason.strip():
             raise DomainError(
                 f"waiving {self.condition_id} requires a written reason: an "
@@ -103,296 +223,210 @@ class ConditionVerdict:
             waived=True, waiver_reason=reason.strip())
 
 
-# ── A. detection capability (NP1 — highest priority) ─────────────────────
+# ── the table (P2 §5, revised rows) ──────────────────────────────────────
+GROUP_A = "A. detection"
+GROUP_B = "B. health"
+GROUP_C = "C. continuity"
+GROUP_D = "D. running system"
+
 CONDITIONS: tuple[Condition, ...] = (
     Condition(
-        "C-01", "A. detection",
-        "recall_v3 >= recall_legacy across the 30-day replay window, for "
-        "every cell. Not one cell may degrade.",
-        "per-cell recall delta >= 0",
+        "C-01", GROUP_A,
+        "recall_v3 - recall_legacy >= 0, unrounded, on EVERY valid cell. "
+        "Valid cell = non-degenerate (fn+tn > 0) AND tp+fn >= 5 "
+        "(S5-VERIF-037) AND not dependent on a §5-0 VOID reference point. "
+        "The direction (zero degradation) is unchanged from the original; "
+        "only the population is.",
+        "per-valid-cell recall delta >= 0, compared before rounding",
         blocked_on=L4_CALIBRATION),
     Condition(
-        "C-02", "A. detection",
+        "C-02", GROUP_A,
         "Zero cases where a miss (false negative) occurred only in v3.",
         "v3-only FN count == 0",
         override_ok=False, blocked_on=L4_CALIBRATION),
     Condition(
-        "C-03", "A. detection",
-        "TL series severity agreement >= 0.95 per scenario over the 30-day "
-        "window; the remaining 5% must be explicable as registered "
-        "intentional differences.",
-        f"agreement_rate >= {MIN_SEVERITY_AGREEMENT}"),
+        "C-03", GROUP_A,
+        "Every TL-series disagreement maps to a registered §7-2 entry, and "
+        "unregistered disagreements number zero. Insensitive disagreements "
+        "(v1 saw it, v3 did not) each carry an individual justification — a "
+        "retire condition, or evidence that the v1-side quantity is not a "
+        "measurement. The per-scenario severity agreement rate is disclosed "
+        "with NO threshold: it is a symptom, not the finding.",
+        "unregistered disagreements == 0 AND unjustified insensitive == 0; "
+        "agreement rate disclosed, not gating"),
     Condition(
-        "C-04", "A. detection",
-        "TL transition timing differs by at most one scoring tick, measured "
-        "at the 95th percentile of disagreements.",
-        f"transition p95 <= {MAX_TRANSITION_LAG_TICKS} tick"),
+        "C-04", GROUP_A,
+        "TL transition timing differs by at most one scoring tick at p95 — "
+        "AND at most one tick at p95 on the distribution restricted to "
+        "v3-late (insensitive) transitions alone. A p95 that mixes early "
+        "and late lets lateness be paid for with earliness, which is not a "
+        "measurement of NP1.",
+        f"mixed p95 <= {MAX_TRANSITION_LAG_TICKS} tick AND insensitive-only "
+        f"p95 <= {MAX_TRANSITION_LAG_TICKS} tick"),
+    Condition(
+        "C-15", GROUP_A,
+        "At least four valid cells exist, by C-01's predicate — a gate that "
+        "compares recall must first prove there is ground to compare on. "
+        "Successor to S5 CUT-07, which measured the right property with the "
+        "wrong predicate (it never asked whether the cell's detector was "
+        "alive).",
+        f"valid cell count >= {MIN_VALID_CELLS}. P2 §5 records this "
+        f"threshold as an UNDERIVED magic number carried over from "
+        f"S5-VERIF-042: it must be derived, or replaced by a derived "
+        f"number, before the cutover call",
+        blocked_on=L4_CALIBRATION),
 
     # ── B. health ────────────────────────────────────────────────────────
     Condition(
-        "C-05", "B. health",
-        "v3's silent-failure detection (L5's five monitors) is green on "
-        "every item.",
-        "5/5 monitors green",
+        "C-05", GROUP_B,
+        "L5's five checks run AGAINST v3's operating ledger, each holds a "
+        "record of having executed and returned a judgement within its "
+        "expected interval, and unresolved ANOMALY is zero. A check with no "
+        "execution record is not green (G-07: a permanently open gate kept "
+        "answering 'not red').",
+        "5/5 executed inside their expected interval AND unresolved "
+        "ANOMALY == 0",
         blocked_on=L5_VERIFICATION),
     Condition(
-        "C-06", "B. health",
-        "Every v3 sensor fires at least once inside the 30-day window — no "
-        "sensor sits at zero (F-08 recurrence guard).",
-        "min per-sensor firing count >= 1",
+        "C-06", GROUP_B,
+        "For every flag, age / expected_fire_interval is below 1x (WARN) "
+        "and 3x (ANOMALY); under 30 days of observation the flag is "
+        "INSUFFICIENT rather than anomalous (ADR-V3-010's ratio semantics). "
+        "Additionally, where v1 is permanently silent on a family and v3 "
+        "fires, that difference is registered in §7-2 as sensitive — a "
+        "detector v3 brought back to life must not pass as 'it fired, so "
+        "it is healthy'.",
+        "per-flag age ratio < 3x AND every revived family registered",
         blocked_on=L0_ADAPTERS),
     Condition(
-        "C-07", "B. health",
-        "Registry-registered keys reach 100% three-layer resolution (G-15 "
-        "recurrence guard).",
-        "resolution reachability == 1.0",
+        "C-07", GROUP_B,
+        "Registry-registered keys reach 100% three-layer resolution, AND "
+        "direct environment reads outside the registry number zero, AND the "
+        "registered key count is disclosed beside the fixed-constant count. "
+        "The substance is on the direct-read side (S5 CUT-10 folded in "
+        "here); the count is disclosed so that 'only nine keys' reads as "
+        "the rule's consequence rather than as effort not spent.",
+        "resolution reachability == 1.0 AND direct env reads == 0 AND both "
+        "counts disclosed",
         blocked_on=L0_ADAPTERS),
     Condition(
-        "C-08", "B. health",
+        "C-08", GROUP_B,
         "All four conclusion-unavailable reasons have generation paths and "
         "are reachable by test (F-12 recurrence guard).",
         "4/4 reasons reachable",
         override_ok=False, blocked_on=L3_CONCLUSIONS),
     Condition(
-        "C-09", "B. health",
-        "v3's null zone (consecutive days without a conclusion) is no worse "
-        "than the legacy system's.",
-        "v3 null-zone duration <= legacy"),
+        "C-09", GROUP_B,
+        "(a) Absolute: the longest UNAVAILABLE run is at most seven days "
+        "for every (scenario x conclusion_type), and chronic is zero "
+        "(NP5+8's design-failure line). (b) Relative: every tick where v1 "
+        "concluded and v3 did not is registered in §7-2 as an insensitive "
+        "difference with an individual justification. v1's own null zone is "
+        "not a baseline — it is the artefact of having one unavailable "
+        "reason (F-12).",
+        f"max UNAVAILABLE <= {MAX_NULL_ZONE_DAYS} days AND chronic == 0 AND "
+        f"unregistered v3-only unavailability == 0"),
 
     # ── C. data continuity ───────────────────────────────────────────────
+    # This group keeps IDENTITY as its measure on purpose: R1 is data
+    # continuity, and ETL fidelity has no passing grade other than "not one
+    # row lost, not one value changed". The revision tightens it against
+    # false greens rather than relaxing it.
     Condition(
-        "C-10", "C. continuity",
-        "The 35 migrated tables match on row count exactly.",
-        "row count delta == 0 for all 35"),
+        "C-10", GROUP_C,
+        "Every CLASSIFIED table matches on row count, and the number of "
+        "unclassified tables is zero. '35 tables' was a transcription of "
+        "the 2026-08-03 state and is structurally blind to the five tables "
+        "v3's own WP-0.3/1.1/1.2/1.3 added to production (WP-2.3 F-1): a "
+        "condition that fixes the count cannot see a table that appeared.",
+        "row-count delta == 0 on all classified tables AND unclassified "
+        "table count == 0"),
     Condition(
-        "C-11", "C. continuity",
-        "Deterministic sample hashes match.",
-        "sample hash equality"),
+        "C-11", GROUP_C,
+        "Full-census comparison — not a sample — with zero mismatches and "
+        "matching deterministic hashes. WP-2.3 already reached this on real "
+        "data (1,515 + 176 cells, four baseline tables, 500 extracted ids "
+        "byte-equal across all columns), so the condition is raised to the "
+        "level already achieved.",
+        "census mismatches == 0 over a non-empty census"),
     Condition(
-        "C-12", "C. continuity",
-        "recall/precision match exactly per cell, on both the human-only "
-        "and the all-labels series.",
-        "per-cell equality",
+        "C-12", GROUP_C,
+        "recall/precision RECOMPUTED FROM THE MIGRATED LEDGER, over the "
+        "same label set and the same window, match the legacy baseline per "
+        "cell (human-only and all-labels series). This is a condition about "
+        "ETL fidelity, not about detection: read as 'v3's recall equals "
+        "v1's' it would contradict C-01, and the only way to satisfy both "
+        "would be to forbid improvement.",
+        "per-cell equality of the recomputed baseline",
         blocked_on=L4_CALIBRATION),
     Condition(
-        "C-13", "C. continuity",
-        "Calibration window continuity holds — the series identity is not "
-        "broken.",
-        "no epoch discontinuity",
+        "C-13", GROUP_C,
+        "Calibration-window continuity: every discontinuity carries an "
+        "epoch stamp (EpochStamp) and unstamped discontinuities number "
+        "zero. 'No discontinuity' is already false — H-05's repair discards "
+        "bgp_hod's 5,398 rows, and that is the correct operation, because "
+        "0.0 was the absence of a key rather than a measurement (F-16).",
+        "unstamped discontinuities == 0, judged over the window the "
+        "migration can actually satisfy (conclusion history spans 90.96 "
+        "days; ADR-V3-005's 365-day window is unreachable from a v1 "
+        "snapshot)",
         blocked_on=L4_CALIBRATION),
     Condition(
-        "C-14", "C. continuity",
-        "NP6 traceability resolves 100%: formula, thresholds, primary "
-        "sources and prompts.",
-        "traceability == 1.0",
+        "C-14", GROUP_C,
+        "NP6 traceability resolves 100% — formula, thresholds, primary "
+        "sources, prompts — AND the resolved set is not empty. A face with "
+        "a zero denominator is NOT_MEASURED, never PASS: WP-2.3 measured "
+        "that false green (llm_prompt_sha256 NULL on all 1,047,286 rows; "
+        "source_urls='[]' on 294,324 = 28.1%). The reading applies to every "
+        "condition here, not only this one (§5-D rule 3).",
+        "traceability == 1.0 over a NON-EMPTY resolution set",
         override_ok=False, blocked_on=L3_CONCLUSIONS),
+
+    # ── D. the running system (2026-08-09, new) ──────────────────────────
+    # Groups A/B/C compare stored rows projected into the kernel. They
+    # never cross the fold, the tick loop, or the container — which is how
+    # 13/13 fixture agreement and 7,403 green tests coexisted with a system
+    # that could not complete one tick.
+    Condition(
+        "C-16", GROUP_D,
+        "v3 has run for thirty continuous days with zero unexplained tick "
+        "failures. (a) every tick leaves a TickReport and a tl_observation "
+        "row; (b) failed ticks are recorded WITH A REASON (zero silent "
+        "failures); (c) /healthz's four states work and a running but "
+        "unproductive system reads degraded/503; (d) unhandled exceptions "
+        f"<= {MAX_UNHANDLED_EXCEPTIONS_PER_TICK}/tick (absorbing CUT-14); "
+        "(e) the thirty days are counted from the last change to the tick "
+        "path. 'The container is Up', 'the tests are green' and 'parity "
+        "PASSed' are NOT evidence for this condition — all three were true "
+        "at once in a system that had completed zero ticks.",
+        f"{REQUIRED_RUNNING_DAYS} continuous days since the last tick-path "
+        f"change, with (a)-(d) all holding"),
+    Condition(
+        "C-17", GROUP_D,
+        "Zero v3-side defects are registered as cutover-blocking; P3's "
+        "「cutover 阻害」 table is the single source. Currently open: "
+        "V3-SEC-01. Without this row a script judging §5 could return "
+        "is_cutover_ready = True while holding a CRITICAL blocker, because "
+        "the owner's ruling lived only in P3.",
+        "open cutover-blocking defects == 0",
+        override_ok=False),
 )
 
 BY_ID: Mapping[str, Condition] = {c.condition_id: c for c in CONDITIONS}
 
-
-def _blocked(condition: Condition) -> ConditionVerdict:
-    return ConditionVerdict(
-        condition.condition_id, BLOCKED,
-        f"needs {condition.blocked_on}, which does not exist yet",
-        {"blocked_on": condition.blocked_on, "criterion": condition.criterion})
+OVERRIDE_FORBIDDEN: frozenset[str] = frozenset(
+    c.condition_id for c in CONDITIONS if not c.override_ok)
 
 
-# ── evaluators for the conditions this harness CAN answer ────────────────
 
-def _judge_c03(context) -> ConditionVerdict:
-    """Every scenario must clear the bar, not the pool.
-
-    Pooling lets a healthy scenario carry a sick one: a scenario at 0.75
-    agreement disappears inside a big one at 0.99. P2 §5 says "per
-    scenario" and this is what that means.
-    """
-    per_scenario = context.scenario_summaries or {}
-    if not per_scenario:
-        return ConditionVerdict(
-            "C-03", BLOCKED,
-            "no per-scenario summaries: the run produced no key present on "
-            "both sides", {"criterion": f">= {MIN_SEVERITY_AGREEMENT}"})
-
-    rates = {}
-    void = []
-    below = []
-    insensitive = {}
-    for scenario_id, summary in sorted(per_scenario.items()):
-        rates[scenario_id] = summary.agreement_rate
-        if summary.is_void:
-            void.append(scenario_id)
-        if summary.agreement_rate is None or \
-                summary.agreement_rate < MIN_SEVERITY_AGREEMENT:
-            below.append(scenario_id)
-        if summary.insensitive:
-            insensitive[scenario_id] = summary.insensitive
-
-    evidence = {"per_scenario_agreement": rates,
-                "per_scenario_insensitive": insensitive,
-                "void_scenarios": void,
-                "criterion": f">= {MIN_SEVERITY_AGREEMENT} on EVERY scenario"}
-    if void:
-        return ConditionVerdict(
-            "C-03", FAIL,
-            f"run is void for {void}: the one-side-missing rate exceeds the "
-            f"5% ceiling (S5-VERIF-023), so the agreement rate does not "
-            f"describe the two systems", evidence)
-    if below:
-        return ConditionVerdict(
-            "C-03", FAIL,
-            f"below {MIN_SEVERITY_AGREEMENT} on {below} "
-            f"(rates: {{{', '.join(f'{k}={v:.4f}' for k, v in rates.items() if v is not None)}}})",
-            evidence)
-    if insensitive:
-        # NP1 outranks the rate: a v3 that saw less is disqualifying even
-        # at perfect agreement everywhere else.
-        return ConditionVerdict(
-            "C-03", FAIL,
-            f"agreement meets {MIN_SEVERITY_AGREEMENT} everywhere, but "
-            f"{sum(insensitive.values())} insensitive disagreement(s) remain "
-            f"in {sorted(insensitive)} — v3 reported a lower severity than "
-            f"legacy, which NP1 treats as blocking regardless of the rate",
-            evidence)
-    return ConditionVerdict(
-        "C-03", PASS,
-        f"every scenario meets {MIN_SEVERITY_AGREEMENT} with no insensitive "
-        f"disagreement ({len(rates)} scenario(s))", evidence)
-
-
-def _judge_c04(context) -> ConditionVerdict:
-    """Transition lag, per scenario — the same dilution applies here."""
-    per_scenario = context.scenario_summaries or {}
-    allowance = MAX_TRANSITION_LAG_TICKS * context.tick_interval_sec
-    measured = {
-        scenario_id: summary.transitions.p95_delta_sec
-        for scenario_id, summary in sorted(per_scenario.items())
-        if summary.transitions is not None
-        and summary.transitions.p95_delta_sec is not None}
-    if not measured:
-        return ConditionVerdict(
-            "C-04", BLOCKED,
-            "no transition pairs in the window; timing cannot be measured",
-            {"criterion": f"<= {MAX_TRANSITION_LAG_TICKS} tick"})
-    unpaired = {
-        scenario_id: {"legacy_only": summary.transitions.unpaired_legacy,
-                      "v3_only": summary.transitions.unpaired_v3}
-        for scenario_id, summary in sorted(per_scenario.items())
-        if summary.transitions is not None}
-    over = sorted(k for k, v in measured.items() if v > allowance)
-    evidence = {"per_scenario_p95_sec": measured, "allowance_sec": allowance,
-                "unpaired": unpaired}
-    if over:
-        return ConditionVerdict(
-            "C-04", FAIL,
-            f"transition timing p95 exceeds {allowance:.1f}s on {over}",
-            evidence)
-    return ConditionVerdict(
-        "C-04", PASS,
-        f"transition timing p95 within {allowance:.1f}s on every scenario "
-        f"({MAX_TRANSITION_LAG_TICKS} x {context.tick_interval_sec:.0f}s tick)",
-        evidence)
-
-
-def _judge_c09(context) -> ConditionVerdict:
-    """Null zone compared WITHIN each scenario.
-
-    Taking the max of each side across scenarios lets a 10x-worse v3 null
-    zone on one scenario hide behind a different scenario's long legacy
-    one. The pairing has to happen per scenario or it is not a comparison.
-    """
-    measured = context.null_zone or {}
-    if not measured:
-        return ConditionVerdict(
-            "C-09", BLOCKED,
-            "null-zone durations were not measured for this run",
-            {"criterion": "v3 <= legacy, per scenario"})
-    worse = []
-    for scenario_id, sides in sorted(measured.items()):
-        legacy_sec = sides.get("legacy_longest_sec")
-        v3_sec = sides.get("v3_longest_sec")
-        if legacy_sec is None or v3_sec is None:
-            return ConditionVerdict(
-                "C-09", BLOCKED,
-                f"{scenario_id} reported no null-zone measurement on one "
-                f"side", {"per_scenario": dict(measured)})
-        if v3_sec > legacy_sec:
-            worse.append(scenario_id)
-    evidence = {"per_scenario": {k: dict(v) for k, v in measured.items()},
-                "criterion": "v3 <= legacy, per scenario"}
-    if worse:
-        return ConditionVerdict(
-            "C-09", FAIL,
-            f"v3's null zone is longer than legacy's on {worse}", evidence)
-    return ConditionVerdict(
-        "C-09", PASS,
-        f"v3's null zone is no longer than legacy's on every scenario "
-        f"({len(measured)} scenario(s))", evidence)
-
-
-def _judge_c10(context) -> ConditionVerdict:
-    report = context.migration
-    if report is None:
-        return ConditionVerdict(
-            "C-10", BLOCKED,
-            "no ETL reconciliation report supplied; run v3.etl.reconcile "
-            "against the migrated store", {"criterion": "row delta == 0"})
-    mismatched = sorted(report.get("row_count_mismatches", ()))
-    status = PASS if not mismatched else FAIL
-    return ConditionVerdict(
-        "C-10", status,
-        "all migrated tables match on row count" if status == PASS
-        else f"row count differs for: {mismatched}",
-        {"mismatched_tables": mismatched})
-
-
-def _judge_c11(context) -> ConditionVerdict:
-    report = context.migration
-    if report is None:
-        return ConditionVerdict(
-            "C-11", BLOCKED,
-            "no ETL reconciliation report supplied", {})
-    mismatched = sorted(report.get("sample_hash_mismatches", ()))
-    status = PASS if not mismatched else FAIL
-    return ConditionVerdict(
-        "C-11", status,
-        "deterministic sample hashes agree" if status == PASS
-        else f"sample hash differs for: {mismatched}",
-        {"mismatched_tables": mismatched})
-
-
-_EVALUATORS: Mapping[str, Callable] = {
-    "C-03": _judge_c03,
-    "C-04": _judge_c04,
-    "C-09": _judge_c09,
-    "C-10": _judge_c10,
-    "C-11": _judge_c11,
-}
-
-
-def evaluate(context) -> tuple[ConditionVerdict, ...]:
-    """Judge all fourteen conditions against one parity run.
-
-    `context` is a `ParityContext` (see `report`): the summaries this
-    harness produced plus any external reports handed in. Conditions whose
-    layer does not exist return BLOCKED naming it — never PASS by default.
-    """
-    verdicts = []
-    for condition in CONDITIONS:
-        if not condition.is_judgeable_now:
-            verdicts.append(_blocked(condition))
-            continue
-        evaluator = _EVALUATORS.get(condition.condition_id)
-        if evaluator is None:
-            raise RuntimeError(
-                f"{condition.condition_id} is declared judgeable but has no "
-                f"evaluator; a condition that cannot be judged must declare "
-                f"blocked_on rather than silently passing")
-        verdicts.append(evaluator(context))
-    return tuple(verdicts)
-
-
-__all__ = ["Condition", "ConditionVerdict", "CONDITIONS", "BY_ID", "evaluate",
-           "PASS", "FAIL", "BLOCKED", "MIN_SEVERITY_AGREEMENT",
-           "MAX_TRANSITION_LAG_TICKS", "L0_ADAPTERS", "L3_CONCLUSIONS",
-           "L4_CALIBRATION", "L5_VERIFICATION"]
+__all__ = ["Condition", "ConditionVerdict", "CONDITIONS", "BY_ID",
+           "OVERRIDE_FORBIDDEN", "UNREGISTERED_INSENSITIVE",
+           "PASS", "FAIL", "BLOCKED", "NOT_MEASURED",
+           "BlockingDefect", "CUTOVER_BLOCKING_DEFECTS",
+           "SEVERITY_AGREEMENT_WATCH_LEVEL", "MAX_TRANSITION_LAG_TICKS",
+           "MIN_VALID_CELLS", "MAX_NULL_ZONE_DAYS", "REQUIRED_RUNNING_DAYS",
+           "MAX_UNHANDLED_EXCEPTIONS_PER_TICK", "REQUIRED_HEALTHZ_STATES",
+           "SECONDS_PER_DAY", "INADMISSIBLE_RUNNING_EVIDENCE",
+           "GROUP_A", "GROUP_B", "GROUP_C", "GROUP_D",
+           "L0_ADAPTERS", "L3_CONCLUSIONS", "L4_CALIBRATION",
+           "L5_VERIFICATION"]
