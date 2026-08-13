@@ -366,9 +366,12 @@ test('an unchanged what-if reports no change rather than a fake delta', () => {
     assert.deepStrictEqual(d.changed, []);
 });
 
-test('what-if with no run reports not-run', () => {
+test('what-if with no run reports not-run, and what would fill it', () => {
     assert.strictEqual(C.diffWhatIf(null).present, false);
-    assert.strictEqual(C.diffWhatIf({ baseline: {} }).emptyKey, 'ui.whatif.empty.not_run');
+    const state = C.diffWhatIf({ baseline: {} }).emptyState;
+    assert.strictEqual(state.reasonKey, 'empty.whatif.reason_not_run');
+    assert.strictEqual(state.roleKey, 'empty.whatif.role');
+    assert.strictEqual(state.fillsWhenKey, 'empty.whatif.fills_when');
 });
 
 test('a scenario present on only one side still appears in the diff', () => {

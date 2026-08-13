@@ -633,6 +633,215 @@ test('no builder emits a raw colour literal', () => {
     assert.ok(!/#[0-9a-fA-F]{3}\b/.test(html), 'colours come from the stylesheet');
 });
 
+// ── term markers (P9 §2 R-C / §4) ────────────────────────────────────────
+
+const Terms = require('../../v3/ui/terms');
+
+test('the first card to print a TL carries its definition, the rest do not', () => {
+    const marks = Terms.createMarkers('situation');
+    const first = R.cardHtml(card(), CARD_NOW, marks);
+    const second = R.cardHtml(card({ scenarioId: 'other' }), CARD_NOW, marks);
+    assert.ok(/term-def-situation-tl/.test(first), first);
+    assert.ok(!/term-def-situation-tl/.test(second),
+              'the second card repeats the definition (P9 §4: visual noise)');
+});
+
+test('a card rendered without a view issues no markers at all', () => {
+    const html = R.cardHtml(card(), CARD_NOW);
+    assert.ok(!/term-info/.test(html), html);
+});
+
+test('the definition sits beside the term it defines, not at the end', () => {
+    const marks = Terms.createMarkers('situation');
+    const html = R.cardHtml(card(), CARD_NOW, marks);
+    const caption = html.indexOf('tl-caption');
+    const marker = html.indexOf('term-def-situation-tl');
+    const lines = html.indexOf('card-lines');
+    assert.ok(caption < marker && marker < lines,
+              `the TL definition is not in the TL block: ${html}`);
+});
+
+test('the coverage line defines scoring_mode and the change line severity', () => {
+    const marks = Terms.createMarkers('situation');
+    const html = R.cardHtml(card(), CARD_NOW, marks);
+    assert.ok(/term-def-situation-scoring_mode/.test(html), html);
+    assert.ok(/term-def-situation-severity/.test(html), html);
+    assert.deepStrictEqual(marks.marked(),
+                           ['scoring_mode', 'severity', 'tl']);
+});
+
+test('a first sighting has no severity delta to define', () => {
+    const marks = Terms.createMarkers('situation');
+    const html = R.cardHtml(card({
+        sinceLastCheck: { seen: false, previousTl: null, severityDelta: null,
+                          seenAt: null,
+                          labelKey: 'ui.board.since.first_sighting' },
+    }), CARD_NOW, marks);
+    assert.ok(!/term-def-situation-severity/.test(html), html);
+});
+
+test('an inconclusive card defines 結論不可 where it says it', () => {
+    const marks = Terms.createMarkers('situation');
+    const html = R.cardHtml(card({
+        availability: { state: 'inconclusive',
+                        labelKey: 'ui.board.availability.inconclusive',
+                        sentenceKey: 'ui.board.availability.sentence.inconclusive' },
+        resolution: { hint: null, labelKey: 'ui.board.resolution.unsupplied' },
+    }), CARD_NOW, marks);
+    assert.ok(/term-def-situation-inconclusive/.test(html), html);
+    assert.ok(html.indexOf('card-inconclusive') < html.indexOf('term-def-situation-inconclusive'));
+});
+
+test('the trust chip defines the term its reason names, and only that one', () => {
+    const marks = Terms.createMarkers('situation');
+    const html = R.trustChipHtml(fold('distrust', 'recall'), marks);
+    assert.ok(/term-def-situation-recall/.test(html), html);
+    assert.deepStrictEqual(marks.marked(), ['recall']);
+    // The marker is a sibling of the button, never nested inside it: a
+    // focusable span inside a button is not reachable on its own.
+    assert.ok(html.indexOf('</button>') < html.indexOf('term-marker'), html);
+});
+
+test('a reason already written in Japanese gets no gloss', () => {
+    const marks = Terms.createMarkers('situation');
+    const html = R.trustChipHtml(fold('reserved', 'ops_health'), marks);
+    assert.ok(!/term-info/.test(html), html);
+    assert.deepStrictEqual(marks.marked(), []);
+});
+
+test('the self-eval table defines recall, null-zone and drift where they render', () => {
+    const marks = Terms.createMarkers('verify');
+    const rows = ['recall', 'null_zone', 'drift', 'ops_health', 'freshness']
+        .map((id) => R.trustComponentRowHtml({
+            id: id, band: 'trusted', state: 'measured', value: 0.9,
+            boundary: null, detail: null,
+            labelKey: 'ui.trust.component.' + id,
+            stateKey: 'ui.trust.state.measured',
+        }, marks)).join('');
+    assert.deepStrictEqual(marks.marked(), ['drift', 'null_zone', 'recall']);
+    assert.ok(/term-def-verify-recall/.test(rows), rows);
+    assert.ok(/term-def-verify-null_zone/.test(rows), rows);
+    assert.ok(/term-def-verify-drift/.test(rows), rows);
+});
+
+test('an unavailable conclusion defines 結論不可 in the scenario view', () => {
+    const marks = Terms.createMarkers('scenario');
+    const html = R.conclusionRowHtml(conclusionRow({
+        available: false,
+        unavailable: {
+            reasonKey: 'ui.conclusion.unavailable.insufficient_data',
+            guardId: 'g1', guardCondition: 'c', detail: null,
+            resolution: null, evaluated: [],
+        },
+    }), marks);
+    assert.ok(/term-def-scenario-inconclusive/.test(html), html);
+});
+
+// ── the country-tile map (P9 §3.4) ───────────────────────────────────────
+
+function tile(overrides) {
+    return Object.assign({
+        country: 'TW', flag: '\u{1F1F9}\u{1F1FC}', region: 'east_asia',
+        col: 2, row: 3, placed: true, roleClass: 'target',
+        role: 'primary_target', roleKey: 'ui.geo.role.primary_target',
+        roleKnown: true, isAdversary: false, isChainCountry: false,
+        firedCount: 0, suppressedCount: 0, observations: 0,
+        stateKey: 'ui.geo.marker.unobserved', hasEvents: false, dots: [],
+    }, overrides || {});
+}
+
+test('a tile is positioned by its placement, never by a coordinate', () => {
+    const html = R.geoTileHtml(tile());
+    assert.ok(/grid-column:2/.test(html), html);
+    assert.ok(/grid-row:3/.test(html), html);
+    assert.ok(/data-country="TW"/.test(html));
+});
+
+test('a tile prints the ISO2 as well as the flag', () => {
+    const html = R.geoTileHtml(tile());
+    assert.ok(/tile-iso">TW</.test(html), html);
+    assert.ok(/tile-flag/.test(html));
+});
+
+test('domain dots carry their domain and their kind as classes', () => {
+    const html = R.geoTileHtml(tile({
+        hasEvents: true, firedCount: 1, suppressedCount: 1, observations: 2,
+        stateKey: 'ui.geo.marker.fired',
+        dots: [{ domain: 'cyber', kind: 'fired' },
+               { domain: 'info', kind: 'suppressed' }],
+    }));
+    assert.ok(/tile-dot tile-dot-fired tile-domain-cyber/.test(html), html);
+    assert.ok(/tile-dot tile-dot-suppressed tile-domain-info/.test(html), html);
+    assert.ok(/geo-tile-events/.test(html));
+});
+
+test('an unplaced tile carries no grid position and is still drawn', () => {
+    const html = R.geoTileHtml(tile({ country: 'GLOBAL', flag: '', placed: false,
+                                      region: null, col: null, row: null }));
+    assert.ok(!/grid-column/.test(html), html);
+    assert.ok(/data-country="GLOBAL"/.test(html));
+});
+
+test('a hostile country code cannot break out of the tile attributes', () => {
+    const html = R.geoTileHtml(tile({ country: XSS, flag: '' }));
+    assert.ok(!/<script>/.test(html), html);
+    assert.ok(/&lt;script&gt;/.test(html));
+});
+
+test('the map draws one block per region, in the design order', () => {
+    const html = R.geoTileMapHtml({
+        regions: [
+            { id: 'east_asia', labelKey: 'ui.geo.region.east_asia',
+              tiles: [tile()], columns: 3, rows: 3, firedTotal: 0 },
+            { id: 'europe', labelKey: 'ui.geo.region.europe',
+              tiles: [tile({ country: 'PL', region: 'europe', col: 1, row: 4 })],
+              columns: 4, rows: 5, firedTotal: 0 },
+        ],
+        spillover: { present: false, labelKey: 'ui.geo.region.unplaced',
+                     noteKey: 'ui.geo.tilemap.unplaced_note', tiles: [] },
+    });
+    assert.ok(html.indexOf('data-region="east_asia"')
+              < html.indexOf('data-region="europe"'), html);
+    assert.ok(/東アジア/.test(html));
+    assert.ok(/repeat\(3,1fr\)/.test(html), html);
+});
+
+test('the spillover row is drawn with its reason, never omitted (G-17)', () => {
+    const html = R.geoTileMapHtml({
+        regions: [],
+        spillover: { present: true, labelKey: 'ui.geo.region.unplaced',
+                     noteKey: 'ui.geo.tilemap.unplaced_note',
+                     tiles: [tile({ country: 'GLOBAL', flag: '', placed: false })] },
+    });
+    assert.ok(/配置未定義/.test(html), html);
+    assert.ok(/data-country="GLOBAL"/.test(html));
+    assert.ok(/観測は落としていません/.test(html));
+});
+
+// ── empty states (P9 §3.5) ───────────────────────────────────────────────
+
+test('an empty state renders all three parts and nothing else', () => {
+    const html = R.emptyStateHtml({
+        surface: 'board', roleKey: 'empty.board.role',
+        reasonKey: 'empty.board.reason_not_loaded', reasonVars: {},
+        reasonSupplied: true, fillsWhenKey: 'empty.board.fills_when',
+    });
+    assert.ok(/class="empty-role"/.test(html), html);
+    assert.ok(/class="empty-reason"/.test(html));
+    assert.ok(/class="empty-fills"/.test(html));
+    assert.ok(/role="status"/.test(html));
+});
+
+test('an empty state fills the slots its reason declares', () => {
+    const html = R.emptyStateHtml({
+        surface: 'lane', roleKey: 'empty.lane.role',
+        reasonKey: 'empty.reason.unrecognised',
+        reasonVars: { reason: 'quarantined_by_operator' },
+        reasonSupplied: true, fillsWhenKey: 'empty.lane.fills_when',
+    }, { tag: 'li' });
+    assert.ok(/quarantined_by_operator/.test(html), html);
+});
+
 // ── Report ───────────────────────────────────────────────────────────────
 
 console.log(`\n\n${passed} passed, ${failed} failed`);

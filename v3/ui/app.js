@@ -36,6 +36,7 @@
     var Surfaces = window.NoroshiSurfaces;
     var Dim = window.NoroshiDim;
     var Views = window.NoroshiViews;
+    var Terms = window.NoroshiTerms;
 
     var _t = S.t;
     var esc = Fmt.escHtml;
@@ -191,13 +192,19 @@
         });
         if (!decision.render) return;
 
-        setHtml('trust-slot', trustChipHtml(fold));
+        // One issuer for the whole 状況 view, created here because the trust
+        // chip and the cards are written in the same pass: P9 §4 marks a term
+        // at its first occurrence IN THE VIEW, not once per builder.
+        var terms = Terms.createMarkers(Views.SITUATION);
+        setHtml('trust-slot', trustChipHtml(fold, terms));
         // The sentence first, then the cards it summarises (P9 R-A).
         setHtml('board-summary', Render.boardSummaryHtml(board.summary));
         var now = Date.now() / 1000;
         setHtml('board-cards', board.empty
-            ? '<p class="empty">' + esc(_t(board.emptyKey)) + '</p>'
-            : board.cards.map(function (card) { return cardHtml(card, now); }).join(''));
+            ? Render.emptyStateHtml(board.emptyState)
+            : board.cards.map(function (card) {
+                return cardHtml(card, now, terms);
+            }).join(''));
 
         var names = {};
         board.cards.forEach(function (card) {
@@ -232,7 +239,7 @@
 
         var rows = showAll ? lane.rows : lane.tier0;
         setHtml('lane-rows', lane.empty
-            ? '<li class="empty">' + esc(_t(lane.emptyKey)) + '</li>'
+            ? Render.emptyStateHtml(lane.emptyState, { tag: 'li' })
             : rows.map(function (row) { return laneRowHtml(row, lane); }).join(''));
         setHtml('lane-summary', _t('ui.lane.summary', {
             shown: rows.length, total: lane.total,
@@ -293,13 +300,19 @@
         });
         if (!decision.render) return;
 
+        // The scenario view's own term issuer: 結論不可 is defined at its
+        // first appearance here, independently of the board's marker, because
+        // the two views are separate readings (P9 §4).
+        var terms = Terms.createMarkers(Views.SCENARIO);
         setHtml('face-sections', face.empty
             ? '<p class="empty">' + esc(_t(face.emptyKey)) + '</p>'
             : face.sections.map(function (section) {
                 return '<section class="face-section" data-type="' + esc(section.type) + '">'
                     + '<h4>' + esc(_t(section.titleKey)) + '</h4>'
                     + (section.present
-                        ? section.rows.map(conclusionRowHtml).join('')
+                        ? section.rows.map(function (row) {
+                            return conclusionRowHtml(row, terms);
+                        }).join('')
                         : '<p class="empty">' + esc(_t(section.emptyKey)) + '</p>')
                     + '</section>';
             }).join(''));
@@ -349,10 +362,15 @@
                 thresholds: thresholds }).render) {
             return;
         }
+        var terms = Terms.createMarkers(Views.VERIFY);
         setHtml('selfeval-components',
-                fold.components.map(Render.trustComponentRowHtml).join(''));
+                fold.components.map(function (component) {
+                    return Render.trustComponentRowHtml(component, terms);
+                }).join(''));
         setHtml('sensor-rows', sensorRows.length === 0
-            ? '<tr><td colspan="6" class="empty">' + esc(_t('ui.sensors.empty')) + '</td></tr>'
+            ? Render.emptyStateHtml(
+                Fmt.emptyState('sensors', 'empty.sensors.reason_none'),
+                { tag: 'tr', colspan: 6 })
             : sensorRows.map(Render.sensorRowHtml).join(''));
     }
 
@@ -362,7 +380,9 @@
             ? result.body.decisions : [];
         if (!state.detector.shouldRender('decisions', result).render) return;
         setHtml('decision-rows', rows.length === 0
-            ? '<tr><td colspan="6" class="empty">' + esc(_t('ui.decisions.empty')) + '</td></tr>'
+            ? Render.emptyStateHtml(
+                Fmt.emptyState('decisions', 'empty.decisions.reason_none'),
+                { tag: 'tr', colspan: 6 })
             : rows.map(Render.decisionRowHtml).join(''));
     }
 
@@ -372,13 +392,15 @@
             ? result.body.proposals : [];
         if (!state.detector.shouldRender('proposals', result).render) return;
         setHtml('proposal-rows', rows.length === 0
-            ? '<li class="empty">' + esc(_t('ui.proposals.empty')) + '</li>'
+            ? Render.emptyStateHtml(
+                Fmt.emptyState('proposals', 'empty.proposals.reason_none'),
+                { tag: 'li' })
             : rows.map(Render.proposalRowHtml).join(''));
     }
 
     function renderWhatIf(diff) {
-        setHtml('whatif-body', !diff.present
-            ? '<p class="empty">' + esc(_t(diff.emptyKey)) + '</p>'
+        setHtml('whatif-body', diff.emptyState
+            ? Render.emptyStateHtml(diff.emptyState, { tag: 'tr', colspan: 5 })
             : diff.scenarios.map(Render.whatIfRowHtml).join(''));
     }
 
@@ -810,7 +832,8 @@
                 if (!result.ok) {
                     commandFeedback('ui.command.whatif', result);
                     renderWhatIf({ present: false, scenarios: [],
-                                   emptyKey: 'ui.whatif.empty.not_run' });
+                                   emptyState: Fmt.emptyState(
+                                       'whatif', 'empty.whatif.reason_not_run') });
                     return;
                 }
                 renderWhatIf(Conc.diffWhatIf(result.body));
@@ -918,7 +941,8 @@
         }, 1000);
         state.gate.bind();
         renderWhatIf({ present: false, scenarios: [],
-                       emptyKey: 'ui.whatif.empty.not_run' });
+                       emptyState: Fmt.emptyState('whatif',
+                                                  'empty.whatif.reason_not_run') });
         // `begin()` asks the server whether this browser still holds a
         // session, and `onOpen` starts the loop if it does. Nothing fetches
         // before that answer — a dashboard drawn first and gated afterwards

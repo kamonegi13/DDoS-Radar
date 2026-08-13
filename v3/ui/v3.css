@@ -111,6 +111,47 @@ textarea, input {
 
 .empty, .hint { color: var(--color-text-dim); font-style: italic; }
 
+/* ── the empty-state contract (P9 §3.5) ──────────────────────────────────
+ *
+ * Three lines, always in this order: what this place shows, why it is empty
+ * now, what would fill it. The reason is the one an analyst is looking for,
+ * so it is the one at full contrast; the other two are the orientation a
+ * first-time reader needs and a returning one skips.
+ */
+.empty-state { display: block; font-style: normal; max-width: 60ch; }
+.empty-state .empty-role,
+.empty-state .empty-reason,
+.empty-state .empty-fills { display: block; }
+.empty-state .empty-role { color: var(--color-text-dim); }
+.empty-state .empty-reason { color: var(--color-text); margin: var(--space-1) 0; }
+.empty-state .empty-fills { color: var(--color-text-dim); font-style: italic; }
+
+/* ── term definitions (P9 §2 R-C / §4) ───────────────────────────────────
+ *
+ * The ⓘ marks a term's first occurrence in a view and nothing else. The
+ * definition itself is in the document for `aria-describedby` and hidden
+ * VISUALLY — never with `hidden`, which would take it out of the
+ * accessibility tree along with the pixels and leave the marker describing
+ * nothing.
+ */
+.term-marker { display: inline; white-space: nowrap; }
+.term-info {
+    display: inline-block;
+    margin-left: var(--space-1);
+    font-size: var(--text-meta);
+    color: var(--color-accent);
+    cursor: help;
+}
+.term-info:focus { outline: 1px solid var(--color-accent); }
+.term-def {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
 /* The one-line lead above a Tier 2 table: what question it answers
  * (P9 §3.3). Not italic — it is a statement, not an aside. */
 .lead { color: var(--color-text-dim); margin: 0 0 var(--space-2); }
@@ -705,6 +746,61 @@ tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust);
 .geo-layer-unserved { color: var(--color-muted); max-width: 46ch; }
 .geo-layer-unserved em { display: block; font-style: normal; }
 .geo-summary { color: var(--color-text-dim); margin: 0 0 var(--space-2); }
+
+/* ── the country-tile map (P9 §3.4) ──────────────────────────────────────
+ *
+ * D-5: the question is "where is it happening" and WP-4.2 answered with a
+ * list of ISO codes. Region blocks on a CSS grid, positioned from the static
+ * placement table in geo_tiles.js — not from coordinates, which are still
+ * absent from the wire and absent from the browser. The grid is aria-hidden
+ * duplication of the marker list below it.
+ */
+.geo-tilemap { display: flex; flex-wrap: wrap; gap: var(--space-4);
+               align-items: flex-start; margin-bottom: var(--space-3); }
+.geo-region { border: 1px solid var(--color-border);
+              border-radius: var(--radius-md);
+              padding: var(--space-2) var(--space-3); }
+.geo-region-name { margin: 0 0 var(--space-2); font-size: var(--text-meta);
+                   color: var(--color-text-dim); letter-spacing: 1px; }
+.geo-region-grid { display: grid; gap: var(--space-1);
+                   margin: 0; padding: 0; list-style: none; }
+/* The spillover row has no placement to honour, so it simply flows. */
+.geo-region-grid-flow { display: flex; flex-wrap: wrap; }
+.geo-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 52px;
+    padding: var(--space-1);
+    border: 1px solid var(--color-border);
+    /* The role ring: the same five classes as the marker list, so a country
+     * cannot read as one role in the map and another in the list. */
+    border-left-width: 4px;
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text-dim);
+}
+/* A country with events is the thing the map exists to show, so it is the
+ * only one drawn at full contrast. */
+.geo-tile-events { color: var(--color-text); border-color: var(--color-warning); }
+.geo-tile-adversary { outline: 1px dashed var(--color-severe); }
+.geo-tile-chain { box-shadow: inset 0 0 0 1px var(--color-accent); }
+.tile-flag { font-size: 18px; line-height: 1.1; }
+.tile-iso { font-size: var(--text-meta); font-weight: 700; }
+.tile-dots { display: flex; gap: 2px; min-height: 6px; margin-top: 2px; }
+/* The domain sets `color`, so the fired dot fills with it and the
+ * suppressed dot rings with it — one hue per domain either way. */
+.tile-dot { width: 6px; height: 6px; border-radius: 50%;
+            color: var(--color-muted); background: currentColor; }
+.tile-domain-cyber { color: var(--color-accent); }
+.tile-domain-physical { color: var(--color-critical); }
+.tile-domain-info { color: var(--color-info); }
+/* E-17 at tile granularity: an excluded signal is drawn, and drawn
+ * differently from one that fired. Hollow, never absent. */
+.tile-dot-suppressed { background: transparent;
+                       box-shadow: inset 0 0 0 1px currentColor; }
+
 .geo-markers { margin: 0; padding: 0; list-style: none;
                display: grid; gap: var(--space-2);
                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }

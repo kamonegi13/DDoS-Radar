@@ -148,15 +148,22 @@ test('no focus, no scenario, no evidence and no observation all differ', () => {
                                     scenarioId: 'taiwan' });
     const empty = G.buildFace({ scenarios: scenarios(), evidence: evidence([]),
                                 scenarioId: 'taiwan' });
-    const keys = [noFocus.emptyKey, missing.emptyKey, unfetched.emptyKey,
-                  empty.emptyKey];
+    const keys = [noFocus, missing, unfetched, empty]
+        .map((face) => face.emptyState.reasonKey);
     assert.deepStrictEqual(keys, [
-        'ui.geo.empty.no_focus',
-        'ui.geo.empty.scenario_not_loaded',
-        'ui.geo.empty.not_loaded',
-        'ui.geo.empty.no_observations',
+        'empty.geo.reason_no_focus',
+        'empty.geo.reason_scenario_not_loaded',
+        'empty.geo.reason_not_loaded',
+        'empty.geo.reason_no_observations',
     ]);
     assert.strictEqual(new Set(keys).size, keys.length);
+    // P9 §3.5: whichever of the four holds, the other two thirds of the
+    // contract are the same — the face still has to say what it shows and
+    // what would fill it, or a cold-start reader learns nothing from it.
+    [noFocus, missing, unfetched, empty].forEach((face) => {
+        assert.strictEqual(face.emptyState.roleKey, 'empty.geo.role');
+        assert.strictEqual(face.emptyState.fillsWhenKey, 'empty.geo.fills_when');
+    });
 });
 
 test('observed-but-nothing-fired is its own answer', () => {
@@ -165,7 +172,8 @@ test('observed-but-nothing-fired is its own answer', () => {
         evidence: evidence([obs({ country: 'TW', status: 'OK' })]),
         scenarioId: 'taiwan',
     });
-    assert.strictEqual(face.emptyKey, 'ui.geo.empty.observed_nothing_fired');
+    assert.strictEqual(face.emptyState.reasonKey,
+                       'empty.geo.reason_observed_nothing_fired');
 });
 
 test('a participant with no observation row is not "quiet"', () => {

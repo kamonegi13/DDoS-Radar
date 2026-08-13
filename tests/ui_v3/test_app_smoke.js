@@ -860,10 +860,26 @@ test('no render path throws on an entirely empty server', async () => {
     loadUi();
     await settle();
 
-    // Empty everywhere, but every empty says why (S1-UI-008: no blank screens).
-    assert.ok(/登録されたシナリオがありません/.test(html(doc, 'board-cards')),
+    // Empty everywhere, and every empty says all THREE things (P9 §3.5).
+    // S1-UI-008 only forbade a blank screen, and WP-4.2 satisfied it with a
+    // reason line — which on a cold start produced a page that was true in
+    // every sentence and taught a first-time reader nothing about what any
+    // of the places were for (D-4).
+    [['board-cards', 'empty.board'], ['lane-rows', 'empty.lane'],
+     ['geo-empty', 'empty.geo']].forEach(([id, family]) => {
+        const markup = html(doc, id);
+        ['empty-role', 'empty-reason', 'empty-fills'].forEach((part) => {
+            assert.ok(markup.indexOf('class="' + part + '"') !== -1,
+                `${id} (${family}) is missing its ${part}: ${markup}`);
+        });
+    });
+    assert.ok(/登録されたシナリオが 1 件もありません/.test(html(doc, 'board-cards')),
+        html(doc, 'board-cards'));
+    assert.ok(/シナリオが登録され/.test(html(doc, 'board-cards')),
         html(doc, 'board-cards'));
     assert.ok(/順位付けの対象となる結論がありません/.test(html(doc, 'lane-rows')),
+        html(doc, 'lane-rows'));
+    assert.ok(/優先度順にここへ並びます/.test(html(doc, 'lane-rows')),
         html(doc, 'lane-rows'));
     assert.ok(/供給されていません/.test(html(doc, 'board-summary')),
         html(doc, 'board-summary'));

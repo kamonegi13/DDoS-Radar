@@ -46,6 +46,7 @@
     var Fmt = _mod('./format', 'NoroshiFormat');
     var Render = _mod('./render', 'NoroshiRender');
     var Geo = _mod('./geo', 'NoroshiGeo');
+    var Tiles = _mod('./geo_tiles', 'NoroshiGeoTiles');
     var Settings = _mod('./settings', 'NoroshiSettings');
     var Mode = _mod('./display_mode', 'NoroshiDisplayMode');
     var Dim = _mod('./dim', 'NoroshiDim');
@@ -157,8 +158,19 @@
                     : _t(Fmt.duration(face.windowSec).key,
                          Fmt.duration(face.windowSec).vars),
             })));
-            setHtml('geo-empty', face.emptyKey
-                ? '<p class="empty">' + esc(_t(face.emptyKey)) + '</p>' : '');
+            setHtml('geo-empty', face.emptyState
+                ? Render.emptyStateHtml(face.emptyState) : '');
+
+            // P9 §3.4: the tile map is the primary visual and the list is the
+            // accessible representation of the same facts. The grid is built
+            // from the markers the list renders — one fold, two presentations,
+            // so they cannot disagree about what fired where.
+            var tileMap = Tiles.buildTileMap({
+                markers: face.layers.participants ? face.markers : [],
+                offRoster: face.offRoster,
+            });
+            setHtml('geo-tilemap', face.layers.participants
+                ? Render.geoTileMapHtml(tileMap) : '');
             setHtml('geo-markers', face.layers.participants
                 ? face.markers.map(Render.geoMarkerHtml).join('')
                 : '<li class="empty">' + esc(_t('ui.geo.layer_off')) + '</li>');
@@ -194,10 +206,11 @@
                   + esc(_t(view.emptyKey)) + '</td></tr>'
                 : view.rows.map(Render.settingsRowHtml).join(''));
             setHtml('groundtruth-rows', view.groundTruth.length === 0
-                ? '<tr><td colspan="5" class="empty">'
-                  + esc(_t(view.groundTruthLoaded
-                      ? 'ui.settings.gt_empty' : 'ui.settings.gt_not_loaded'))
-                  + '</td></tr>'
+                ? Render.emptyStateHtml(
+                    Fmt.emptyState('groundtruth', view.groundTruthLoaded
+                        ? 'empty.groundtruth.reason_none'
+                        : 'empty.groundtruth.reason_not_loaded'),
+                    { tag: 'tr', colspan: 5 })
                 : view.groundTruth.map(Render.groundTruthRowHtml).join(''));
 
             // Outcomes are written after the table so a redraw cannot drop

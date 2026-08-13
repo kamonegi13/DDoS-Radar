@@ -34,6 +34,10 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
 
+    var F = (typeof require === 'function')
+        ? require('./format')
+        : (typeof window !== 'undefined' ? window.NoroshiFormat : null);
+
     /**
      * How many rows Tier 0 shows before "see all".
      *
@@ -54,6 +58,32 @@
     function _factor(row, name) {
         var value = row[name];
         return typeof value === 'number' && Number.isFinite(value) ? value : null;
+    }
+
+    /**
+     * The reasons R6 declares for an empty lane, and their sentences.
+     *
+     * An explicit set rather than a concatenation onto whatever the server
+     * sent: a reason word this build has no sentence for used to render as
+     * the raw key (`ui.lane.empty.whatever_the_server_said`) on the analyst's
+     * screen. P9 §3.5 says the reason must come from server state and must
+     * not be invented — so an unrecognised word is reported AS an
+     * unrecognised word, carrying the server's own token, rather than being
+     * silently mapped onto the nearest sentence we happen to own.
+     */
+    var EMPTY_REASONS = {
+        ranker_has_not_run: 'empty.lane.reason_ranker_has_not_run',
+        all_rows_below_min_score: 'empty.lane.reason_all_rows_below_min_score',
+        no_ranked_items: 'empty.lane.reason_no_ranked_items',
+    };
+
+    function _emptyState(envelope, reason) {
+        if (!envelope) return F.emptyState('lane', 'empty.lane.reason_not_loaded');
+        if (!reason) return F.emptyState('lane', EMPTY_REASONS.no_ranked_items);
+        if (Object.prototype.hasOwnProperty.call(EMPTY_REASONS, reason)) {
+            return F.emptyState('lane', EMPTY_REASONS[reason]);
+        }
+        return F.emptyState('lane', 'empty.reason.unrecognised', { reason: reason });
     }
 
     /**
@@ -175,11 +205,10 @@
             // NP5+8 / S1-UI-008: an empty lane must say WHY it is empty. A
             // ranker that has not run and a world with nothing worth ranking
             // look identical on screen unless the projection says which.
+            // P9 §3.5 adds the other two thirds of the contract (role and
+            // fills-when), which `format.js` assembles.
             empty: isEmpty,
-            emptyKey: !isEmpty ? null
-                : (envelope
-                    ? 'ui.lane.empty.' + (emptyReason || 'no_ranked_items')
-                    : 'ui.lane.empty.not_loaded'),
+            emptyState: !isEmpty ? null : _emptyState(envelope, emptyReason),
             emptyReason: emptyReason,
         };
     }

@@ -249,10 +249,25 @@ test('the focused card declares full coverage', () => {
 // ── empty states (no blank screens) ──────────────────────────────────────
 
 test('an empty board says why it is empty', () => {
-    assert.strictEqual(B.buildBoard({ scenarios: r1([], null) }).emptyKey,
-        'ui.board.empty.no_scenarios');
-    assert.strictEqual(B.buildBoard({}).emptyKey, 'ui.board.empty.not_loaded');
+    assert.strictEqual(B.buildBoard({ scenarios: r1([], null) }).emptyState.reasonKey,
+        'empty.board.reason_no_scenarios');
+    assert.strictEqual(B.buildBoard({}).emptyState.reasonKey,
+        'empty.board.reason_not_loaded');
     assert.strictEqual(B.buildBoard({}).empty, true);
+});
+
+// P9 §3.5 / D-4. WP-4.2's empty board said only WHY it was empty, which a
+// reader who has never seen it full cannot use: it teaches nothing about
+// what the place is for or what would make it fill. Both extra parts are
+// asserted here rather than only in the render layer, because the view model
+// is what a future surface would copy.
+test('an empty board also says what it shows and what would fill it', () => {
+    const state = B.buildBoard({}).emptyState;
+    assert.strictEqual(state.surface, 'board');
+    assert.strictEqual(state.roleKey, 'empty.board.role');
+    assert.strictEqual(state.fillsWhenKey, 'empty.board.fills_when');
+    assert.strictEqual(state.reasonSupplied, true);
+    assert.strictEqual(B.buildBoard({ scenarios: r1([scenario()]) }).emptyState, null);
 });
 
 test('focus source is carried through so "who chose this focus" is visible', () => {

@@ -147,8 +147,6 @@
         'ui.board.since.unknown': '前回確認（{ago}前）との比較ができません（前回 TL {previous}、現在は結論不可）。',
         'ui.board.summary.unsupplied': '状況サマリ文がサーバから供給されていません（R1 の board_summary 未供給）。下のカードと注目レーンを直接読んでください。',
         'ui.board.summary.template': '文の生成テンプレート: {ref}',
-        'ui.board.empty.no_scenarios': '登録されたシナリオがありません。',
-        'ui.board.empty.not_loaded': 'シナリオ台帳をまだ取得していません。',
 
         // ── domains ─────────────────────────────────────────────────────
         'ui.domain.cyber': 'サイバー',
@@ -179,10 +177,6 @@
         'ui.lane.state.acked': '確認済',
         'ui.lane.state.snoozed': '一時保留',
         'ui.lane.state.dismissed': '却下',
-        'ui.lane.empty.ranker_has_not_run': '順位付けがまだ実行されていません（注目対象が無いことを意味しません）。',
-        'ui.lane.empty.all_rows_below_min_score': '全候補が表示下限を下回りました。',
-        'ui.lane.empty.no_ranked_items': '順位付けの対象となる結論がありません。',
-        'ui.lane.empty.not_loaded': '注目レーンをまだ取得していません。',
 
         // ── conclusion face ─────────────────────────────────────────────
         'ui.conclusion.type.threat_level': '全体脅威レベル',
@@ -243,7 +237,6 @@
         'ui.sensors.col.fired': '発火',
         'ui.sensors.col.suppressed': '抑制',
         'ui.sensors.col.silent': '無音継続',
-        'ui.sensors.empty': 'センサーの観測がありません。',
 
         // ── decision ledger (AP4) ───────────────────────────────────────
         'ui.decisions.title': '判断台帳',
@@ -255,7 +248,6 @@
         'ui.decisions.col.actor': '実行者',
         'ui.decisions.col.reason': '理由',
         'ui.decisions.automated': '自動',
-        'ui.decisions.empty': '記録された判断がありません。',
 
         // ── proposals ───────────────────────────────────────────────────
         'ui.proposals.title': '提案レビュー',
@@ -264,7 +256,6 @@
         'ui.proposals.apply': '適用',
         'ui.proposals.dismiss': '却下',
         'ui.proposals.defer': '保留',
-        'ui.proposals.empty': '保留中の提案はありません。',
 
         // ── what-if (server dry-run) ────────────────────────────────────
         'ui.whatif.title': '反実仮想（サーバ dry-run）',
@@ -277,8 +268,6 @@
         'ui.whatif.col.counterfactual': 'counterfactual（反実仮想）TL',
         'ui.whatif.col.severity_delta': 'severity 差分',
         'ui.whatif.col.score_delta': 'スコア差分',
-        'ui.whatif.empty.not_run': 'まだ実行していません。',
-        'ui.whatif.empty.no_scenarios': '対象シナリオがありません。',
 
         // ── replay (AP4) ────────────────────────────────────────────────
         'ui.replay.label': '過去断面 (UTC)',
@@ -405,11 +394,22 @@
         'ui.geo.marker.fired': '発火 {fired} 件 / 抑制 {suppressed} 件 / 観測 {observations} 件',
         'ui.geo.marker.suppressed_only': '発火なし。抑制 {suppressed} 件（観測 {observations} 件）— 抑制は「起きていない」ではありません。',
         'ui.geo.marker.observed_quiet': '観測 {observations} 件、いずれも発火せず',
-        'ui.geo.empty.no_focus': 'focus 中のシナリオがありません。',
-        'ui.geo.empty.scenario_not_loaded': 'シナリオ台帳にこのシナリオがありません。',
-        'ui.geo.empty.not_loaded': '観測（R5）をまだ取得していません。',
-        'ui.geo.empty.no_observations': '窓内に観測が 1 件もありません。平常ではなく、観測が無いという意味です。',
-        'ui.geo.empty.observed_nothing_fired': '観測はありますが、発火・抑制いずれもありません。',
+        // 国タイル地図（P9 §3.4）。座標は使わず、参加国を地域ブロックに
+        // 並べた CSS グリッドで「どこで起きているか」に答える。地域名は
+        // 配置表に実在する地域のみ定義する（空のブロックは「そこは静か」
+        // と読めてしまうが、実際には見てすらいない）。
+        'ui.geo.tilemap.title': '国タイル地図',
+        'ui.geo.tilemap.lead': '参加国を地域ブロックに配置した図です。地理座標は使っていません（配置は表示上の定数）。',
+        'ui.geo.tilemap.list_head': '国別の一覧（タイル地図と同じ内容）',
+        'ui.geo.tilemap.unplaced_note': '配置表に登録がない国です。地域ブロックに置けないためここへまとめています（観測は落としていません）。',
+        'ui.geo.tile.tip': '{country} — {role} / {state}',
+        'ui.geo.region.east_asia': '東アジア',
+        'ui.geo.region.southeast_asia': '東南アジア',
+        'ui.geo.region.middle_east': '中東',
+        'ui.geo.region.europe': '欧州',
+        'ui.geo.region.north_america': '北米',
+        'ui.geo.region.oceania': 'オセアニア',
+        'ui.geo.region.unplaced': '配置未定義',
         'ui.geo.role.unlisted': 'シナリオ未登録',
         'ui.geo.role.unmapped': '（未知の役割 — 観測クラスとして扱っています）',
         'ui.geo.role.primary_target': '主対象',
@@ -456,8 +456,6 @@
         'ui.settings.gt.label': 'ラベル',
         'ui.settings.gt.actor': '記録者',
         'ui.settings.gt.source': '出典 / 理由',
-        'ui.settings.gt_empty': '記録された ground truth がありません。',
-        'ui.settings.gt_not_loaded': 'ground truth をまだ取得していません。',
         'ui.settings.empty.not_loaded': '設定をまだ取得していません。',
         'ui.settings.empty.no_variable_keys': 'この配備には運用可変キーがありません（設定解決チェーンが未供給の可能性があります）。',
         'ui.settings.confirm': '{key}: {from} → {to}（単位 {unit}）。読み手は {consumer} です。この変更を判断台帳に記録して適用しますか。',
@@ -507,6 +505,80 @@
         'ui.yes': 'はい',
         'ui.no': 'いいえ',
         'ui.error.unknown': '原因不明',
+
+        // ══ term.* — 内部語彙の自己定義（P9 §2 R-C / §4） ════════════════
+        //
+        // D-2: 画面が出す TL・severity・結論不可・scoring_mode・null-zone・
+        // drift・recall・収斂 は S 仕様の内部語彙であり、これまで画面上に
+        // 定義が無かった。「TL4 / ELEVATED」は答えではなく符号で、符号を
+        // 読めない者は導出も検証できない（NP6）。
+        //
+        // 1 語 1 文。語そのもの（recall / drift / null-zone / scoring_mode）
+        // は ja-localization §2 により英語のまま残し、意味だけを日本語で
+        // 与える — 訳さないことと定義しないことは別、が R-C の趣旨。
+        // 「詳細: INTEL GUIDE Ch.N」リンクは付けない（理由は terms.js）。
+        'term.tl': '脅威レベル。1〜5 の整数で、1 が最も危険（DEFCON 型のため数値が小さいほど深刻）。',
+        'term.severity': 'severity は 6 − TL で求める深刻度。TL とは向きが逆で、数値が大きいほど深刻。',
+        'term.inconclusive': '結論不可。データまたは calibration の不足で結論を出せない状態であり、センサーやサーバの故障とは区別される。',
+        'term.null_zone': 'null-zone は、採点は走ったが結論を出せる根拠に届かない領域。ここに長く留まり続けること自体がツールの設計失敗の兆候。',
+        'term.scoring_mode': 'scoring_mode は採点時の観測範囲。full は全センサー稼働、lite は LLM とグローバル信号のみ。',
+        'term.drift': 'drift は、calibration を行った時点と現在で入力の分布がずれていること。ずれたまま出した結論は過去の calibration では保証されない。',
+        'term.recall': 'recall は、実際に起きたエスカレーションのうちツールが検知できた割合。NP1 により precision より優先する。',
+        'term.convergence': '収斂は、複数ドメインのセンサーが同じ方向を同時に指すこと。単一ソースの信号より結論の強度が高い（NP2）。',
+
+        // ══ empty.* — 空状態の 3 点セット（P9 §3.5 / D-4） ═══════════════
+        //
+        // 空可能なすべての面は 3 つを必ず言う: (a) ここは何を表示する場所か
+        // (b) いま空である理由 (c) 何が起きれば埋まるか。S1-UI-008（空画面
+        // 禁止）は (b) までしか要求しておらず、その結果 冷起動の画面は
+        // 「空である」とだけ言って、初見者が画面の役割自体を学べなかった。
+        //
+        // (b) はサーバが申告した状態からのみ引く。サーバが理由を言って
+        // いない面では、理由を捏造せず「申告が無い」と言う。
+        'empty.reason.unstated': 'この面が空である理由をサーバは申告していません。空であるという事実だけが確かです。',
+        'empty.reason.unrecognised': 'サーバは空の理由として {reason} を申告していますが、この画面はその語の説明文を持っていません。',
+
+        'empty.board.role': 'ここは、監視中のシナリオごとの脅威レベルと、前回確認からの変化を並べる場所です。',
+        'empty.board.reason_no_scenarios': 'この配備には登録されたシナリオが 1 件もありません。',
+        'empty.board.reason_not_loaded': 'シナリオ台帳（R1）をまだ取得していません。',
+        'empty.board.fills_when': 'シナリオが登録され、R1 が台帳を返すと、シナリオごとのカードがここに並びます。',
+
+        'empty.lane.role': 'ここは、次に見るべき対象を順位付けの根拠つきで上から並べる場所です。',
+        'empty.lane.reason_ranker_has_not_run': '順位付けがまだ実行されていません（注目対象が無いことを意味しません）。',
+        'empty.lane.reason_all_rows_below_min_score': '順位付けは走りましたが、全候補が表示下限を下回りました。',
+        'empty.lane.reason_no_ranked_items': '順位付けの対象となる結論がありません。',
+        'empty.lane.reason_not_loaded': '注目レーン（R6）をまだ取得していません。',
+        'empty.lane.fills_when': '異常兆候が検知され順位付けが実行されると、優先度順にここへ並びます。',
+
+        'empty.geo.role': 'ここは、focus 中のシナリオの参加国ごとに、異常がどこで起きているかを示す場所です。',
+        'empty.geo.reason_no_focus': 'focus 中のシナリオがありません。',
+        'empty.geo.reason_scenario_not_loaded': 'シナリオ台帳にこのシナリオがありません。',
+        'empty.geo.reason_not_loaded': '観測（R5）をまだ取得していません。',
+        'empty.geo.reason_no_observations': '窓内に観測が 1 件もありません。平常ではなく、観測が無いという意味です。',
+        'empty.geo.reason_observed_nothing_fired': '観測はありますが、発火・抑制いずれもありません。',
+        'empty.geo.fills_when': 'シナリオを focus し、その参加国でセンサーが発火または抑制されると、タイルと一覧が埋まります。',
+
+        'empty.proposals.role': 'ここは、ツールが自分で出した変更提案のうち、まだ裁定されていないものを並べる場所です。',
+        'empty.proposals.reason_none': '保留中の提案がありません。',
+        'empty.proposals.fills_when': '較正の結果として重み等の変更提案が生成されると、裁定待ちの行がここへ並びます。',
+
+        'empty.decisions.role': 'ここは、自動化と人が、いつ・何を・どの理由で決めたかを時系列で並べる場所です。',
+        'empty.decisions.reason_none': '記録された判断がありません。',
+        'empty.decisions.fills_when': 'focus の変更・確認済の記録・提案の裁定など、台帳に追記される操作が行われると行が増えます。',
+
+        'empty.sensors.role': 'ここは、どの観測源が生きていて、どれが沈黙しているかを並べる場所です。',
+        'empty.sensors.reason_none': 'センサーの観測がありません。',
+        'empty.sensors.fills_when': 'センサーが観測を書き込み、R8 がその健全性を返すと行が並びます。',
+
+        'empty.groundtruth.role': 'ここは、どの時点のどのシナリオに人がどの正解ラベルを与えたかを並べる場所です（calibration の入力）。',
+        'empty.groundtruth.reason_none': '記録された ground truth がありません。',
+        'empty.groundtruth.reason_not_loaded': 'ground truth（C9g）をまだ取得していません。',
+        'empty.groundtruth.fills_when': 'アナリストが正解ラベルを登録すると、calibration の入力としてここへ並びます。',
+
+        'empty.whatif.role': 'ここは、入力をこう変えたら結論が動くかを、サーバの dry-run 結果として並べる場所です。',
+        'empty.whatif.reason_not_run': 'まだ実行していません。',
+        'empty.whatif.reason_no_scenarios': 'dry-run は走りましたが、対象シナリオが返っていません。',
+        'empty.whatif.fills_when': 'overlay を入力して dry-run を実行すると、baseline と counterfactual の差分がここへ並びます。',
     };
 
     /**

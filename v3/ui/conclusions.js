@@ -417,7 +417,8 @@
     function diffWhatIf(envelope) {
         if (!envelope || !envelope.baseline || !envelope.counterfactual) {
             return { present: false, scenarios: [],
-                     emptyKey: 'ui.whatif.empty.not_run' };
+                     emptyState: F.emptyState('whatif',
+                                              'empty.whatif.reason_not_run') };
         }
         var baseScenarios = envelope.baseline.scenarios || {};
         var cfScenarios = envelope.counterfactual.scenarios || {};
@@ -434,7 +435,8 @@
             overlay: envelope.overlay || null,
             baselineSettings: envelope.baseline.settings || null,
             counterfactualSettings: envelope.counterfactual.settings || null,
-            emptyKey: scenarios.length ? null : 'ui.whatif.empty.no_scenarios',
+            emptyState: scenarios.length ? null
+                : F.emptyState('whatif', 'empty.whatif.reason_no_scenarios'),
         };
     }
 

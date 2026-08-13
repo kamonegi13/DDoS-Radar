@@ -54,6 +54,10 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
 
+    var F = (typeof require === 'function')
+        ? require('./format')
+        : (typeof window !== 'undefined' ? window.NoroshiFormat : null);
+
     /**
      * S1-UI-060: thirteen roles, five visual classes, role first.
      *
@@ -280,13 +284,14 @@
         // be the same picture for "we have not asked", "we asked and the
         // ledger is empty" and "we asked, there are observations, none of
         // them fired".
-        var emptyKey = null;
-        if (!scenarioId) emptyKey = 'ui.geo.empty.no_focus';
-        else if (!row) emptyKey = 'ui.geo.empty.scenario_not_loaded';
-        else if (evidence === null) emptyKey = 'ui.geo.empty.not_loaded';
-        else if (observationTotal === 0) emptyKey = 'ui.geo.empty.no_observations';
-        else if (firedTotal === 0 && suppressedTotal === 0) {
-            emptyKey = 'ui.geo.empty.observed_nothing_fired';
+        var emptyReasonKey = null;
+        if (!scenarioId) emptyReasonKey = 'empty.geo.reason_no_focus';
+        else if (!row) emptyReasonKey = 'empty.geo.reason_scenario_not_loaded';
+        else if (evidence === null) emptyReasonKey = 'empty.geo.reason_not_loaded';
+        else if (observationTotal === 0) {
+            emptyReasonKey = 'empty.geo.reason_no_observations';
+        } else if (firedTotal === 0 && suppressedTotal === 0) {
+            emptyReasonKey = 'empty.geo.reason_observed_nothing_fired';
         }
 
         return {
@@ -305,7 +310,11 @@
             suppressedTotal: suppressedTotal,
             observationTotal: observationTotal,
             participantCount: markers.length,
-            emptyKey: emptyKey,
+            // P9 §3.5: the three G-17 emptinesses above are the REASON third
+            // of the contract; the role and the fills-when thirds are the
+            // same whichever of them holds, so `format.js` completes them.
+            emptyState: emptyReasonKey === null
+                ? null : F.emptyState('geo', emptyReasonKey),
             // The unserved layer, named with its reason rather than hidden.
             unservedLayers: LAYERS.filter(function (l) { return !l.available; })
                 .map(function (l) {

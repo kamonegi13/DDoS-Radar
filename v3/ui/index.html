@@ -224,6 +224,23 @@
       </div>
       <p id="geo-summary" class="geo-summary"></p>
       <div id="geo-empty"></div>
+
+      <!--
+        The country-tile map (P9 §3.4). The primary visual: participants laid
+        out in region blocks on a CSS grid, with a role ring and one dot per
+        domain that produced an event. There are still no coordinates on the
+        wire and none in the browser — the placement table in `geo_tiles.js`
+        is a frontend design asset, which §3.4 says is enough.
+
+        `aria-hidden`, because the list below carries exactly the same facts
+        in the order `geo.js` sorted them. A screen reader should hear them
+        once; a sighted reader should see where they are.
+      -->
+      <h4 data-i18n="ui.geo.tilemap.title"></h4>
+      <p class="lead" data-i18n="ui.geo.tilemap.lead"></p>
+      <div id="geo-tilemap" class="geo-tilemap" aria-hidden="true"></div>
+
+      <h4 data-i18n="ui.geo.tilemap.list_head"></h4>
       <ul id="geo-markers" class="geo-markers"></ul>
       <h4 id="geo-offroster-head" data-i18n="ui.geo.offroster" hidden></h4>
       <ul id="geo-offroster" class="geo-markers"></ul>
@@ -414,6 +431,8 @@
 
 <script src="strings.js"></script>
 <script src="format.js"></script>
+<script src="terms.js"></script>
+<script src="geo_tiles.js"></script>
 <script src="freshness.js"></script>
 <script src="trust.js"></script>
 <script src="board.js"></script>

@@ -332,11 +332,16 @@
             focusedScenario: focusedScenario,
             focusSource: envelope ? (envelope.focus_source || null) : null,
             scenarioCount: cards.length,
-            // S1-UI-008 forbids a blank screen: an empty board says why it
-            // is empty rather than showing nothing.
+            // S1-UI-008 forbids a blank screen, and P9 §3.5 raises the bar:
+            // saying WHY the board is empty is one of three things it owes a
+            // reader who has never seen it full. The other two — what this
+            // place shows, and what would fill it — do not depend on the
+            // payload, so the triple is assembled once in `format.js`.
             empty: cards.length === 0,
-            emptyKey: cards.length === 0
-                ? (envelope ? 'ui.board.empty.no_scenarios' : 'ui.board.empty.not_loaded')
+            emptyState: cards.length === 0
+                ? F.emptyState('board', envelope
+                    ? 'empty.board.reason_no_scenarios'
+                    : 'empty.board.reason_not_loaded')
                 : null,
         };
     }

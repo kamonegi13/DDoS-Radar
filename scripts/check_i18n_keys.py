@@ -281,7 +281,14 @@ _V3_DIR = _REPO_ROOT / "v3" / "ui"
 _V3_DICTIONARY = _V3_DIR / "strings.js"
 
 #: A key literal, or a prefix ending in a dot for a concatenated family.
-_V3_KEY_LITERAL = re.compile(r"""['"](ui\.[A-Za-z0-9_.]*)['"]""")
+#:
+#: Three namespaces, not one. `ui.*` is the screen inventory; WP-4.3c adds
+#: `term.*` (P9 §4 — the one-sentence definition of each internal term) and
+#: `empty.*` (P9 §3.5 — the role / reason / fills-when triple every empty
+#: surface owes its reader). Both are named by P9 itself, and a namespace the
+#: scanner does not know would report every key in it as unused — which would
+#: read as "delete these" rather than "the audit cannot see them".
+_V3_KEY_LITERAL = re.compile(r"""['"]((?:ui|term|empty)\.[A-Za-z0-9_.]*)['"]""")
 
 
 def scan_v3_references() -> set[str]:

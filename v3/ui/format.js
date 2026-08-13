@@ -156,6 +156,45 @@
     }
 
     /**
+     * The three things an empty surface must say (P9 §3.5, diagnosis D-4).
+     *
+     * S1-UI-008 forbids a blank screen, and WP-4.2 satisfied it: every empty
+     * surface said WHY it was empty. On a cold-start shadow that produced a
+     * screen reading "結論不可 / 空 / 空 / 空" — true in every line, and
+     * useless, because a first-time reader could not learn what the place is
+     * FOR from a page that had never been full. So the contract is three
+     * parts, not one:
+     *
+     *   role       — what this place shows when it has something to show
+     *   reason     — why it is empty right NOW
+     *   fills_when — what would have to happen for it to fill
+     *
+     * The reason comes from the caller, which takes it from state the server
+     * supplied (the lane's `empty_reason`, the geographic face's three
+     * G-17 emptinesses, R1's presence or absence). When no state was served
+     * the triple falls back to `empty.reason.unstated`, which says that the
+     * server did not say — inventing a plausible reason here would be a
+     * derivation with no ledger behind it (G-09).
+     *
+     * @param {string} surface  the `empty.<surface>.*` family
+     * @param {string|null} reasonKey  a full key literal, or null
+     */
+    var EMPTY_PREFIX = 'empty.';
+    var EMPTY_REASON_UNSTATED = 'empty.reason.unstated';
+
+    function emptyState(surface, reasonKey, reasonVars) {
+        var supplied = !!(typeof reasonKey === 'string' && reasonKey);
+        return {
+            surface: surface,
+            roleKey: EMPTY_PREFIX + surface + '.role',
+            reasonKey: supplied ? reasonKey : EMPTY_REASON_UNSTATED,
+            reasonVars: reasonVars || {},
+            reasonSupplied: supplied,
+            fillsWhenKey: EMPTY_PREFIX + surface + '.fills_when',
+        };
+    }
+
+    /**
      * HTML-escape an external string.
      *
      * S1-UI-041. Defined locally rather than reaching for `window._escHtml`,
@@ -204,5 +243,7 @@
         utcStamp: utcStamp,
         escHtml: escHtml,
         safeUrl: safeUrl,
+        emptyState: emptyState,
+        EMPTY_REASON_UNSTATED: EMPTY_REASON_UNSTATED,
     };
 });

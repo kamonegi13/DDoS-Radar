@@ -187,12 +187,36 @@ test('a non-numeric factor reads as absent, not as zero', () => {
 
 test('an empty lane distinguishes "ranker has not run" from "nothing ranked"', () => {
     assert.strictEqual(
-        L.buildLane({ attention: r6([], { empty_reason: 'ranker_has_not_run' }) }).emptyKey,
-        'ui.lane.empty.ranker_has_not_run');
+        L.buildLane({ attention: r6([], { empty_reason: 'ranker_has_not_run' }) })
+            .emptyState.reasonKey,
+        'empty.lane.reason_ranker_has_not_run');
     assert.strictEqual(
-        L.buildLane({ attention: r6([], { empty_reason: 'all_rows_below_min_score' }) }).emptyKey,
-        'ui.lane.empty.all_rows_below_min_score');
-    assert.strictEqual(L.buildLane({}).emptyKey, 'ui.lane.empty.not_loaded');
+        L.buildLane({ attention: r6([], { empty_reason: 'all_rows_below_min_score' }) })
+            .emptyState.reasonKey,
+        'empty.lane.reason_all_rows_below_min_score');
+    assert.strictEqual(L.buildLane({}).emptyState.reasonKey,
+                       'empty.lane.reason_not_loaded');
+});
+
+// P9 §3.5: the reason must come from the server's state, and a state this
+// build has no sentence for must be REPORTED as such rather than mapped onto
+// the nearest sentence we happen to own. The old concatenation printed the
+// raw key ("ui.lane.empty.whatever_the_server_said") on the analyst's screen.
+test('an empty reason this build does not know is named, not guessed', () => {
+    const state = L.buildLane({
+        attention: r6([], { empty_reason: 'quarantined_by_operator' }),
+    }).emptyState;
+    assert.strictEqual(state.reasonKey, 'empty.reason.unrecognised');
+    assert.strictEqual(state.reasonVars.reason, 'quarantined_by_operator');
+    assert.strictEqual(state.roleKey, 'empty.lane.role');
+    assert.strictEqual(state.fillsWhenKey, 'empty.lane.fills_when');
+});
+
+test('an empty lane says what it shows and what would fill it', () => {
+    const state = L.buildLane({}).emptyState;
+    assert.strictEqual(state.surface, 'lane');
+    assert.strictEqual(state.roleKey, 'empty.lane.role');
+    assert.strictEqual(state.fillsWhenKey, 'empty.lane.fills_when');
 });
 
 test('a lane whose rows are all suppressed is not "empty"', () => {
@@ -200,7 +224,7 @@ test('a lane whose rows are all suppressed is not "empty"', () => {
         attention: r6([row({ analyst_state: 'snoozed', suppressed: true })]),
     });
     assert.strictEqual(lane.empty, false);
-    assert.strictEqual(lane.emptyKey, null);
+    assert.strictEqual(lane.emptyState, null);
     assert.strictEqual(lane.suppressedCount, 1);
 });
 

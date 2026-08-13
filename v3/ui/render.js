@@ -47,9 +47,38 @@
     var C = (typeof require === 'function')
         ? require('./conclusions')
         : (typeof window !== 'undefined' ? window.NoroshiConclusions : null);
-
+    var Terms = (typeof require === 'function')
+        ? require('./terms')
+        : (typeof window !== 'undefined' ? window.NoroshiTerms : null);
     var _t = S.t;
     var esc = Fmt.escHtml;
+
+    /**
+     * An empty surface, in the three parts P9 §3.5 requires.
+     *
+     * Role, reason, fills-when — always all three, always in that order, and
+     * never assembled here: the triple arrives from the view model, which is
+     * the only layer that knows which server state produced it. The wrapper
+     * varies because the same block has to sit inside an `<ol>`, a `<tbody>`
+     * and a `<div>` without producing invalid markup; nothing else does.
+     */
+    function emptyStateHtml(state, options) {
+        var opts = options || {};
+        var body = '<span class="empty-role">'
+            + esc(_t(state.roleKey)) + '</span>'
+            + '<span class="empty-reason">'
+            + esc(_t(state.reasonKey, state.reasonVars)) + '</span>'
+            + '<span class="empty-fills">'
+            + esc(_t(state.fillsWhenKey)) + '</span>';
+        var attrs = ' class="empty empty-state" role="status"';
+        if (opts.tag === 'li') return '<li' + attrs + '>' + body + '</li>';
+        if (opts.tag === 'tr') {
+            return '<tr class="empty"><td colspan="'
+                + esc(String(opts.colspan || 1)) + '"'
+                + ' class="empty-state" role="status">' + body + '</td></tr>';
+        }
+        return '<p' + attrs + '>' + body + '</p>';
+    }
 
     function freshnessBadge(result) {
         var f = Fresh.freshnessOf({
@@ -76,7 +105,17 @@
     }
 
 
-    function trustChipHtml(fold) {
+    /**
+     * The AP3 chip, plus a definition for whatever term is holding it down.
+     *
+     * The component rows live in a `title` attribute and cannot carry markup,
+     * so the ⓘ goes beside the chip and defines the ONE term the fold's
+     * reason names — recall, null-zone or drift. `ops_health` and
+     * `freshness` are already Japanese on screen and need no gloss, so they
+     * produce no marker rather than a marker with nothing to say.
+     */
+    function trustChipHtml(fold, terms) {
+        var marks = Terms.markersOf(terms);
         var reason = fold.reason;
         var lines = fold.components.map(function (c) {
             return _t('ui.trust.tooltip_row', {
@@ -92,7 +131,8 @@
             + 'title="' + esc(_t(fold.formulaKey) + '\n' + lines.join('\n')) + '">'
             + '<span class="trust-band">' + esc(_t(fold.labelKey)) + '</span>'
             + '<span class="trust-reason">' + esc(_t(reason.labelKey)) + '</span>'
-            + '</button>';
+            + '</button>'
+            + marks.mark(Terms.componentTerm(reason.componentId));
     }
 
     /**
@@ -148,8 +188,15 @@
      *
      * `now` is a parameter rather than a call to the clock so the sentence
      * "last checked 2 hours ago" is reproducible under test.
+     *
+     * `terms` is the view's term-marker issuer (P9 §4). The FIRST card to
+     * print a threat level carries the ⓘ that defines one; the first card
+     * that cannot conclude carries the one for 結論不可, and so on. Passing
+     * none renders no markers — which is what a builder called from a test
+     * about something else should do.
      */
-    function cardHtml(card, now) {
+    function cardHtml(card, now, terms) {
+        var marks = Terms.markersOf(terms);
         var tl = card.tl;
         var since = card.sinceLastCheck;
         var clock = typeof now === 'number' ? now : Date.now() / 1000;
@@ -172,7 +219,8 @@
         var hint = resolution ? resolution.hint : null;
         var unavailableBlock = card.availability.sentenceKey
             ? '<p class="card-inconclusive">'
-              + esc(_t(card.availability.sentenceKey)) + '</p>'
+              + esc(_t(card.availability.sentenceKey))
+              + marks.mark('inconclusive') + '</p>'
               + (resolution && resolution.labelKey
                   ? '<p class="card-resolution">' + esc(_t(resolution.labelKey, {
                       days: hint ? Fmt.num(hint.daysRemaining) : Fmt.ABSENT,
@@ -203,14 +251,20 @@
             + '<div class="card-tl" style="--tl-color: var(' + esc(tl.cssVar) + ')">'
             + '<span class="tl-value">' + esc(tl.tl === null ? Fmt.ABSENT : String(tl.tl))
             + '</span><span class="tl-label">' + esc(_t(tl.labelKey)) + '</span>'
-            + '<span class="tl-caption">' + esc(_t('ui.board.tl_caption')) + '</span></div>'
+            + '<span class="tl-caption">' + esc(_t('ui.board.tl_caption'))
+            + marks.mark('tl') + '</span></div>'
             + '<div class="card-lines">'
             + '<p class="card-since">' + esc(_t(since.labelKey, {
                 ago: _t(ago.key, ago.vars),
                 delta: Fmt.signed(since.severityDelta),
                 current: tl.tl === null ? Fmt.ABSENT : String(tl.tl),
                 previous: since.previousTl === null ? Fmt.ABSENT : String(since.previousTl),
-            })) + '</p>'
+            }))
+            // The change sentence is the only place on the board that prints
+            // the word `severity`, and its direction is the opposite of the
+            // TL beside it — which is exactly the confusion that inverted
+            // calibration on 2026-08-02.
+            + (since.seen ? marks.mark('severity') : '') + '</p>'
             + unavailableBlock
             + '<p class="card-meta">'
             + '<span class="card-availability">' + esc(_t(card.availability.labelKey))
@@ -223,7 +277,8 @@
             + '</div></div>'
             + domainBar
             + '<p class="card-coverage">' + esc(_t(card.coverage.labelKey, {
-                mode: card.coverage.scoringMode || Fmt.ABSENT })) + '</p>'
+                mode: card.coverage.scoringMode || Fmt.ABSENT }))
+            + marks.mark('scoring_mode') + '</p>'
             + '</article>';
     }
 
@@ -295,7 +350,8 @@
             + '</div>';
     }
 
-    function unavailableHtml(u) {
+    function unavailableHtml(u, terms) {
+        var marks = Terms.markersOf(terms);
         var evaluated = u.evaluated.map(function (g) {
             return '<li class="guard guard-' + (g.fired ? 'fired' : 'quiet') + '">'
                 + esc(_t('ui.conclusion.guard_row', {
@@ -305,7 +361,8 @@
                 })) + '</li>';
         }).join('');
         return '<div class="unavailable">'
-            + '<p class="unavailable-reason">' + esc(_t(u.reasonKey)) + '</p>'
+            + '<p class="unavailable-reason">' + esc(_t(u.reasonKey))
+            + marks.mark('inconclusive') + '</p>'
             + '<p class="unavailable-guard">' + esc(_t('ui.conclusion.guard', {
                 guard: u.guardId || Fmt.ABSENT,
                 condition: u.guardCondition || Fmt.ABSENT,
@@ -322,7 +379,7 @@
             + '</div>';
     }
 
-    function conclusionRowHtml(row) {
+    function conclusionRowHtml(row, terms) {
         return '<div class="conclusion-row' + (row.available ? '' : ' conclusion-unavailable')
             + '" data-conclusion="' + esc(row.conclusionId || '') + '">'
             + '<p class="conclusion-state">'
@@ -332,7 +389,7 @@
             })) + '</p>'
             + (row.overridden
                 ? '<p class="override">' + esc(_t('ui.conclusion.overridden')) + '</p>' : '')
-            + (row.available ? '' : unavailableHtml(row.unavailable))
+            + (row.available ? '' : unavailableHtml(row.unavailable, terms))
             + calibrationHtml(row)
             + '<p class="conclusion-formula">' + esc(_t('ui.conclusion.formula', {
                 ref: row.formulaRef || Fmt.ABSENT })) + '</p>'
@@ -398,10 +455,17 @@
             + '<h5>' + esc(_t(section.titleKey)) + '</h5>' + body + '</section>';
     }
 
-    /** One AP3 component row in the Tier 2 breakdown. */
-    function trustComponentRowHtml(c) {
+    /**
+     * One AP3 component row in the Tier 2 breakdown.
+     *
+     * This is where recall, null-zone and drift render as WORDS rather than
+     * as a tooltip line, so this is where R-C attaches their definitions.
+     */
+    function trustComponentRowHtml(c, terms) {
+        var marks = Terms.markersOf(terms);
         return '<tr class="trust-' + esc(c.band) + '">'
-            + '<td>' + esc(_t(c.labelKey)) + '</td>'
+            + '<td>' + esc(_t(c.labelKey))
+            + marks.mark(Terms.componentTerm(c.id)) + '</td>'
             + '<td>' + esc(_t(c.stateKey)) + '</td>'
             + '<td>' + esc(c.value === null ? Fmt.ABSENT : Fmt.num(c.value, 3)) + '</td>'
             + '<td>' + esc(c.boundary ? Fmt.num(c.boundary.value, 3) : Fmt.ABSENT) + '</td>'
@@ -516,6 +580,80 @@
             + '</li>';
     }
 
+    // ── the country-tile map (P9 §3.4) ──────────────────────────────────
+
+    /**
+     * One country tile.
+     *
+     * The role is the ring, the domains that produced events are the dots,
+     * and the ISO2 is printed beside the flag rather than replaced by it —
+     * an emoji the platform cannot render must not be able to take the
+     * country's identity with it.
+     *
+     * `aria-hidden` is applied to the whole grid by its container, not per
+     * tile: the marker list below carries the same facts in the order
+     * `geo.js` sorted them, and a screen reader should hear them once.
+     */
+    function geoTileHtml(tile) {
+        var dots = tile.dots.map(function (dot) {
+            return '<span class="tile-dot tile-dot-' + esc(dot.kind)
+                + ' tile-domain-' + esc(dot.domain) + '"></span>';
+        }).join('');
+        var tip = _t('ui.geo.tile.tip', {
+            country: tile.country,
+            role: _t(tile.roleKey),
+            state: _t(tile.stateKey, {
+                fired: tile.firedCount,
+                suppressed: tile.suppressedCount,
+                observations: tile.observations,
+            }),
+        });
+        return '<li class="geo-tile geo-role-' + esc(tile.roleClass)
+            + (tile.hasEvents ? ' geo-tile-events' : '')
+            + (tile.isAdversary ? ' geo-tile-adversary' : '')
+            + (tile.isChainCountry ? ' geo-tile-chain' : '')
+            + '" data-country="' + esc(tile.country) + '"'
+            + (tile.placed
+                ? ' style="grid-column:' + esc(String(tile.col))
+                  + ';grid-row:' + esc(String(tile.row)) + '"'
+                : '')
+            + ' title="' + esc(tip) + '">'
+            + '<span class="tile-flag">' + esc(tile.flag) + '</span>'
+            + '<span class="tile-iso">' + esc(tile.country) + '</span>'
+            + '<span class="tile-dots">' + dots + '</span>'
+            + '</li>';
+    }
+
+    /**
+     * The whole grid: one block per region that has a participant, then the
+     * spillover row for countries the placement table does not know.
+     *
+     * The spillover row is not an error state — it is the map admitting that
+     * a frontend asset is behind the deployment data, which G-17 says must
+     * be visible rather than silently dropped.
+     */
+    function geoTileMapHtml(map) {
+        var blocks = map.regions.map(function (region) {
+            return '<section class="geo-region" data-region="' + esc(region.id) + '">'
+                + '<h5 class="geo-region-name">' + esc(_t(region.labelKey)) + '</h5>'
+                + '<ul class="geo-region-grid" style="grid-template-columns:repeat('
+                + esc(String(region.columns)) + ',1fr);grid-template-rows:repeat('
+                + esc(String(region.rows)) + ',auto)">'
+                + region.tiles.map(geoTileHtml).join('')
+                + '</ul></section>';
+        }).join('');
+        var spill = map.spillover.present
+            ? '<section class="geo-region geo-region-unplaced" data-region="unplaced">'
+              + '<h5 class="geo-region-name">'
+              + esc(_t(map.spillover.labelKey)) + '</h5>'
+              + '<p class="hint">' + esc(_t(map.spillover.noteKey)) + '</p>'
+              + '<ul class="geo-region-grid geo-region-grid-flow">'
+              + map.spillover.tiles.map(geoTileHtml).join('')
+              + '</ul></section>'
+            : '';
+        return blocks + spill;
+    }
+
     /** One layer toggle. An unserved layer says what it is waiting for. */
     function geoLayerHtml(layer, on) {
         if (!layer.available) {
@@ -624,7 +762,10 @@
         trustChipHtml: trustChipHtml,
         boardSummaryHtml: boardSummaryHtml,
         faceScopeHtml: faceScopeHtml,
+        emptyStateHtml: emptyStateHtml,
         geoMarkerHtml: geoMarkerHtml,
+        geoTileHtml: geoTileHtml,
+        geoTileMapHtml: geoTileMapHtml,
         geoLayerHtml: geoLayerHtml,
         settingsRowHtml: settingsRowHtml,
         groundTruthRowHtml: groundTruthRowHtml,

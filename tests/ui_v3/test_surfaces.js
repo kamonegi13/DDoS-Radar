@@ -39,7 +39,7 @@ async function run() {
 
 const NOW = 1800000000;
 const IDS = ['geo-freshness', 'geo-layers', 'geo-summary', 'geo-empty',
-             'geo-markers', 'geo-offroster', 'geo-offroster-head',
+             'geo-tilemap', 'geo-markers', 'geo-offroster', 'geo-offroster-head',
              'settings-freshness', 'settings-summary', 'settings-rows',
              'groundtruth-rows', 'mode-slot', 'critical-banner',
              'dim-overlay', 'dim-message', 'dim-retry', 'live-slot', 'stage-2'];
@@ -197,6 +197,33 @@ test('the geographic face shows the fired country and its role class', async () 
     const markers = h.doc.getElementById('geo-markers').innerHTML;
     assert.ok(markers.indexOf('TW') !== -1, markers);
     assert.ok(markers.indexOf('geo-role-target') !== -1, markers);
+});
+
+// P9 §3.4 / D-5. The list answered "where" with thirty ISO codes; the tile
+// map answers it with a picture built from the SAME markers, so the two
+// cannot disagree about what fired where.
+test('the tile map draws the participant in its region block', async () => {
+    const h = harness();
+    h.surfaces.renderGeo();
+    const tiles = h.doc.getElementById('geo-tilemap').innerHTML;
+    assert.ok(tiles.indexOf('data-region="east_asia"') !== -1, tiles);
+    assert.ok(tiles.indexOf('data-country="TW"') !== -1, tiles);
+    assert.ok(tiles.indexOf('geo-role-target') !== -1, tiles);
+});
+
+test('the tile map and the marker list carry the same countries', async () => {
+    const h = harness();
+    h.surfaces.renderGeo();
+    const tiles = h.doc.getElementById('geo-tilemap').innerHTML;
+    // The list is in two elements — participants, then the off-roster rows —
+    // and the tile map draws both, the second in the 配置未定義 row when the
+    // placement table does not know the country.
+    const list = h.doc.getElementById('geo-markers').innerHTML
+        + h.doc.getElementById('geo-offroster').innerHTML;
+    const of = (html) => (html.match(/data-country="([A-Z]+)"/g) || []).sort();
+    assert.ok(of(tiles).length > 0, tiles);
+    assert.deepStrictEqual(of(tiles), of(list),
+        'the primary visual and the accessible representation disagree');
 });
 
 test('the unserved reference layer is listed with its reason', async () => {

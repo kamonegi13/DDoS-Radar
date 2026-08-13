@@ -633,6 +633,11 @@ class TestTheViewSplitIsStructural:
         ("lane-rows", "view-situation"),
         ("onboarding-card", "view-situation"),
         ("face-sections", "view-scenario"),
+        # P9 §3.4: the tile map is the primary visual of the geographic face
+        # and the marker list is its accessible twin. Both belong to the
+        # scenario view; a tile map that drifted onto the board would put a
+        # Tier 1 surface under the ten-second question again (D-1).
+        ("geo-tilemap", "view-scenario"),
         ("geo-markers", "view-scenario"),
         ("feedback-slot", "view-scenario"),
         ("proposal-rows", "view-scenario"),
