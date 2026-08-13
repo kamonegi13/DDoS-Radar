@@ -328,12 +328,33 @@ tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust);
 .summary-unsupplied { color: var(--color-text-dim); font-style: italic; }
 .summary-ref { font-size: var(--text-meta); color: var(--color-muted); }
 
+/* ── the situation band (P9 §2.2 R-G / §3.7) ─────────────────────────────
+ * A composition, not a column: the map (space) beside the cards
+ * (comparison), under the summary sentence (change), above the lane
+ * (priority). The second owner review's closing diagnosis (D-12) was that
+ * a vertical enumeration of facts is not judgement material — the reader
+ * must be able to hold "where", "how bad" and "what changed" in one look,
+ * and enter from any of them. */
+.situation-band {
+    display: grid;
+    grid-template-columns: minmax(300px, 2fr) minmax(360px, 3fr);
+    gap: var(--space-4);
+    align-items: start;
+    margin-top: var(--space-3);
+}
+/* Narrow screens stack: the map first — "where" survives the fold. */
+@media (max-width: 960px) {
+    .situation-band { grid-template-columns: 1fr; }
+}
+.board-map-block h3 { margin: 0 0 var(--space-1); font-size: 14px; }
+.board-map-block .lead { margin: 0 0 var(--space-2);
+                         font-size: var(--text-meta); }
+
 /* ── scenario cards ──────────────────────────────────────────────────── */
 .cards {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
     gap: var(--space-3);
-    margin-top: var(--space-3);
 }
 
 .card {
