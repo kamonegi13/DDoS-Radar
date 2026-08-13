@@ -157,9 +157,8 @@
         'ui.board.derived.absent': '由来: {mode} — ドメイン別内訳の記録がまだありません。',
         'ui.board.derived.unreadable': '由来: {mode} — ドメイン別内訳の行が読めません（記録は存在します）。',
 
-        // ── 状況ビューのシナリオ地図（P9 §2.2 R-F / §3.7） ────────────────
-        'ui.board_map.title': 'シナリオの参加国地図',
-        'ui.board_map.lead': 'タイルの色は、その国が参加するシナリオのうち最も深刻な脅威レベルです。カードにポインタを重ねると、そのシナリオの参加国が強調されます。',
+        // ── 状況ビューのシナリオ地図（P9 §2.2 R-F / §3.7、§1.4 D-15/D-18
+        //    で主面化 — タイトル・説明文は密度のため撤去、意味は tooltip） ──
         'ui.board_map.membership': '{name} — TL {tl}',
         'ui.board_map.membership_null': '{name} — TL 未算出',
         'ui.board_map.adversary_suffix': '（敵対側）',

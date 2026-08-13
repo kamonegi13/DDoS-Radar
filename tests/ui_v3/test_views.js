@@ -277,17 +277,17 @@ test('a window without location or listeners still resolves to the board', () =>
     assert.strictEqual(views.route().view, V.SITUATION);
 });
 
-test('the onboarding card opens by default and toggles closed', () => {
+test('the onboarding card is CLOSED by default and toggles open (P9 §1.4 D-17)', () => {
     const doc = makeDoc();
     const views = V.createViews({ doc, win: makeWin('#/') });
     views.bind();
-    assert.strictEqual(doc.nodes['onboarding-body'].hidden, false);
-    assert.strictEqual(views.onboardingOpen(), true);
-    assert.strictEqual(doc.nodes['onboarding-toggle'].getAttribute('aria-expanded'),
-                       'true');
-    doc.nodes['onboarding-toggle'].listeners.click();
     assert.strictEqual(doc.nodes['onboarding-body'].hidden, true);
     assert.strictEqual(views.onboardingOpen(), false);
+    assert.strictEqual(doc.nodes['onboarding-toggle'].getAttribute('aria-expanded'),
+                       'false');
+    doc.nodes['onboarding-toggle'].listeners.click();
+    assert.strictEqual(doc.nodes['onboarding-body'].hidden, false);
+    assert.strictEqual(views.onboardingOpen(), true);
 });
 
 test('a missing element never breaks an application', () => {

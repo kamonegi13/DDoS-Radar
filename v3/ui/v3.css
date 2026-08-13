@@ -41,10 +41,13 @@
      * is why a ten-second board took a minute. Four steps, used for one
      * thing each: the TL numeral, the sentences that answer a question,
      * body text, and the numbers that support a sentence. */
-    --text-hero: 56px;   /* the TL numeral — the dominant element of a card */
-    --text-lead: 18px;   /* the situation sentence, the lane narrative */
-    --text-body: 14px;
-    --text-meta: 12px;   /* score, rank, deltas: support, not headline */
+    /* Sized against kuebiko's shipped scale (P9 §1.4 D-18): its body is
+     * 13px and its metadata 11px, and the fourth review measured ours a
+     * step larger everywhere — same information, twice the area. */
+    --text-hero: 34px;   /* the TL numeral — the dominant element of a card */
+    --text-lead: 14px;   /* the situation sentence, the lane narrative */
+    --text-body: 13px;
+    --text-meta: 11px;   /* score, rank, deltas: support, not headline */
 
     /* Semantic aliases: the trust bands and freshness levels name a colour
      * once here rather than repeating a palette entry at each use. */
@@ -61,19 +64,40 @@
 /* ── base ────────────────────────────────────────────────────────────── */
 * { box-sizing: border-box; }
 
+/* The shell is a column the height of the viewport (P9 §1.4 D-15): the
+ * global bars take what they need, `main` takes the rest, and the
+ * situation view lays its map out inside that rest WITHOUT page scroll.
+ * The verify and scenario views scroll inside the same box instead. */
+html, body { height: 100%; }
 body {
     margin: 0;
     background: var(--color-bg);
     color: var(--color-text);
     font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, monospace;
-    font-size: 14px;
-    line-height: 1.6;
+    font-size: var(--text-body);
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
 }
 
-main { padding: var(--space-4); max-width: 1400px; margin: 0 auto; }
+/* Sidebar beside content (D-16 — kuebiko's AppShell shape). */
+main {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 148px minmax(0, 1fr);
+}
+.view-stack { min-width: 0; min-height: 0; overflow: hidden;
+              display: flex; }
+.view { flex: 1; min-width: 0; min-height: 0; }
+/* Views that are documents scroll themselves; the situation view is a
+ * screen and does not. */
+#view-scenario, #view-verify { overflow-y: auto;
+                               padding: var(--space-3) var(--space-4); }
 
-h2, h3, h4, h5 { margin: var(--space-4) 0 var(--space-2); font-weight: 600; }
-h3 { font-size: 15px; border-bottom: 1px solid var(--color-border);
+h2, h3, h4, h5 { margin: var(--space-3) 0 var(--space-2); font-weight: 600; }
+h2 { font-size: var(--text-body); }
+h3 { font-size: var(--text-body); border-bottom: 1px solid var(--color-border);
      padding-bottom: var(--space-1); }
 
 button {
@@ -193,23 +217,31 @@ td[data-deferred] { color: var(--color-muted); }
     z-index: 19;
 }
 
-/* ── views and the two-item navigation (P9 §3.2) ─────────────────────── */
+/* ── the two-item navigation, worn as a sidebar (P9 §3.2 / §1.4 D-16) ── */
 .view-nav {
     display: flex;
-    gap: var(--space-2);
-    margin-bottom: var(--space-4);
-    border-bottom: 1px solid var(--color-border);
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-3) 0;
+    border-right: 1px solid var(--color-border);
+    background: var(--color-surface);
+}
+
+.nav-brand {
+    padding: 0 var(--space-3) var(--space-3);
+    font-size: var(--text-body);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: var(--color-text-dim);
 }
 
 .nav-item {
-    display: inline-block;
-    padding: var(--space-2) var(--space-4);
+    display: block;
+    padding: var(--space-2) var(--space-3);
     color: var(--color-text-dim);
     text-decoration: none;
-    border: 1px solid transparent;
-    border-bottom: none;
-    border-radius: var(--radius-md) var(--radius-md) 0 0;
-    font-size: 16px;
+    border-left: 2px solid transparent;
+    font-size: var(--text-body);
     letter-spacing: 0.08em;
 }
 .nav-item:hover { color: var(--color-text); }
@@ -219,11 +251,11 @@ td[data-deferred] { color: var(--color-muted); }
  * came from here", not "you are here". */
 .nav-current {
     color: var(--color-accent);
-    border-color: var(--color-accent);
-    background: var(--color-surface);
+    border-left-color: var(--color-accent);
+    background: var(--color-bg);
     font-weight: 700;
 }
-.nav-branch { color: var(--color-info); border-color: var(--color-border); }
+.nav-branch { color: var(--color-info); border-left-color: var(--color-border); }
 
 .view-back { margin: 0 0 var(--space-3); }
 
@@ -242,10 +274,10 @@ td[data-deferred] { color: var(--color-muted); }
 
 /* ── onboarding (P9 §3.6) ────────────────────────────────────────────── */
 .onboarding {
-    border: 1px solid var(--color-info);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
-    padding: var(--space-3);
-    margin-bottom: var(--space-5);
+    padding: var(--space-2);
+    margin-bottom: 0;
     background: var(--color-surface);
 }
 .onboarding-head {
@@ -254,7 +286,7 @@ td[data-deferred] { color: var(--color-muted); }
     align-items: center;
     gap: var(--space-3);
 }
-.onboarding-head h2 { margin: 0; font-size: 16px; color: var(--color-info); }
+.onboarding-head h2 { margin: 0; font-size: var(--text-body); color: var(--color-info); }
 .onboarding-list { margin: var(--space-3) 0 var(--space-2); padding-left: var(--space-5); }
 .onboarding-list li { margin-bottom: var(--space-1); }
 
@@ -262,8 +294,8 @@ td[data-deferred] { color: var(--color-muted); }
 .stage {
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
-    padding: var(--space-3);
-    margin-bottom: var(--space-5);
+    padding: var(--space-2);
+    margin-bottom: var(--space-3);
     background: var(--color-surface);
 }
 
@@ -276,7 +308,7 @@ td[data-deferred] { color: var(--color-muted); }
     padding-bottom: var(--space-2);
 }
 
-.stage-head h2 { margin: 0; font-size: 16px; }
+.stage-head h2 { margin: 0; font-size: var(--text-body); }
 
 /* No .stage-n / .stage-question rules: the numbered-loop chrome was
    diagnosis D-8/D-9 (P9 §1.2) and the elements are gone from the shell. */
@@ -315,52 +347,84 @@ tr.trust-reserved td:first-child { border-left: 3px solid var(--trust-reserved);
 tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust); }
 
 /* ── the situation sentence (P9 R-A) ─────────────────────────────────── */
-.board-summary:not(:empty) {
+/* ── the situation screen (P9 §2.2 R-G / §3.7, recomposed by §1.4 D-15):
+ * the map is the canvas, everything else is a strip or a rail. The fourth
+ * review's instruction was literal — 「地図を全面に出したうえで、スクロール
+ * しなくて良いように画面を構成」 — and this is v1's own composition. */
+.situation-screen {
+    height: 100%;
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
-    margin: var(--space-3) 0;
-    padding: var(--space-3);
-    border-left: 3px solid var(--color-accent);
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    margin: 0;
     background: var(--color-bg);
 }
-.summary-text { font-size: var(--text-lead); line-height: 1.5; }
-.summary-unsupplied { color: var(--color-text-dim); font-style: italic; }
-.summary-ref { font-size: var(--text-meta); color: var(--color-muted); }
-
-/* ── the situation band (P9 §2.2 R-G / §3.7) ─────────────────────────────
- * A composition, not a column: the map (space) beside the cards
- * (comparison), under the summary sentence (change), above the lane
- * (priority). The second owner review's closing diagnosis (D-12) was that
- * a vertical enumeration of facts is not judgement material — the reader
- * must be able to hold "where", "how bad" and "what changed" in one look,
- * and enter from any of them. */
-.situation-band {
-    display: grid;
-    grid-template-columns: minmax(300px, 2fr) minmax(360px, 3fr);
-    gap: var(--space-4);
-    align-items: start;
-    margin-top: var(--space-3);
+.situation-top {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
 }
-/* Narrow screens stack: the map first — "where" survives the fold. */
+.situation-top h2 { margin: 0; font-size: var(--text-body);
+                    white-space: nowrap; }
+.situation-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+}
+.board-map-block {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+.situation-rail {
+    flex: none;
+    width: 380px;
+    min-height: 0;
+    overflow-y: auto;
+    border-left: 1px solid var(--color-border);
+    padding: var(--space-2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    background: var(--color-surface);
+}
+/* Narrow screens stack and the page scrolls again — a phone has no room
+ * for a no-scroll composition, and pretending otherwise clips the rail. */
 @media (max-width: 960px) {
-    .situation-band { grid-template-columns: 1fr; }
+    .situation-screen { height: auto; }
+    .situation-body { display: block; }
+    .situation-rail { width: auto; border-left: none; overflow: visible; }
+    .board-map-block { min-height: 320px; }
+    #view-situation { overflow-y: auto; }
 }
-.board-map-block h3 { margin: 0 0 var(--space-1); font-size: 14px; }
-.board-map-block .lead { margin: 0 0 var(--space-2);
-                         font-size: var(--text-meta); }
 
-/* ── scenario cards ──────────────────────────────────────────────────── */
+/* The sentence rides the strip inline (D-18): one line that wraps to two
+ * at most, not a boxed block. */
+.board-summary { margin: 0; flex: 1; min-width: 0; }
+.board-summary:not(:empty) { display: block; }
+.summary-text { font-size: var(--text-lead); line-height: 1.4; }
+.summary-unsupplied { color: var(--color-text-dim); font-style: italic; }
+.summary-ref { font-size: var(--text-meta); color: var(--color-muted);
+               margin-left: var(--space-2); }
+
+/* ── scenario cards (one per row on the rail) ────────────────────────── */
 .cards {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-    gap: var(--space-3);
+    grid-template-columns: 1fr;
+    gap: var(--space-2);
 }
 
 .card {
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
-    padding: var(--space-3);
+    padding: var(--space-2);
     background: var(--color-bg);
 }
 .card-focused { border-color: var(--color-accent); }
@@ -397,10 +461,10 @@ tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust);
  * number, and both are quieter than this. */
 .card-body {
     display: grid;
-    grid-template-columns: minmax(96px, 1fr) 2fr;
-    gap: var(--space-3);
+    grid-template-columns: minmax(72px, auto) 1fr;
+    gap: var(--space-2);
     align-items: start;
-    margin: var(--space-3) 0;
+    margin: var(--space-2) 0;
 }
 
 .card-tl {
@@ -823,13 +887,18 @@ tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust);
  * the card that scenario paints read as one system. */
 .board-map { display: flex; flex-wrap: wrap; gap: var(--space-3);
              align-items: flex-start; }
-/* The REAL map (P9 §1.3, WP-4.5a): the container becomes a Leaflet pane.
- * Height is the design's, not Leaflet's — the library fills whatever box
- * it is given. */
-.board-map.board-map-real { display: block; height: 520px;
-                            border: 1px solid var(--color-border);
-                            border-radius: var(--radius-md);
+/* The REAL map (P9 §1.3, WP-4.5a; full-bleed per §1.4 D-15): the
+ * container becomes a Leaflet pane and fills the canvas the screen gives
+ * it — no frame, no fixed height. */
+.board-map.board-map-real { display: block; flex: 1; min-height: 0;
+                            height: auto;
                             background: var(--color-surface); }
+/* The tile-grid fallback lives in the same slot and scrolls if it must. */
+.board-map:not(.board-map-real) { flex: 1; min-height: 0;
+                                  overflow-y: auto;
+                                  padding: var(--space-2); }
+#board-map-note { flex: none; margin: 0;
+                  padding: var(--space-1) var(--space-2); }
 .bm-marker-anchor { background: none; border: none; }
 .bm-marker { display: flex; flex-direction: column; align-items: center;
              gap: 2px; transform: translate(-50%, -50%);

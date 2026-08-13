@@ -113,60 +113,41 @@
 <main id="app-main" hidden>
 
   <!--
-    The whole of the top-level navigation: two items (P9 §3.2). The
-    scenario face is deliberately absent from it — a view ABOUT something
-    is entered through the thing it is about, from a card or a lane row.
+    The whole of the top-level navigation: two items (P9 §3.2), now worn
+    as a SIDEBAR (P9 §1.4 D-16 — kuebiko's AppShell shape). The item set,
+    the ids and the two-destination gate are unchanged; only the housing
+    is. The scenario face is deliberately absent from it — a view ABOUT
+    something is entered through the thing it is about, from a card or a
+    lane row.
   -->
   <nav id="view-nav" class="view-nav" aria-label="ビュー切替">
+    <span class="nav-brand" aria-hidden="true">Noroshi</span>
     <a id="nav-situation" class="nav-item" href="#/" data-i18n="ui.nav.situation"></a>
     <a id="nav-verify" class="nav-item" href="#/verify" data-i18n="ui.nav.verify"></a>
   </nav>
 
-  <!-- ══ 状況ビュー (#/) — 1 状況確認 + 2 トリアージ ══════════════════ -->
+  <div class="view-stack">
+
+  <!-- ══ 状況ビュー (#/) — 地図が主面、その他は薄いレール (P9 §1.4 D-15) ══ -->
   <div id="view-situation" class="view">
 
     <!--
-      The onboarding card (P9 §3.6): the five questions of the loop, mapped
-      to the two navigation items and to the card / lane-row clicks that
-      reach the third view. Collapsible, open by default; the state is NOT
-      stored (see the 未着地の機能 table for why).
-    -->
-    <section id="onboarding-card" class="onboarding"
-             aria-labelledby="onboarding-title">
-      <div class="onboarding-head">
-        <h2 id="onboarding-title" data-i18n="ui.onboarding.title"></h2>
-        <button type="button" id="onboarding-toggle"
-                aria-controls="onboarding-body"></button>
-      </div>
-      <div id="onboarding-body">
-        <!--
-          Deliberately an unordered list: these are parallel entries into
-          the same screen, not steps (P9 §1.2 D-9). Numbering them told a
-          reader to walk them in order, which is exactly the misreading the
-          second owner review reported.
-        -->
-        <ul class="onboarding-list">
-          <li data-i18n="ui.onboarding.q1"></li>
-          <li data-i18n="ui.onboarding.q2"></li>
-          <li data-i18n="ui.onboarding.q3"></li>
-          <li data-i18n="ui.onboarding.q4"></li>
-          <li data-i18n="ui.onboarding.q5"></li>
-        </ul>
-        <p class="hint" data-i18n="ui.onboarding.persistence_note"></p>
-      </div>
-    </section>
-
-    <!--
       No stage numbers and no question lines anywhere below (P9 §1.2
-      D-8/D-9, ruling R-D): the loop's questions and the 目標 N 秒 targets
-      are the DESIGN's acceptance criteria, and printing them here made the
-      tool describe itself instead of the situation. The `stage-N` ids stay
-      — they are wiring (`surfaces.js` writes `data-mode` on #stage-2,
-      `app.js` scrolls to #stage-5), not display.
+      D-8/D-9, ruling R-D). The `stage-N` ids stay — they are wiring
+      (`surfaces.js` writes `data-mode` on #stage-2, `app.js` scrolls to
+      #stage-5), not display.
     -->
-    <section id="stage-1" class="stage" aria-labelledby="stage-1-title">
-      <div class="stage-head">
+    <section id="stage-1" class="stage situation-screen"
+             aria-labelledby="stage-1-title">
+      <!--
+        One slim strip: the section label, the situation sentence (P9 R-A,
+        server-composed board_summary — the browser must not assemble it,
+        G-09), and the status tools. Everything the old stacked header and
+        summary block said, at a quarter of the height (D-18).
+      -->
+      <div class="situation-top">
         <h2 id="stage-1-title"><span data-i18n="ui.stage.situation"></span></h2>
+        <p id="board-summary" class="board-summary"></p>
         <div class="stage-tools">
           <span id="board-freshness" class="freshness-slot"></span>
           <span id="trust-slot"></span>
@@ -174,55 +155,73 @@
           <button type="button" id="refresh-btn" data-i18n="ui.action.refresh"></button>
         </div>
       </div>
-      <!--
-        The situation sentence (P9 §2 R-A). Server-composed: R1's
-        `board_summary`, rendered verbatim. When it is absent the slot says
-        so — the browser must not assemble the sentence from the cards,
-        because counting what changed and naming the most urgent scenario is
-        a derivation, and a derivation done here leaves no trail (G-09).
-      -->
-      <p id="board-summary" class="board-summary"></p>
-      <!--
-        The situation band (P9 §3.7): the scenario map and the cards, side
-        by side. The map is the answer to "which region is this about" —
-        the question the second owner review (D-10) found the opening
-        screen could not answer — drawn from R1 rows alone: participants,
-        roles, adversaries and each scenario's current TL. No event dots;
-        events are R2's, and R2 serves the focused scenario only.
 
-        `aria-hidden`, because every fact on the map — country, scenario,
-        role, TL — is carried in text by the cards' participant strips. A
-        screen reader hears each fact once; a sighted reader sees where it
-        is.
-      -->
-      <div class="situation-band">
+      <div class="situation-body">
+        <!--
+          The map is the canvas (D-15, v1's own composition). Drawn from R1
+          rows alone; no event dots (events are R2's, focused-only).
+          `aria-hidden`, because every fact on it — country, scenario,
+          role, TL — is carried in text by the cards' participant strips.
+        -->
         <div class="board-map-block">
-          <h3 data-i18n="ui.board_map.title"></h3>
-          <p class="lead" data-i18n="ui.board_map.lead"></p>
           <div id="board-map" class="board-map" aria-hidden="true"></div>
           <!--
             G-17 under the real map: a country whose centroid the display
-            asset does not know is named here, never silently absent from
-            the pane above.
+            asset does not know is named here, never silently absent.
           -->
           <p id="board-map-note" class="hint" hidden></p>
         </div>
-        <div id="board-cards" class="cards"></div>
-      </div>
-    </section>
 
-    <section id="stage-2" class="stage" aria-labelledby="stage-2-title">
-      <div class="stage-head">
-        <h2 id="stage-2-title"><span data-i18n="ui.stage.triage"></span></h2>
-        <div class="stage-tools">
-          <span id="lane-freshness" class="freshness-slot"></span>
-          <span id="mode-slot"></span>
-          <button type="button" id="lane-more"></button>
-        </div>
+        <!--
+          The rail: cards, then the attention lane, then the collapsed
+          onboarding card. It scrolls internally; the page does not.
+        -->
+        <aside class="situation-rail">
+          <div id="board-cards" class="cards"></div>
+
+          <section id="stage-2" class="stage" aria-labelledby="stage-2-title">
+            <div class="stage-head">
+              <h2 id="stage-2-title"><span data-i18n="ui.stage.triage"></span></h2>
+              <div class="stage-tools">
+                <span id="lane-freshness" class="freshness-slot"></span>
+                <span id="mode-slot"></span>
+                <button type="button" id="lane-more"></button>
+              </div>
+            </div>
+            <p id="lane-summary" class="lane-summary"></p>
+            <p id="lane-suppressed" class="lane-suppressed"></p>
+            <ol id="lane-rows" class="lane"></ol>
+          </section>
+
+          <!--
+            The onboarding card (P9 §3.6, amended by §1.4 D-17): CLOSED by
+            default — it is first-sight explanation, not situation. The
+            open/closed state is still not stored (未着地の機能).
+          -->
+          <section id="onboarding-card" class="onboarding"
+                   aria-labelledby="onboarding-title">
+            <div class="onboarding-head">
+              <h2 id="onboarding-title" data-i18n="ui.onboarding.title"></h2>
+              <button type="button" id="onboarding-toggle"
+                      aria-controls="onboarding-body"></button>
+            </div>
+            <div id="onboarding-body">
+              <!--
+                Deliberately an unordered list: parallel entries into the
+                same screen, not steps (P9 §1.2 D-9).
+              -->
+              <ul class="onboarding-list">
+                <li data-i18n="ui.onboarding.q1"></li>
+                <li data-i18n="ui.onboarding.q2"></li>
+                <li data-i18n="ui.onboarding.q3"></li>
+                <li data-i18n="ui.onboarding.q4"></li>
+                <li data-i18n="ui.onboarding.q5"></li>
+              </ul>
+              <p class="hint" data-i18n="ui.onboarding.persistence_note"></p>
+            </div>
+          </section>
+        </aside>
       </div>
-      <p id="lane-summary" class="lane-summary"></p>
-      <p id="lane-suppressed" class="lane-suppressed"></p>
-      <ol id="lane-rows" class="lane"></ol>
     </section>
   </div>
 
@@ -465,6 +464,8 @@
       </table>
     </section>
   </div>
+
+  </div><!-- /.view-stack -->
 
 </main>
 

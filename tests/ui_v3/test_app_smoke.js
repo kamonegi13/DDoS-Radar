@@ -729,12 +729,12 @@ test('an unknown route lands on the board rather than on nothing', async () => {
     assert.strictEqual(doc.getElementById('view-situation').hidden, false);
 });
 
-test('the onboarding card is open by default and says it is not stored',
+test('the onboarding card is closed by default (P9 §1.4 D-17) and can open',
      async () => {
     const { doc } = await boot();
-    assert.strictEqual(doc.getElementById('onboarding-body').hidden, false);
+    assert.strictEqual(doc.getElementById('onboarding-body').hidden, true);
     assert.strictEqual(
-        doc.getElementById('onboarding-toggle').getAttribute('aria-expanded'), 'true');
+        doc.getElementById('onboarding-toggle').getAttribute('aria-expanded'), 'false');
 });
 
 test('the summary is the server sentence and carries its template ref',

@@ -197,11 +197,12 @@
      * P9 asks for the dismissal to persist in the analyst's server-side
      * preferences. R14's registry holds deployment configuration, not
      * per-analyst state, and there is no user-preference surface on any
-     * served API — so the card is collapsible with the panel OPEN by
-     * default and the state is not written anywhere. Half-persisting it in
-     * `localStorage` is what S1-UI-035 forbids (a decision that lives in
-     * one browser is a decision the organisation cannot see), and the gap
-     * is registered on the 未着地の機能 table rather than papered over.
+     * served API — so the card is collapsible with the panel CLOSED by
+     * default (P9 §1.4 D-17) and the state is not written anywhere.
+     * Half-persisting it in `localStorage` is what S1-UI-035 forbids (a
+     * decision that lives in one browser is a decision the organisation
+     * cannot see), and the gap is registered on the 未着地の機能 table
+     * rather than papered over.
      */
     function onboardingToggleKey(open) {
         return open ? 'ui.onboarding.collapse' : 'ui.onboarding.expand';
@@ -220,7 +221,9 @@
         var win = options.win
             || (typeof window !== 'undefined' ? window : null);
         var current = resolveHash(_readHash());
-        var onboardingOpen = true;
+        // CLOSED by default (P9 §1.4 D-17): the card is first-sight
+        // explanation, and a guide that is always open is furniture.
+        var onboardingOpen = false;
 
         function _readHash() {
             return (win && win.location && typeof win.location.hash === 'string')
