@@ -146,6 +146,12 @@
         'ui.board.summary.unsupplied': '状況サマリ文がサーバから供給されていません（R1 の board_summary 未供給）。下のカードと注目レーンを直接読んでください。',
         'ui.board.summary.template': '文の生成テンプレート: {ref}',
         'ui.board.participants_label': 'このシナリオの参加国（結合の強い順）',
+        'ui.board.why': 'なぜ? →',
+        'ui.board.derived.line': '由来: {parts} の観測から算出。',
+        'ui.board.derived.domain': '{name} {sources} 件',
+        'ui.board.derived.unavailable': '由来: この時点ではドメイン別の像を出せていません（{reason}）。',
+        'ui.board.derived.absent': '由来: ドメイン別内訳の記録がまだありません。',
+        'ui.board.derived.unreadable': '由来: ドメイン別内訳の行が読めません（記録は存在します）。',
 
         // ── 状況ビューのシナリオ地図（P9 §2.2 R-F / §3.7） ────────────────
         'ui.board_map.title': 'シナリオの参加国地図',

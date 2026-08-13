@@ -293,10 +293,45 @@
             + '</div></div>'
             + strip
             + domainBar
+            + _derivedLineHtml(card)
             + '<p class="card-coverage">' + esc(_t(card.coverage.labelKey, {
                 mode: card.coverage.scoringMode || Fmt.ABSENT }))
             + marks.mark('scoring_mode') + '</p>'
             + '</article>';
+    }
+
+    /**
+     * The provenance line (P9 §2.2 R-E, D-11): the TL's origin in one
+     * sentence, with the way into the full derivation beside it. kuebiko
+     * keeps the tier rule printed next to every tier badge; this is that
+     * pattern with Noroshi's three states kept apart — a picture, a tick
+     * that could not build one, and no record at all say different things.
+     */
+    function _derivedLineHtml(card) {
+        var df = card.derivedFrom;
+        if (!df) return '';
+        var why = '<button type="button" class="card-why" '
+            + 'data-open-scenario="' + esc(card.scenarioId) + '">'
+            + esc(_t('ui.board.why')) + '</button>';
+        if (!df.supplied) {
+            return '<p class="card-derived card-derived-absent">'
+                + esc(_t(df.reasonKey)) + ' ' + why + '</p>';
+        }
+        if (df.unavailable) {
+            return '<p class="card-derived">'
+                + esc(_t('ui.board.derived.unavailable',
+                         { reason: df.unavailable }))
+                + ' ' + why + '</p>';
+        }
+        var parts = df.domains.map(function (d) {
+            return _t('ui.board.derived.domain', {
+                name: _t('ui.domain.' + d.domain),
+                sources: d.sources === null ? Fmt.ABSENT : String(d.sources),
+            });
+        }).join(' / ');
+        return '<p class="card-derived">'
+            + esc(_t('ui.board.derived.line', { parts: parts }))
+            + ' ' + why + '</p>';
     }
 
 

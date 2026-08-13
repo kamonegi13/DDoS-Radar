@@ -27,7 +27,8 @@ from v3.api import (ANONYMOUS, ApiRequest, Principal, ReadContext,
 from v3.api.vocabulary import ROLE_VIEWER, TOOL_SCOPE
 from v3.conclusions import (CALIBRATION_PENDING, CONCLUSION_TYPES,
                             Conclusion, InputHealth, NP7_DISCLAIMER,
-                            Suppression, THREAT_LEVEL, TREND, to_record)
+                            PER_DOMAIN, Suppression, THREAT_LEVEL, TREND,
+                            to_record)
 from v3.conclusions import thresholds as CT
 from v3.kernel import Evidence, ThreatLevel
 from v3.ledger import LedgerStore, SignalObservation, TLObservation
@@ -341,6 +342,93 @@ class TestR1Scenarios:
             ScenarioRef(scenario_id="new_one"),)).as_dict()["scenarios"][0]
         assert row["display_name_ja"] == "new_one"
         assert row["display_name_source"] == "scenario_id"
+
+
+class TestR1DerivedFrom:
+    """P9 §5 / R-E — every row says where its number came from.
+
+    The second owner review (P9 §1.2 D-11) read TL 4 on a card and could
+    not say which domains, how many observations, or which scoring scope
+    produced it. The answer is the PER_DOMAIN conclusion the same tick
+    wrote; R1 projects that row through the SAME read path R2 uses
+    (`latest_conclusion_at` + `from_row`), so this is disclosure of a
+    stored fact, never a second derivation (A-02).
+    """
+
+    @staticmethod
+    def _per_domain(observed_at=NOW, metadata=None):
+        return Conclusion(
+            scenario_id=SCENARIO, conclusion_type=PER_DOMAIN,
+            observed_at=observed_at, confidence=0.7,
+            provenance=provenance("per_domain@S1-CONC-019"),
+            input_health=healthy(),
+            state="cyber=ACTIVE;physical=STABLE;info=STABLE",
+            threshold_ref={"elevated_floor": 2.5},
+            source_urls=("https://x/1",),
+            calibration_status={"status": "measured"},
+            metadata=metadata if metadata is not None else {
+                "domain_scores": {"cyber": 3.1, "physical": 0.0,
+                                  "info": 0.4},
+                "domain_states": {"cyber": "ACTIVE", "physical": "STABLE",
+                                  "info": "STABLE"},
+                "domain_source_counts": {"cyber": 2, "physical": 0,
+                                         "info": 1},
+            })
+
+    def test_the_row_projects_the_per_domain_conclusion(self, seeded):
+        seeded.append_conclusion(to_record(self._per_domain()))
+        row = _get(seeded, "/api/v3/scenarios").as_dict()["scenarios"][0]
+        derived = row["derived_from"]
+        assert derived["supplied"] is True
+        assert derived["domains"]["cyber"] == {
+            "score": 3.1, "state": "ACTIVE", "sources": 2}
+        assert derived["domains"]["physical"] == {
+            "score": 0.0, "state": "STABLE", "sources": 0}
+        assert derived["observed_at"] == NOW
+        assert derived["conclusion_id"]
+
+    def test_no_row_at_all_is_a_state_not_zeros(self, store):
+        """G-17: "no per-domain row" and "three quiet domains" are
+        different facts, and a reader must be able to tell them apart."""
+        row = _get(store, "/api/v3/scenarios", scenarios=(
+            ScenarioRef(scenario_id="new_one"),)).as_dict()["scenarios"][0]
+        assert row["derived_from"] == {"supplied": False,
+                                       "reason": "no_per_domain_row"}
+
+    def test_an_unavailable_conclusion_carries_its_reason(self, store):
+        conclusion = Conclusion(
+            scenario_id=SCENARIO, conclusion_type=PER_DOMAIN,
+            observed_at=NOW, confidence=0.0,
+            provenance=provenance("per_domain@S1-CONC-019"),
+            input_health=healthy(), state=None,
+            unavailable_reason="insufficient_data",
+            suppression=Suppression(
+                guard_id="all_domains_silent",
+                reason="insufficient_data",
+                detail="全ドメインが無信号のため域別の像を出せません",
+                overridden=False),
+            threshold_ref={}, source_urls=(),
+            calibration_status={"status": "measured"},
+            metadata={"domain_scores": {"cyber": 0.0, "physical": 0.0,
+                                        "info": 0.0},
+                      "domain_states": {}, "domain_source_counts": {}})
+        store.append_conclusion(to_record(conclusion))
+        row = _get(store, "/api/v3/scenarios").as_dict()["scenarios"][0]
+        derived = row["derived_from"]
+        assert derived["supplied"] is True
+        assert derived["unavailable_reason"] == "insufficient_data"
+
+    def test_replayed_instants_do_not_see_the_future(self, seeded):
+        """The projection is `latest_conclusion_at(now)`, so a per-domain
+        row written after `now` must not leak into it."""
+        seeded.append_conclusion(to_record(self._per_domain(
+            observed_at=NOW + 600)))
+        row = _get(seeded, "/api/v3/scenarios").as_dict()["scenarios"][0]
+        # The seeded fixture wrote an older PER_DOMAIN row (metadata is
+        # fixture-shaped), so the projection supplies THAT row, not the
+        # future one.
+        assert row["derived_from"]["supplied"] is True
+        assert row["derived_from"]["observed_at"] < NOW
 
 
 class TestR1BoardSummary:

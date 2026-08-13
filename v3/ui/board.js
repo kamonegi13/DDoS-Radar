@@ -272,6 +272,52 @@
         });
     }
 
+    /**
+     * The card's provenance line (P9 §2.2 R-E, D-11): where the number
+     * came from, as the server stored it. R1's `derived_from` is the
+     * PER_DOMAIN conclusion row of the same tick, projected through R2's
+     * own read path — this function only re-keys it for display and keeps
+     * the three states apart: supplied with a picture, supplied but
+     * unavailable (the tick could not build a domain picture), and not
+     * supplied at all. Folding those together would be G-17 — "no record"
+     * shown as "three quiet domains".
+     */
+    function _derivedFrom(scenario) {
+        var derived = scenario.derived_from;
+        if (!derived || derived.supplied !== true) {
+            return {
+                supplied: false,
+                reasonKey: derived && derived.reason === 'unreadable_row'
+                    ? 'ui.board.derived.unreadable'
+                    : 'ui.board.derived.absent',
+            };
+        }
+        var domains = derived.domains || {};
+        var extras = Object.keys(domains).filter(function (domain) {
+            return DOMAINS.indexOf(domain) === -1;
+        }).sort();
+        var order = DOMAINS.filter(function (domain) {
+            return Object.prototype.hasOwnProperty.call(domains, domain);
+        }).concat(extras);
+        return {
+            supplied: true,
+            unavailable: typeof derived.unavailable_reason === 'string'
+                ? derived.unavailable_reason : null,
+            observedAt: typeof derived.observed_at === 'number'
+                ? derived.observed_at : null,
+            domains: order.map(function (domain) {
+                var entry = domains[domain] || {};
+                return {
+                    domain: domain,
+                    score: typeof entry.score === 'number' ? entry.score : null,
+                    state: typeof entry.state === 'string' ? entry.state : null,
+                    sources: typeof entry.sources === 'number'
+                        ? entry.sources : null,
+                };
+            }),
+        };
+    }
+
     function _card(scenario, options) {
         var focused = scenario.scenario_id === options.focusedScenario;
         var participants = scenario.participants || {};
@@ -300,6 +346,7 @@
             scoringMode: scenario.scoring_mode || null,
             coverage: _coverage(scenario, focused),
             domains: focused ? _domainBar(options.perDomain) : null,
+            derivedFrom: _derivedFrom(scenario),
             participantCount: Object.keys(participants).length,
             participants: _participantStrip(scenario),
             adversaries: Array.isArray(scenario.adversaries)

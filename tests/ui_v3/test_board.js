@@ -394,6 +394,73 @@ test('a concluded card carries neither sentence nor resolution', () => {
     assert.strictEqual(card.resolution.labelKey, null);
 });
 
+// ── provenance (P9 §2.2 R-E, D-11) ──────────────────────────────────────
+
+test('a supplied derived_from is re-keyed with the domains in canon order', () => {
+    const board = B.buildBoard({ scenarios: r1([scenario({
+        derived_from: {
+            supplied: true, observed_at: NOW - 60, conclusion_id: 'c-pd',
+            unavailable_reason: null,
+            domains: {
+                info: { score: 0.4, state: 'STABLE', sources: 1 },
+                cyber: { score: 3.1, state: 'ACTIVE', sources: 2 },
+                physical: { score: 0.0, state: 'STABLE', sources: 0 },
+            },
+        },
+    })]) });
+    const derived = board.cards[0].derivedFrom;
+    assert.strictEqual(derived.supplied, true);
+    assert.deepStrictEqual(
+        derived.domains.map(d => d.domain), ['cyber', 'physical', 'info']);
+    assert.strictEqual(derived.domains[0].sources, 2);
+    assert.strictEqual(derived.unavailable, null);
+});
+
+test('a missing derived_from is a state, never three quiet domains (G-17)', () => {
+    const board = B.buildBoard({ scenarios: r1([scenario({})]) });
+    const derived = board.cards[0].derivedFrom;
+    assert.strictEqual(derived.supplied, false);
+    assert.strictEqual(derived.reasonKey, 'ui.board.derived.absent');
+});
+
+test('an unserved per-domain row and an unreadable one say different things', () => {
+    const absent = B.buildBoard({ scenarios: r1([scenario({
+        derived_from: { supplied: false, reason: 'no_per_domain_row' },
+    })]) }).cards[0].derivedFrom;
+    const unreadable = B.buildBoard({ scenarios: r1([scenario({
+        derived_from: { supplied: false, reason: 'unreadable_row' },
+    })]) }).cards[0].derivedFrom;
+    assert.strictEqual(absent.reasonKey, 'ui.board.derived.absent');
+    assert.strictEqual(unreadable.reasonKey, 'ui.board.derived.unreadable');
+});
+
+test('an unavailable domain picture carries its reason onto the card', () => {
+    const board = B.buildBoard({ scenarios: r1([scenario({
+        derived_from: {
+            supplied: true, observed_at: NOW - 60, conclusion_id: 'c-pd',
+            unavailable_reason: 'insufficient_data', domains: {},
+        },
+    })]) });
+    assert.strictEqual(board.cards[0].derivedFrom.unavailable,
+                       'insufficient_data');
+});
+
+// ── the participant strip (P9 §3.7, D-10) ───────────────────────────────
+
+test('participants ride the card in coupling order, adversary marked', () => {
+    const board = B.buildBoard({ scenarios: r1([scenario({
+        participants: { US: 0.6, TW: 1.0, CN: 0.9 },
+        roles: { TW: 'primary_target', CN: 'adversary' },
+        adversaries: ['CN'],
+    })]) });
+    const strip = board.cards[0].participants;
+    assert.deepStrictEqual(strip.map(p => p.country), ['TW', 'CN', 'US']);
+    assert.strictEqual(strip[1].isAdversary, true);
+    assert.strictEqual(strip[0].roleKey, 'ui.geo.role.primary_target');
+    assert.strictEqual(strip[2].roleKey, 'ui.geo.role.unlisted');
+    assert.ok(strip[0].flag.length > 0);
+});
+
 // ── purity ───────────────────────────────────────────────────────────────
 
 test('buildBoard does not mutate its input', () => {

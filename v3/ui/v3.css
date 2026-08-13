@@ -812,6 +812,16 @@ tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust);
 .bm-multi { font-size: var(--text-meta); color: var(--color-text-dim); }
 .board-map-block .lead { color: var(--color-text-dim); }
 
+/* ── the card's provenance line (P9 §2.2 R-E, D-11) ────────────────────── */
+.card-derived { margin: var(--space-1) 0 0; color: var(--color-text-dim);
+                font-size: var(--text-meta); }
+.card-derived-absent { font-style: italic; }
+.card-why { background: none; border: 1px solid var(--color-border);
+            border-radius: var(--radius-sm); color: var(--color-accent);
+            cursor: pointer; padding: 0 var(--space-1);
+            font-size: var(--text-meta); }
+.card-why:hover { border-color: var(--color-accent); }
+
 /* ── the card's participant strip (P9 §3.7, D-10) ──────────────────────── */
 .card-countries { margin: var(--space-2) 0 0; padding: 0; list-style: none;
                   display: flex; flex-wrap: wrap; gap: var(--space-1); }

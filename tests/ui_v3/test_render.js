@@ -212,6 +212,63 @@ test('a hostile display name cannot break out of the title element', () => {
     assert.ok(!/<script>/.test(html), html);
 });
 
+// ── the provenance line (P9 §2.2 R-E, D-11) ─────────────────────────────
+
+test('a supplied derivation names each domain and its observation count', () => {
+    const html = R.cardHtml(card({ derivedFrom: {
+        supplied: true, unavailable: null, observedAt: NOW - 60,
+        domains: [
+            { domain: 'cyber', score: 3.1, state: 'ACTIVE', sources: 2 },
+            { domain: 'physical', score: 0.0, state: 'STABLE', sources: 0 },
+            { domain: 'info', score: 0.4, state: 'STABLE', sources: 1 },
+        ],
+    } }), CARD_NOW);
+    assert.ok(/card-derived/.test(html), html);
+    assert.ok(/サイバー 2 件 \/ 物理 0 件 \/ 情報 1 件/.test(html), html);
+});
+
+test('every provenance state carries the way into the derivation', () => {
+    const states = [
+        { supplied: false, reasonKey: 'ui.board.derived.absent' },
+        { supplied: true, unavailable: 'insufficient_data', domains: [] },
+        { supplied: true, unavailable: null, domains: [] },
+    ];
+    states.forEach((derivedFrom) => {
+        const html = R.cardHtml(card({ derivedFrom }), CARD_NOW);
+        assert.ok(/class="card-why" data-open-scenario="taiwan_contingency"/
+            .test(html), JSON.stringify(derivedFrom));
+    });
+});
+
+test('no record and an unavailable picture say different things', () => {
+    const absent = R.cardHtml(card({ derivedFrom: {
+        supplied: false, reasonKey: 'ui.board.derived.absent' } }), CARD_NOW);
+    const unavailable = R.cardHtml(card({ derivedFrom: {
+        supplied: true, unavailable: 'insufficient_data', domains: [] } }),
+        CARD_NOW);
+    assert.ok(/記録がまだありません/.test(absent), absent);
+    assert.ok(/insufficient_data/.test(unavailable), unavailable);
+});
+
+test('a card without the provenance model renders no derivation line', () => {
+    const html = R.cardHtml(card(), CARD_NOW);
+    assert.ok(!/card-derived/.test(html), html);
+});
+
+// ── the participant strip (P9 §3.7, D-10) ───────────────────────────────
+
+test('the strip prints flag and ISO2 per participant, adversary dashed', () => {
+    const html = R.cardHtml(card({ participants: [
+        { country: 'TW', flag: '🇹🇼', role: 'primary_target',
+          roleKey: 'ui.geo.role.primary_target', isAdversary: false },
+        { country: 'CN', flag: '🇨🇳', role: 'adversary',
+          roleKey: 'ui.geo.role.adversary', isAdversary: true },
+    ] }), CARD_NOW);
+    assert.ok(/card-countries/.test(html), html);
+    assert.ok(/<span class="cc-iso">TW<\/span>/.test(html), html);
+    assert.ok(/class="cc cc-adversary"/.test(html), html);
+});
+
 test('the change line is a sentence carrying how long ago that was', () => {
     const html = R.cardHtml(card(), CARD_NOW);
     assert.ok(/前回確認（2 時間前）から悪化しました。TL 4 → 3/.test(html), html);

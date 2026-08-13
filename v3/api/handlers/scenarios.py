@@ -14,9 +14,10 @@ from __future__ import annotations
 
 from v3.api import board_summary as BOARD
 from v3.api.envelope import ApiResponse, tool_response
-from v3.api.rehydrate import tl_point
+from v3.api.rehydrate import UnreadableConclusionRow, from_row, tl_point
 from v3.attention import projection as attention_projection
 from v3.commands.state import focus_state
+from v3.conclusions import PER_DOMAIN
 from v3.runtime import ops_health as OPS
 
 DAY_SEC = 86400.0
@@ -52,6 +53,48 @@ def _tl_summary(ledger, scenario_id: str, now: float) -> dict:
     }
 
 
+def _derived_from(ledger, scenario_id: str, now: float) -> dict:
+    """P9 §5 (R-E): where this row's threat level came from, as stored fact.
+
+    The second owner review (P9 §1.2 D-11) read a card and could not say
+    which domains, how many observations, or which scoring scope produced
+    its number. The answer was already in the ledger: the PER_DOMAIN
+    conclusion the same tick wrote carries `domain_scores`,
+    `domain_states` and `domain_source_counts` in its metadata.
+
+    This is the SAME read path R2 uses — `latest_conclusion_at` +
+    `from_row` — so it is a projection of an existing row, never a second
+    derivation (A-02's line). Nothing is computed here; absence is
+    reported as a state rather than as zeros (G-17), because "no
+    per-domain row" and "three quiet domains" are different facts.
+    """
+    row = ledger.latest_conclusion_at(now, scenario_id=scenario_id,
+                                      conclusion_type=PER_DOMAIN)
+    if row is None:
+        return {"supplied": False, "reason": "no_per_domain_row"}
+    try:
+        conclusion = from_row(row)
+    except UnreadableConclusionRow as exc:
+        # Reported, never thinned — the R2 ruling, applied here too.
+        return {"supplied": False, "reason": "unreadable_row",
+                "detail": str(exc)}
+    meta = conclusion.metadata or {}
+    scores = meta.get("domain_scores") or {}
+    states = meta.get("domain_states") or {}
+    counts = meta.get("domain_source_counts") or {}
+    return {
+        "supplied": True,
+        "observed_at": conclusion.observed_at,
+        "conclusion_id": conclusion.conclusion_id,
+        "unavailable_reason": conclusion.unavailable_reason,
+        "domains": {domain: {"score": scores.get(domain),
+                             "state": states.get(domain),
+                             "sources": counts.get(domain)}
+                    for domain in sorted(set(scores) | set(states)
+                                         | set(counts))},
+    }
+
+
 def _attention(context) -> tuple:
     """The top of the ranked list, through R6's OWN projection.
 
@@ -84,7 +127,9 @@ def read_scenarios(context) -> ApiResponse:
     rows = []
     for ref in context.scenarios:
         row = {**ref.as_dict(),
-               **_tl_summary(context.ledger, ref.scenario_id, context.now)}
+               **_tl_summary(context.ledger, ref.scenario_id, context.now),
+               "derived_from": _derived_from(context.ledger,
+                                             ref.scenario_id, context.now)}
         if focused is not None:
             row["focused"] = ref.scenario_id == focused
         rows.append(row)
