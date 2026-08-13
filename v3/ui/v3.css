@@ -278,18 +278,9 @@ td[data-deferred] { color: var(--color-muted); }
 
 .stage-head h2 { margin: 0; font-size: 16px; }
 
-.stage-n {
-    display: inline-block;
-    min-width: 1.6em;
-    text-align: center;
-    border: 1px solid var(--color-accent);
-    border-radius: 50%;
-    color: var(--color-accent);
-    margin-right: var(--space-2);
-}
-
-.stage-question { margin: 0; color: var(--color-text-dim); flex: 1 1 auto; }
-.stage-tools { display: flex; align-items: center; gap: var(--space-2); }
+/* No .stage-n / .stage-question rules: the numbered-loop chrome was
+   diagnosis D-8/D-9 (P9 §1.2) and the elements are gone from the shell. */
+.stage-tools { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
 
 /* ── freshness badge ─────────────────────────────────────────────────── */
 .freshness {

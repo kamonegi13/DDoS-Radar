@@ -37,17 +37,14 @@
         'ui.np7.banner': '本ツールの出力は最終判断ではありません。最終的な状況判断は、本ツールの出力を含む複数の情報源を統合した組織のプロセスによって行われます。',
         'ui.np7.breach': '警告: サーバ応答に NP7 注意文が含まれていませんでした。結論の取り扱いに注意し、この事象を記録してください。',
 
-        // ── loop stages ─────────────────────────────────────────────────
-        'ui.stage.situation': '状況確認',
-        'ui.stage.situation_q': '何か変わったか。今このツールを信じてよいか。（目標 10 秒）',
-        'ui.stage.triage': 'トリアージ',
-        'ui.stage.triage_q': '次に何を見るべきか。（目標 30 秒）',
-        'ui.stage.drilldown': 'ドリルダウン',
-        'ui.stage.drilldown_q': 'なぜそう言えるのか。何が起きたのか。',
-        'ui.stage.feedback': 'フィードバック',
-        'ui.stage.feedback_q': 'ツールの判断は正しかったか。',
-        'ui.stage.verify': '検証',
-        'ui.stage.verify_q': 'この系は生きているか。過去の判断は妥当だったか。',
+        // ── section headings (P9 R-D: content words, never the loop's
+        //    meta-language — the question lines and the 目標 N 秒 targets
+        //    were WP-4.3's D-8 and live only in P9 §6 now) ─────────────────
+        'ui.stage.situation': 'シナリオ別の脅威レベル',
+        'ui.stage.triage': '注目すべき事象（優先度順）',
+        'ui.stage.drilldown': '結論と根拠',
+        'ui.stage.feedback': 'この判断へのフィードバック',
+        'ui.stage.verify': '検証 — 系の健全性と判断履歴',
 
         // ── ビュー切替（P9 §3.2 — トップレベルは 2 項だけ） ───────────────
         'ui.nav.situation': '状況',
@@ -57,15 +54,16 @@
         'ui.scenario.notice.not_loaded': 'このシナリオの結論（R2）をまだ取得していません。結論の取得は focus 中のシナリオに限られます。',
         'ui.scenario.notice.other_scenario': '以下の結論・地理面は focus 中の {served} のものです。{requested} の面を見るには、状況ビューのカードで focus を移してください。',
 
-        // ── 初回オンボード（P9 §3.6） ────────────────────────────────────
-        'ui.onboarding.title': 'この画面は 5 つの問いに答えます',
+        // ── 初回オンボード（P9 §3.6、§2.2 R-D: 並列の案内であって手順では
+        //    ない — 番号も目標秒数も持たない） ─────────────────────────────
+        'ui.onboarding.title': 'この画面でできること',
         'ui.onboarding.expand': '案内を開く',
         'ui.onboarding.collapse': '案内を閉じる',
-        'ui.onboarding.q1': '① 何か変わったか — [状況] 冒頭のサマリ文とシナリオカード（目標 10 秒）',
-        'ui.onboarding.q2': '② 次に何を見るべきか — [状況] の注目レーン。上から順に見る（目標 30 秒）',
-        'ui.onboarding.q3': '③ なぜそう言えるか — カード名または注目レーンの「開く」でシナリオ面へ。各結論の「なぜ?」で [検証] の導出ビューへ',
-        'ui.onboarding.q4': '④ ツールの判断は正しかったか — シナリオ面の下部でラベルを投稿する',
-        'ui.onboarding.q5': '⑤ この系は生きているか — [検証] ビュー（自己評価・センサー・判断台帳・設定）',
+        'ui.onboarding.q1': '何か変わったか — 冒頭のサマリ文とシナリオカードが答えます',
+        'ui.onboarding.q2': '次に何を見るべきか — 注目レーンが優先度順に並べます',
+        'ui.onboarding.q3': 'なぜそう言えるのか — カード名を選ぶとそのシナリオの結論と根拠へ、各結論の「なぜ?」で導出へ',
+        'ui.onboarding.q4': 'ツールの判断は正しかったか — シナリオ面の下部でラベルを投稿できます',
+        'ui.onboarding.q5': 'この系は生きているか — [検証] に自己評価・センサー・判断台帳・設定があります',
         'ui.onboarding.persistence_note': 'この案内の開閉状態は保存されません。利用者ごとの設定を保存する面が未供給のためで、[検証] ビュー末尾の「未着地の機能」に登録しています。',
 
         // ── TL bands (band words stay English — ja-localization §2) ──────

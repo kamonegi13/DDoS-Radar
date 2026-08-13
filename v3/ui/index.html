@@ -130,22 +130,34 @@
                 aria-controls="onboarding-body"></button>
       </div>
       <div id="onboarding-body">
-        <ol class="onboarding-list">
+        <!--
+          Deliberately an unordered list: these are parallel entries into
+          the same screen, not steps (P9 §1.2 D-9). Numbering them told a
+          reader to walk them in order, which is exactly the misreading the
+          second owner review reported.
+        -->
+        <ul class="onboarding-list">
           <li data-i18n="ui.onboarding.q1"></li>
           <li data-i18n="ui.onboarding.q2"></li>
           <li data-i18n="ui.onboarding.q3"></li>
           <li data-i18n="ui.onboarding.q4"></li>
           <li data-i18n="ui.onboarding.q5"></li>
-        </ol>
+        </ul>
         <p class="hint" data-i18n="ui.onboarding.persistence_note"></p>
       </div>
     </section>
 
+    <!--
+      No stage numbers and no question lines anywhere below (P9 §1.2
+      D-8/D-9, ruling R-D): the loop's questions and the 目標 N 秒 targets
+      are the DESIGN's acceptance criteria, and printing them here made the
+      tool describe itself instead of the situation. The `stage-N` ids stay
+      — they are wiring (`surfaces.js` writes `data-mode` on #stage-2,
+      `app.js` scrolls to #stage-5), not display.
+    -->
     <section id="stage-1" class="stage" aria-labelledby="stage-1-title">
       <div class="stage-head">
-        <h2 id="stage-1-title"><span class="stage-n">1</span>
-          <span data-i18n="ui.stage.situation"></span></h2>
-        <p class="stage-question" data-i18n="ui.stage.situation_q"></p>
+        <h2 id="stage-1-title"><span data-i18n="ui.stage.situation"></span></h2>
         <div class="stage-tools">
           <span id="board-freshness" class="freshness-slot"></span>
           <span id="trust-slot"></span>
@@ -166,9 +178,7 @@
 
     <section id="stage-2" class="stage" aria-labelledby="stage-2-title">
       <div class="stage-head">
-        <h2 id="stage-2-title"><span class="stage-n">2</span>
-          <span data-i18n="ui.stage.triage"></span></h2>
-        <p class="stage-question" data-i18n="ui.stage.triage_q"></p>
+        <h2 id="stage-2-title"><span data-i18n="ui.stage.triage"></span></h2>
         <div class="stage-tools">
           <span id="lane-freshness" class="freshness-slot"></span>
           <span id="mode-slot"></span>
@@ -196,9 +206,7 @@
 
     <section id="stage-3" class="stage" aria-labelledby="stage-3-title">
       <div class="stage-head">
-        <h2 id="stage-3-title"><span class="stage-n">3</span>
-          <span data-i18n="ui.stage.drilldown"></span></h2>
-        <p class="stage-question" data-i18n="ui.stage.drilldown_q"></p>
+        <h2 id="stage-3-title"><span data-i18n="ui.stage.drilldown"></span></h2>
         <div class="stage-tools">
           <span id="face-freshness" class="freshness-slot"></span>
           <label class="replay-control">
@@ -248,9 +256,7 @@
 
     <section id="stage-4" class="stage" aria-labelledby="stage-4-title">
       <div class="stage-head">
-        <h2 id="stage-4-title"><span class="stage-n">4</span>
-          <span data-i18n="ui.stage.feedback"></span></h2>
-        <p class="stage-question" data-i18n="ui.stage.feedback_q"></p>
+        <h2 id="stage-4-title"><span data-i18n="ui.stage.feedback"></span></h2>
       </div>
       <div id="feedback-slot" class="feedback-slot"></div>
 
@@ -265,9 +271,7 @@
 
     <section id="stage-5" class="stage" aria-labelledby="stage-5-title">
       <div class="stage-head">
-        <h2 id="stage-5-title"><span class="stage-n">5</span>
-          <span data-i18n="ui.stage.verify"></span></h2>
-        <p class="stage-question" data-i18n="ui.stage.verify_q"></p>
+        <h2 id="stage-5-title"><span data-i18n="ui.stage.verify"></span></h2>
       </div>
 
       <h3 data-i18n="ui.derivation.title"></h3>

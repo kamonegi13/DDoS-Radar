@@ -702,3 +702,50 @@ class TestTheViewSplitIsStructural:
             f"the scenario face is entered from a card or a lane row, "
             f"because a view ABOUT something is reached through the thing "
             f"it is about.")
+
+
+class TestMetaLanguageIsAbsent:
+    """P9 §1.2 D-8/D-9, ruling R-D: the shell speaks content words only.
+
+    WP-4.3 printed the analyst loop's own definition — stage numbers, the
+    question lines, the 目標 N 秒 acceptance targets — as page chrome, and
+    the owner review read it exactly as designed and exactly wrongly:
+    "what is this supposed to be telling me". The design document's
+    vocabulary belongs to the design document. These gates make the
+    regression mechanical rather than a matter of taste.
+    """
+
+    def test_no_stage_number_chrome_survives_in_the_shell(self):
+        html = (UI_DIR / "index.html").read_text(encoding="utf-8")
+        for token in ("stage-n", "stage-question"):
+            assert token not in html, (
+                f"`{token}` is back in index.html. The numbered-loop chrome "
+                f"is diagnosis D-8/D-9 (P9 §1.2): the loop's stages are "
+                f"parallel questions, not steps, and a number tells a "
+                f"reader to walk them in order.")
+
+    def test_no_question_line_keys_survive_in_the_dictionary(self):
+        strings = (UI_DIR / "strings.js").read_text(encoding="utf-8")
+        stray = re.findall(r"'(ui\.stage\.\w+_q)'", strings)
+        assert not stray, (
+            f"question-line keys {stray} are back in strings.js. The loop's "
+            f"questions live in the onboarding card and in P9 §6, not as "
+            f"section subtitles (R-D).")
+
+    def test_no_second_target_is_printed_anywhere(self):
+        """目標 N 秒 is an acceptance criterion, not screen copy."""
+        for name in ("strings.js",):
+            text = (UI_DIR / name).read_text(encoding="utf-8")
+            hits = re.findall(r"目標\s*\d+\s*秒", text)
+            assert not hits, (
+                f"{name} prints {hits}. The 10-/30-second targets are how "
+                f"P9 §6 judges the screen, not what the screen says — a "
+                f"tool describing its own design intent is D-8.")
+
+    def test_the_onboarding_list_is_unordered(self):
+        html = (UI_DIR / "index.html").read_text(encoding="utf-8")
+        body = html[html.index('id="onboarding-body"'):]
+        body = body[:body.index("</section>")]
+        assert "<ol" not in body, (
+            "the onboarding card numbers its entries again. They are "
+            "parallel ways into one screen (D-9); use <ul>.")
