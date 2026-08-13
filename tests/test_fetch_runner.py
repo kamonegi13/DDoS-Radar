@@ -230,10 +230,11 @@ class TestRunDueIsPure:
 
 # ── execute_plan: the impure half ───────────────────────────────────────
 
-def _multi(name, count, *, cadence_sec=3600.0):
+def _multi(name, count, *, cadence_sec=3600.0, normalize=_drafts):
     """An adapter declaring `count` independent requests, so the budget has
     something whose COST differs from its head-count to reason about."""
-    return _adapter(name, cadence_sec=cadence_sec, requests=tuple(
+    return _adapter(name, cadence_sec=cadence_sec, normalize=normalize,
+                    requests=tuple(
         RequestSpec(url=f"https://example.test/{name}/{i}", label=f"r{i}")
         for i in range(count)))
 
@@ -416,6 +417,55 @@ class TestExecutePlan:
         assert result.observations_written == 0
         assert recorder.fetch_log_for(store, "alpha")[0]["outcome"] == \
             client.HTTP_ERROR
+
+    #: Per-payload countries, so partial writes are countable: the L1
+    #: UNIQUE key is (tick_id, sensor, signal_source, country), and a
+    #: fixture whose drafts share one country folds every success into a
+    #: single row. 404 rather than 500 for the failing step, because 500
+    #: is retryable and the repeating fake session would answer the retry
+    #: with the NEXT queued response — a success test wearing failure's
+    #: clothes.
+    @staticmethod
+    def _country_drafts(payload, context):
+        return (ObservationDraft(
+            signal_source="probe", domain="cyber",
+            country=payload.text()[:2], status="FIRED", raw_score=3.0,
+            value=payload.text()),)
+
+    def test_one_failed_step_does_not_discard_the_other_steps_drafts(
+            self, store):
+        """The shadow's measured silence, cause one of two: eight adapters
+        with OK fetches and zero L1 rows, because ONE failure among an
+        adapter's 21-84 steps put the whole cycle's drafts behind
+        `if succeeded:`. A partial answer is a fact — v1 writes what each
+        country's request returned; discarding the successes reads as a
+        quiet world (G-17, NP1)."""
+        _, result = self._run(
+            store, [_multi("multi", 3, normalize=self._country_drafts)],
+            _Response(200, b"TW"), _Response(404), _Response(200, b"JP"))
+        assert result.observations_written == 2
+        assert store.count_signals() == 2
+        # The cycle still REPORTS the failure — partial success is not OK.
+        assert result.results[0].outcome == client.HTTP_ERROR
+
+    def test_an_answering_source_does_not_accumulate_toward_open(
+            self, store):
+        """breaker.py: 'a flapping upstream does not accumulate its way to
+        OPEN' — but a 21-step adapter with one dead country accumulated a
+        FAILURE per tick and went dark for hours. The breaker asks 'is the
+        SOURCE broken'; any answered step says it is not."""
+        _, result = self._run(
+            store, [_multi("multi", 3, normalize=self._country_drafts)],
+            _Response(200, b"TW"), _Response(404), _Response(200, b"JP"))
+        assert result.results[0].state.breaker.state == breaker.CLOSED
+        assert result.results[0].state.breaker.fail_count == 0
+
+    def test_a_fully_unanswered_cycle_still_steps_the_breaker(self, store):
+        _, result = self._run(
+            store, [_multi("multi", 2, normalize=self._country_drafts)],
+            _Response(404), _Response(404))
+        assert result.observations_written == 0
+        assert result.results[0].state.breaker.fail_count == 1
 
     def test_a_failure_advances_the_breaker(self, store):
         _, result = self._run(store, [_adapter("alpha")], _Response(500))

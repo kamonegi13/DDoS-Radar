@@ -585,10 +585,17 @@ def execute_plan(plan: FetchPlan, registry, *, client, store,
             outcome_name = unanswered[-1].outcome
             detail = unanswered[-1].detail
 
-        succeeded = outcome_name == client_module.OK
+        # The breaker's question is "is the SOURCE broken", and any
+        # answered step says it is not. Stepping FAILURE on a partial
+        # cycle let a 21-step adapter with one dead country accumulate
+        # its way to OPEN and go dark for hours — the accumulation
+        # breaker.py's own docstring forbids for a flapping upstream.
+        # The cycle's OUTCOME still names the failure: partial is not OK.
+        answered_any = len(unanswered) < len(item.steps)
         stepped = breaker_module.step(
             item.breaker,
-            breaker_module.SUCCESS if succeeded else breaker_module.FAILURE,
+            breaker_module.SUCCESS if answered_any
+            else breaker_module.FAILURE,
             plan.now)
         state = AdapterState(adapter_id=adapter.name).with_run(
             at=plan.now, outcome=outcome_name, breaker=stepped)
@@ -616,10 +623,19 @@ def execute_plan(plan: FetchPlan, registry, *, client, store,
                     recorder.record_body(store, adapter.name,
                                          body=outcome.payload.body,
                                          recorded_at=plan.now, connection=conn)
-            if succeeded:
+            if drafts:
                 # The fold runs INSIDE the transaction that writes, so a
                 # reduction failure aborts the write rather than leaving
                 # half a cycle recorded.
+                #
+                # Gated on the DRAFTS, not on the cycle's outcome. The
+                # `if succeeded:` gate was the shadow's measured silence
+                # (2026-08-13): eight adapters with OK fetches and zero L1
+                # rows ever, because one 429/timeout among 21-84 steps
+                # discarded every answered step's drafts with it. What
+                # each step answered is a fact; the steps that did not
+                # answer are in fetch_log, which is where a failure is
+                # disclosed (G-17) — not by silencing the successes (NP1).
                 written = append_drafts(store, adapter,
                                         lent.folded(adapter.name, drafts),
                                         tick_id=tick_id, now=plan.now,
