@@ -218,6 +218,7 @@ class Deployment:
             declared = self.geography.scenarios.get(scenario_id) or {}
             participants = declared.get("participants", {}) or {}
             core = declared.get("core_country")
+            label, label_source = GEO.display_name(self.geography, scenario_id)
             refs.append(ScenarioRef(
                 scenario_id=scenario_id,
                 participants={str(code).upper(): float(row.get("weight", 0.0))
@@ -225,7 +226,8 @@ class Deployment:
                 adversaries=GEO.adversaries_of(self.geography, scenario_id),
                 roles={str(code).upper(): str(row.get("role", ""))
                        for code, row in participants.items()},
-                chain_country=str(core).upper() if core else None))
+                chain_country=str(core).upper() if core else None,
+                display_name_ja=label, display_name_source=label_source))
         return tuple(refs)
 
     def observed_span_sec(self, now: float) -> Optional[float]:

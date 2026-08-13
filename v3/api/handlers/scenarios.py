@@ -12,9 +12,12 @@ is defect A-02's shape.
 """
 from __future__ import annotations
 
+from v3.api import board_summary as BOARD
 from v3.api.envelope import ApiResponse, tool_response
 from v3.api.rehydrate import tl_point
+from v3.attention import projection as attention_projection
 from v3.commands.state import focus_state
+from v3.runtime import ops_health as OPS
 
 DAY_SEC = 86400.0
 
@@ -49,6 +52,24 @@ def _tl_summary(ledger, scenario_id: str, now: float) -> dict:
     }
 
 
+def _attention(context) -> tuple:
+    """The top of the ranked list, through R6's OWN projection.
+
+    Not a second read path: `v3/attention/projection.py::project` is the
+    function R6 serves, so the row this sentence names is the row that
+    lane shows. Re-querying the snapshot here would be A-02's shape.
+
+    An unidentified reader gets `(None, reason)` rather than an empty
+    list, because the ranked list is a per-reader projection and "you
+    have no list" is not "nothing needs attention".
+    """
+    actor_id = context.actor_id
+    if actor_id is None:
+        return (None, BOARD.ATTENTION_NO_READER)
+    return (attention_projection.project(context.ledger, now=context.now,
+                                         actor_id=actor_id), None)
+
+
 def read_scenarios(context) -> ApiResponse:
     """R1. One row per configured scenario, focus state included.
 
@@ -67,11 +88,18 @@ def read_scenarios(context) -> ApiResponse:
         if focused is not None:
             row["focused"] = ref.scenario_id == focused
         rows.append(row)
+    ranked, ranked_absent = _attention(context)
+    board = BOARD.compose(
+        rows, attention=ranked, attention_absent_reason=ranked_absent,
+        ops_fold=OPS.supplied_or_absent(getattr(context, "ops_health", None),
+                                        now=context.now))
     return tool_response(observed_at=context.now, scenarios=rows,
                          scenario_count=len(rows),
                          focused_scenario=focused,
                          focus_source=("command_log" if focused is not None
-                                       else "deployment_default"))
+                                       else "deployment_default"),
+                         board_summary=board,
+                         board_summary_templates=BOARD.disclosure())
 
 
 __all__ = ["read_scenarios"]

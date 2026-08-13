@@ -79,6 +79,53 @@ class TestParticipantsComeFromTheScenario:
                                   "taiwan_contingency") == ("CN",)
 
 
+class TestTheScenarioHasAJapaneseDisplayName:
+    """P9 §5 — `scenario_id` is not the analyst's vocabulary.
+
+    The name is READ from the deployment ledger like everything else here,
+    and the fallback is DISCLOSED rather than silent: a card reading
+    `taiwan_contingency` and a card reading 台湾正面 must be
+    distinguishable from outside, because the first means "no name was
+    declared" and the second means "this one was".
+    """
+
+    def test_every_declared_scenario_has_one(self, real_geography):
+        for scenario_id in real_geography.scenarios:
+            name, source = geo.display_name(real_geography, scenario_id)
+            assert source == geo.DISPLAY_NAME_KEY, scenario_id
+            assert name and name != scenario_id, scenario_id
+
+    def test_the_document_carries_the_key_through(self):
+        built = geo.from_document(
+            {"SCENARIOS": {"s": {"display_name_ja": "表示名"}}})
+        assert built.scenarios["s"]["display_name_ja"] == "表示名"
+
+    def test_the_declared_key_wins_over_the_legacy_name(self):
+        """`name_ja` predates this field and still feeds v1's scenario
+        manager. It is a fallback, not the source of truth."""
+        built = geo.from_document({"SCENARIOS": {
+            "s": {"display_name_ja": "表示名", "name_ja": "旧名"}}})
+        assert geo.display_name(built, "s") == ("表示名",
+                                                geo.DISPLAY_NAME_KEY)
+
+    def test_a_scenario_without_the_key_falls_back_to_the_legacy_name(self):
+        built = geo.from_document({"SCENARIOS": {"s": {"name_ja": "旧名"}}})
+        assert geo.display_name(built, "s") == ("旧名",
+                                                geo.LEGACY_NAME_KEY)
+
+    def test_a_nameless_scenario_falls_back_to_the_id_and_says_so(self):
+        built = geo.from_document({"SCENARIOS": {"s": {"name_ja": "  "}}})
+        assert geo.display_name(built, "s") == ("s",
+                                                geo.DISPLAY_NAME_FALLBACK)
+
+    def test_an_undeclared_scenario_is_the_same_disclosed_fallback(self):
+        """No raise, unlike `participants_of`: a missing name narrows a
+        label, while missing participants narrow a sweep."""
+        built = geo.from_document({"SCENARIOS": {}})
+        assert geo.display_name(built, "atlantis") == (
+            "atlantis", geo.DISPLAY_NAME_FALLBACK)
+
+
 class TestOneDeclarationBecomesNRequests:
     def test_taiwans_two_zones_each_get_a_request(self, real_geography):
         supplied = expansion.for_cycle(real_geography, ["TW"], now=NOW)

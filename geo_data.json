@@ -4687,6 +4687,7 @@
     "taiwan_contingency": {
       "name_en": "Taiwan Contingency",
       "name_ja": "台湾有事",
+      "display_name_ja": "台湾正面",
       "description_en": "PRC contingency operations against Taiwan",
       "description_ja": "中国による台湾に対する有事対応",
       "core_country": "TW",
@@ -4749,6 +4750,7 @@
     "eastern_europe": {
       "name_en": "Eastern Europe (Russia-Ukraine)",
       "name_ja": "東欧紛争",
+      "display_name_ja": "東欧正面",
       "description_en": "Russia-Ukraine conflict and NATO eastern flank",
       "description_ja": "露宇戦争とNATO東方側面",
       "core_country": "UA",
@@ -4822,6 +4824,7 @@
     "middle_east": {
       "name_en": "Middle East (Israel-Iran-Proxies)",
       "name_ja": "中東紛争",
+      "display_name_ja": "中東",
       "description_en": "Israel-Iran confrontation and proxy conflicts",
       "description_ja": "イスラエル・イラン対立とプロキシ紛争",
       "core_country": null,
@@ -4892,6 +4895,7 @@
     "korean_peninsula": {
       "name_en": "Korean Peninsula",
       "name_ja": "朝鮮半島",
+      "display_name_ja": "朝鮮半島",
       "description_en": "North Korean provocations and peninsula stability",
       "description_ja": "北朝鮮の挑発と半島の安定",
       "core_country": "KR",
@@ -4942,6 +4946,7 @@
     "south_china_sea": {
       "name_en": "South China Sea",
       "name_ja": "南シナ海",
+      "display_name_ja": "南シナ海",
       "description_en": "Maritime territorial disputes in the South China Sea",
       "description_ja": "南シナ海における海洋領土紛争",
       "core_country": "PH",

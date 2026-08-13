@@ -31,6 +31,8 @@ from v3.conclusions import (CALIBRATION_PENDING, CONCLUSION_TYPES,
 from v3.conclusions import thresholds as CT
 from v3.kernel import Evidence, ThreatLevel
 from v3.ledger import LedgerStore, SignalObservation, TLObservation
+from v3.runtime import attention as RANKER
+from v3.runtime import ops_health as OPS
 
 SCENARIO = "taiwan_contingency"
 VIEWER = Principal(user_id="analyst-1", role=ROLE_VIEWER)
@@ -320,6 +322,160 @@ class TestR1Scenarios:
         assert row["in_null_zone"] is True
         assert row["threat_level"] is None
         assert row["never_observed"] is False
+
+    def test_a_row_carries_the_japanese_display_name(self, seeded):
+        """P9 §5 — the card's primary label. `scenario_id` is the raw key
+        the tool sorts by, not the vocabulary an analyst reads."""
+        body = _get(seeded, "/api/v3/scenarios", scenarios=(
+            ScenarioRef(scenario_id=SCENARIO, display_name_ja="台湾正面",
+                        display_name_source="display_name_ja"),)).as_dict()
+        row = body["scenarios"][0]
+        assert row["display_name_ja"] == "台湾正面"
+        assert row["display_name_source"] == "display_name_ja"
+
+    def test_a_missing_display_name_is_a_disclosed_fallback(self, store):
+        """Falling back to the id is fine; falling back SILENTLY is not —
+        the client cannot otherwise tell a declared name that happens to
+        equal the id from a name nobody declared."""
+        row = _get(store, "/api/v3/scenarios", scenarios=(
+            ScenarioRef(scenario_id="new_one"),)).as_dict()["scenarios"][0]
+        assert row["display_name_ja"] == "new_one"
+        assert row["display_name_source"] == "scenario_id"
+
+
+class TestR1BoardSummary:
+    """P9 §5 / R-A — R1 answers 「何か変わったか」 as a Japanese sentence.
+
+    The sentence is composed by P7 §4's template engine, server-side. It
+    is not a convenience: composing it in the page would be the frontend
+    re-deriving a conclusion the backend already holds (G-09), which is
+    the defect P5 O-8 removed from `triage_score.js`.
+    """
+
+    def _summary(self, store, **kwargs):
+        return _get(store, "/api/v3/scenarios",
+                    **kwargs).as_dict()["board_summary"]
+
+    def test_the_envelope_carries_text_its_template_and_its_inputs(
+            self, seeded):
+        summary = self._summary(seeded)
+        assert set(summary) == {"text", "template_ref", "inputs"}
+        assert summary["template_ref"].startswith("board.summary@")
+        assert summary["text"].endswith("。")
+
+    def test_the_template_is_disclosed_beside_the_sentence(self, seeded):
+        """NP6 — a sentence whose template nobody can look up is a
+        sentence nobody can re-derive. Same shape as R6's
+        `narrative_templates`."""
+        body = _get(seeded, "/api/v3/scenarios").as_dict()
+        disclosed = body["board_summary_templates"]
+        ref = body["board_summary"]["template_ref"]
+        assert ref in disclosed
+        assert disclosed[ref]["slots"] and disclosed[ref]["text"]
+
+    def test_it_counts_the_scenarios_that_moved_in_24h(self, store):
+        for index, level in ((0, 4), (1, 4), (2, 2)):
+            store.append_tl(TLObservation(
+                tick_id=f"t{index}", scenario_id=SCENARIO,
+                observed_at=NOW - DAY - 100 + index * 2000.0,
+                threat_level=ThreatLevel(level), score=2.0))
+        store.append_tl(TLObservation(
+            tick_id="now", scenario_id=SCENARIO, observed_at=NOW - 10,
+            threat_level=ThreatLevel(2), score=4.0))
+        inputs = self._summary(store)["inputs"]
+        assert inputs["scenario_count"] == 1
+        assert inputs["changed_count"] == 1
+        assert inputs["changed_scenario_ids"] == [SCENARIO]
+
+    def test_an_unmoved_scenario_is_counted_as_unchanged_not_as_absent(
+            self, store):
+        for index, at in ((0, NOW - DAY - 100), (1, NOW - 10)):
+            store.append_tl(TLObservation(
+                tick_id=f"t{index}", scenario_id=SCENARIO, observed_at=at,
+                threat_level=ThreatLevel(4), score=2.0))
+        inputs = self._summary(store)["inputs"]
+        assert inputs["changed_count"] == 0
+        assert inputs["unchanged_count"] == 1
+        assert inputs["undetermined_count"] == 0
+        assert inputs["changed_scenario_ids"] == []
+
+    def test_a_scenario_with_no_24h_comparison_is_undetermined(self, store):
+        """`severity_delta_24h is None` is neither "changed" nor "did not
+        change". Folding it into either is the fake zero this projection
+        already refuses one level down."""
+        store.append_tl(TLObservation(
+            tick_id="t0", scenario_id=SCENARIO, observed_at=NOW - 60,
+            threat_level=ThreatLevel(4), score=2.0))
+        inputs = self._summary(store)["inputs"]
+        assert inputs["undetermined_count"] == 1
+        assert inputs["changed_count"] == 0 and inputs["unchanged_count"] == 0
+
+    def test_a_cold_deployment_says_so_rather_than_reporting_zero_change(
+            self, store):
+        """The honesty rule. "0 件が変化" on a tool that has concluded
+        nothing is a confident wrong answer — the exact shape of the empty
+        cache that returned CLEAR."""
+        summary = self._summary(store, scenarios=(
+            ScenarioRef(scenario_id="new_one"),))
+        assert summary["template_ref"].startswith("board.summary.cold@")
+        assert "結論可能なシナリオがまだありません" in summary["text"]
+        assert summary["inputs"]["concluded_count"] == 0
+        assert summary["inputs"]["never_observed_count"] == 1
+
+    def test_a_component_it_cannot_supply_is_named_never_dropped(self, store):
+        """G-17. The attention fold is per-reader; an unidentified reader
+        has no ranked list. The sentence must SAY that rather than read as
+        "nothing needs attention"."""
+        request = ApiRequest(method="GET", path="/api/v3/scenarios",
+                             params={}, principal=VIEWER)
+        context = _context(store)
+        summary = handle(request, context).as_dict()["board_summary"]
+        components = summary["inputs"]["components"]
+        assert set(components) >= {"change_24h", "attention", "trust"}
+        assert components["attention"]["supplied"] is False
+        assert components["attention"]["reason"] == "ranker_has_not_run"
+        assert "attention" in summary["inputs"]["unsupplied"]
+        assert "なし" in summary["text"] or "不明" in summary["text"]
+
+    def test_the_top_ranked_row_is_the_one_the_sentence_names(self, seeded):
+        report = RANKER.rank_cycle(now=NOW, store=seeded,
+                                   scenario_ids=[SCENARIO])
+        assert report.written > 0
+        top = seeded.attention_snapshot(
+            seeded.latest_attention_snapshot_id(NOW))[0]
+        summary = self._summary(seeded)
+        attention = summary["inputs"]["components"]["attention"]
+        assert attention["supplied"] is True
+        assert attention["item_id"] == top["item_id"]
+        assert attention["rank"] == 1
+
+    def test_the_trust_band_is_the_ops_fold_and_not_a_second_reading(
+            self, seeded):
+        """One measurement, two surfaces. A board that folded the monitors
+        itself would be free to disagree with R7 about the same
+        deployment."""
+        trust = self._summary(seeded)["inputs"]["components"]["trust"]
+        expected = OPS.probe_absent(now=NOW)
+        assert trust["band"] == expected["worst_band"] == "reserved"
+        assert trust["worst_monitor"] == expected["worst_monitor"]
+        assert trust["worst_verdict"] == expected["worst_verdict"]
+        assert trust["reason"] == expected["worst_reason"]
+        assert trust["supplied"] is True, (
+            "an unprobed deployment still MEASURES reserved; a missing "
+            "field would let the page read it as unknown")
+
+    def test_the_same_ledger_produces_the_same_sentence(self, seeded):
+        """AP2 — reproducible, because it is a template and not a model."""
+        assert self._summary(seeded) == self._summary(seeded)
+
+    def test_the_sentence_names_the_scenario_by_its_display_name(self,
+                                                                 seeded):
+        RANKER.rank_cycle(now=NOW, store=seeded, scenario_ids=[SCENARIO])
+        summary = self._summary(seeded, scenarios=(
+            ScenarioRef(scenario_id=SCENARIO, display_name_ja="台湾正面",
+                        display_name_source="display_name_ja"),))
+        assert "台湾正面" in summary["text"]
+        assert SCENARIO not in summary["text"]
 
 
 class TestR3History:

@@ -22,6 +22,13 @@ from v3.api.readonly import ReadOnlyLedger
 from v3.api.vocabulary import METHODS, ROLES
 from v3.config.resolution import ConfigResolver
 from v3.kernel.errors import DomainError
+from v3.runtime.geo import DISPLAY_NAME_FALLBACK
+
+#: A ref built with a label but no stated origin. Reachable only from a
+#: caller that is not the composition root (a counterfactual rebuild, a
+#: test), and named rather than left blank so `display_name_source` is
+#: never a value a reader has to interpret as "unknown".
+DISPLAY_NAME_SUPPLIED = "supplied"
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +98,16 @@ class ScenarioRef:
     #: supplies it to the tick and supplies it here, so a counterfactual
     #: and the tick score the same scenario the same way.
     chain_country: Optional[str] = None
+    #: P9 §5 — the label an analyst reads, supplied by the composition
+    #: root from `geo_data.json`. Never blank on a built ref: an absent
+    #: declaration resolves to the `scenario_id` HERE, so no reader has to
+    #: invent the fallback and no two readers can invent different ones.
+    display_name_ja: Optional[str] = None
+    #: Which key supplied `display_name_ja`. Carried because falling back
+    #: to the id is fine and falling back SILENTLY is not — a client
+    #: cannot otherwise tell a declared name that happens to equal the id
+    #: from a name nobody declared (G-17).
+    display_name_source: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.scenario_id, str) or \
@@ -99,6 +116,14 @@ class ScenarioRef:
         object.__setattr__(self, "participants", dict(self.participants))
         object.__setattr__(self, "adversaries", tuple(self.adversaries))
         object.__setattr__(self, "roles", dict(self.roles))
+        label = str(self.display_name_ja or "").strip()
+        if not label:
+            object.__setattr__(self, "display_name_ja", self.scenario_id)
+            object.__setattr__(self, "display_name_source",
+                               DISPLAY_NAME_FALLBACK)
+        elif not str(self.display_name_source or "").strip():
+            object.__setattr__(self, "display_name_source",
+                               DISPLAY_NAME_SUPPLIED)
 
     def as_dict(self) -> dict:
         return {"scenario_id": self.scenario_id,
@@ -106,7 +131,9 @@ class ScenarioRef:
                 "adversaries": list(self.adversaries),
                 "focused": self.focused,
                 "roles": dict(self.roles),
-                "chain_country": self.chain_country}
+                "chain_country": self.chain_country,
+                "display_name_ja": self.display_name_ja,
+                "display_name_source": self.display_name_source}
 
 
 @dataclass(frozen=True, slots=True)

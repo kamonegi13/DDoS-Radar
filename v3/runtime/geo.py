@@ -38,6 +38,18 @@ DEFAULT_PATH = pathlib.Path(__file__).resolve().parents[2] / "geo_data.json"
 #: `geo_data.json`'s field name for what the project calls a country.
 LEGACY_COUNTRY_FIELD = "theater"
 
+#: P9 §5's field: the scenario's Japanese label, as an analyst says it.
+DISPLAY_NAME_KEY = "display_name_ja"
+#: The name v1's scenario manager writes and `radar.js` reads. It is a
+#: FALLBACK, not a second source of truth: keeping the two keys separate
+#: is what lets the board card carry a short 「台湾正面」 while the v1
+#: scenario record keeps the longer 「台湾有事」 it has always had, and
+#: rewriting `name_ja` to suit the board would move a label the legacy
+#: surface still renders.
+LEGACY_NAME_KEY = "name_ja"
+#: What `display_name` reports when no name was declared anywhere.
+DISPLAY_NAME_FALLBACK = "scenario_id"
+
 
 @dataclass(frozen=True, slots=True)
 class Zone:
@@ -240,5 +252,28 @@ def adversaries_of(geography: Geography, scenario_id: str) -> tuple[str, ...]:
         if str(row.get("role", "")) == "adversary"))
 
 
+def display_name(geography: Geography, scenario_id: str) -> tuple[str, str]:
+    """`(label, which key supplied it)` for one scenario. Pure.
+
+    Returns the SOURCE beside the label rather than the label alone,
+    because the interesting failure is silent: a card reading
+    `taiwan_contingency` looks the same whether nobody declared a name or
+    somebody declared that string, and only the first is a gap worth
+    filling. G-17 in one tuple.
+
+    Does not raise on an unknown scenario, unlike `participants_of`. A
+    missing name narrows a LABEL; missing participants narrow a SWEEP, and
+    only the second is worth refusing to start over.
+    """
+    declared = geography.scenarios.get(scenario_id) or {}
+    for key in (DISPLAY_NAME_KEY, LEGACY_NAME_KEY):
+        value = str(declared.get(key) or "").strip()
+        if value:
+            return (value, key)
+    return (str(scenario_id), DISPLAY_NAME_FALLBACK)
+
+
 __all__ = ["Zone", "Geography", "load", "from_document", "participants_of",
-           "adversaries_of", "DEFAULT_PATH", "LEGACY_COUNTRY_FIELD"]
+           "adversaries_of", "display_name", "DEFAULT_PATH",
+           "LEGACY_COUNTRY_FIELD", "DISPLAY_NAME_KEY", "LEGACY_NAME_KEY",
+           "DISPLAY_NAME_FALLBACK"]
