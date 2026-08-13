@@ -16,7 +16,12 @@ for a private thread to obtain any.
 S4-NF-003's "exactly once per cycle" is structural here: the breaker's
 effective state is computed in `run_due` and carried in the plan, so
 `execute_plan` cannot consume a second HALF_OPEN probe slot by asking
-again.
+again. The probe is one STEP for the same structural reason: `run_due`
+truncates a HALF_OPEN plan to its first step, so the executor cannot
+spend an adapter's whole sweep on what the breaker meant as one trial
+request. Measured before the truncation existed (shadow, 2026-08-13):
+ct_log's "probe" was its full 162-step expansion — 319 requests in ten
+minutes, all against an exhausted 30-requests/hour anonymous quota.
 """
 from __future__ import annotations
 
@@ -94,6 +99,13 @@ class PlannedFetch:
     #: adapter declares is indistinguishable from one whose expansion
     #: broke, and that is the failure this layer exists to make visible.
     withheld: tuple[tuple, ...] = ()
+    #: How many due steps were held back because this plan is a HALF_OPEN
+    #: probe (S4-NF-003: one trial request, so `steps` was cut to its
+    #: first). Disclosed for the same reason `withheld` is — a truncated
+    #: plan must never read like a completed sweep (G-17). The step keeps
+    #: its fallback chain: the chain is the same question asked of another
+    #: host, and the probe's question is "can this adapter answer again".
+    probe_deferred: int = 0
 
     @property
     def is_probe(self) -> bool:
@@ -270,6 +282,14 @@ def run_due(now: float, adapters: Sequence[SourceAdapter],
                 f"value"))
             continue
 
+        probe_deferred = 0
+        if current.state == breaker_module.HALF_OPEN and len(steps) > 1:
+            # One trial request, not a resumption (S4-NF-003). The rest of
+            # the sweep runs when the probe's success has closed the
+            # breaker and the adapter comes due again.
+            probe_deferred = len(steps) - 1
+            steps = steps[:1]
+
         if adapter.min_interval_sec > 0:
             claimed.add(group)
         planned.append(PlannedFetch(
@@ -277,7 +297,8 @@ def run_due(now: float, adapters: Sequence[SourceAdapter],
             overdue_by_sec=schedule.overdue_by(now, state.last_run_at,
                                                adapter.cadence),
             last_run_at=state.last_run_at,
-            withheld=withheld))
+            withheld=withheld,
+            probe_deferred=probe_deferred))
 
     return FetchPlan(now=now, planned=tuple(planned), skipped=tuple(skipped),
                      breaker_states=effective)

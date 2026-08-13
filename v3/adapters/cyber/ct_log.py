@@ -65,6 +65,16 @@ MAX_OBSERVATIONS_PER_DOMAIN = 200
 WARMUP_DAYS = 14
 MAX_QUERIES_PER_COUNTRY = 2
 INTER_QUERY_SLEEP_SEC = 4.0
+#: CertSpotter's anonymous tier is 30 requests/hour, so the honest group
+#: interval is 3600/30 = 120s. `INTER_QUERY_SLEEP_SEC` (4s) was the legacy
+#: politeness sleep BETWEEN successive domain queries inside one sweep;
+#: declaring it as `min_interval_sec` told the limiter this source
+#: tolerates 900 requests/hour. Measured on the shadow (2026-08-13): ~106
+#: requests/hour sent, 314 of 636 answered 429 in six hours. NOTE the
+#: limiter paces when a SWEEP may start, not the requests inside one — a
+#: 162-step sweep still bursts past the quota within its tick, which is a
+#: sizing question for the expansion (裁定要求), not for this constant.
+ANON_QUOTA_MIN_INTERVAL_SEC = 120.0
 #: Source parking (S1-SENS-016): five straight failures, half an hour off
 #: — but never the last healthy source.
 PARKING_FAILURES = 5
@@ -465,7 +475,7 @@ CT_LOG_ADAPTER = SourceAdapter(
                          value_template="Bearer {secret}", optional=True,
                          note="optional: the free tier works without one, "
                               "at 30 requests/hour"),
-    rate_limit_group="ct_log", min_interval_sec=INTER_QUERY_SLEEP_SEC,
+    rate_limit_group="ct_log", min_interval_sec=ANON_QUOTA_MIN_INTERVAL_SEC,
     knowledge_refs=("K05",),
     baseline_refs=("ct_log_known_ca_per_domain",
                    "ct_log_domain_first_observed"))
@@ -478,6 +488,7 @@ __all__ = ["CT_LOG", "CT_LOG_ADAPTER", "normalize", "parse_issuer",
            "WARMUP_DAYS", "PARKING_FAILURES", "PARKING_COOLDOWN_SEC",
            "DEGRADED_AFTER_CYCLES", "DEGRADED_CADENCE_SEC",
            "MAX_QUERIES_PER_COUNTRY", "INTER_QUERY_SLEEP_SEC",
+           "ANON_QUOTA_MIN_INTERVAL_SEC",
            "OBSERVATION_FIELD_CHARS", "EVENT_FIELD_CHARS",
            "RECENT_CERT_FIELD_CHARS", "MAX_UNTRUSTED_EVENTS",
            "MAX_WILDCARD_EVENTS", "MAX_RECENT_CERTS",

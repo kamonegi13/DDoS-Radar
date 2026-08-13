@@ -120,6 +120,45 @@ class TestRunDueIsPure:
         assert len(plan.planned) == 1
         assert plan.planned[0].is_probe is True
 
+    def test_a_half_open_probe_is_one_step_not_a_resumption(self):
+        """S4-NF-003 says "one trial request" — not the whole sweep.
+
+        Measured on the shadow, 2026-08-13: ct_log's HALF_OPEN "probe"
+        was its full 162-step expansion — 319 requests inside ten
+        minutes, every fetch_log row marked HALF_OPEN. The single-request
+        test above stayed green through all of it, because a one-step
+        plan cannot tell a probe from a resumption.
+        """
+        states = {"multi": AdapterState(
+            "multi", breaker=BreakerState(state=breaker.OPEN, fail_count=5,
+                                          opened_at=T0,
+                                          recovery_delay_sec=300.0))}
+        plan = runner.run_due(T0 + 400, [_multi("multi", 5)], states)
+        item = plan.planned[0]
+        assert item.is_probe is True
+        assert len(item.steps) == 1
+        assert item.probe_deferred == 4
+
+    def test_a_closed_breaker_plans_the_whole_expansion(self):
+        plan = runner.run_due(T0, [_multi("multi", 5)], {})
+        item = plan.planned[0]
+        assert item.is_probe is False
+        assert len(item.steps) == 5
+        assert item.probe_deferred == 0
+
+    def test_a_probe_costs_the_budget_one_step_not_the_sweep(self):
+        """The truncated probe must also be PRICED as one step, or a
+        162-step adapter in HALF_OPEN still evicts everything behind it
+        from the tick."""
+        states = {"multi": AdapterState(
+            "multi", breaker=BreakerState(state=breaker.OPEN, fail_count=5,
+                                          opened_at=T0,
+                                          recovery_delay_sec=300.0))}
+        plan = runner.run_due(T0 + 400, [_multi("multi", 5),
+                                         _adapter("beta")], states)
+        bounded = runner.apply_budget(plan, max_requests=2)
+        assert set(bounded.planned_ids) == {"multi", "beta"}
+
     def test_the_breaker_is_judged_once_and_carried(self):
         """S4-NF-003: asking twice would spend two probe slots."""
         states = {"alpha": AdapterState(

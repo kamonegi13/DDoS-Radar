@@ -119,6 +119,20 @@ def synthetic(body: bytes, *, label="", url="https://upstream.test/x",
 # ── greynoise (K11, K15) ────────────────────────────────────────────────
 
 class TestGreynoise:
+    def test_the_adapter_is_disabled_because_gnql_v2_is_gone(self):
+        """K11's own words: structurally unavailable is not failing.
+
+        The kernel path never honoured them — a 410 classifies as
+        `http_error`, the adapter never writes an observation, and the
+        sweep monitor holds ANOMALY over a source that can never answer.
+        Shadow, 2026-08-13: 81 requests in six hours, every one 410, the
+        only adapter in the catalogue with zero OK fetches ever.
+        `enabled=False` IS the no-GNQL mode in v3's model.
+        """
+        assert greynoise.GREYNOISE_ADAPTER.enabled is False
+        assert "410" in greynoise.GREYNOISE_ADAPTER.disabled_reason
+        assert "K11" in greynoise.GREYNOISE_ADAPTER.disabled_reason
+
     def test_noise_dominant_traffic_suppresses_its_own_entry(self):
         draft = greynoise.normalize(
             payload("greynoise", "gnql_stats.json",
@@ -531,6 +545,17 @@ class TestCtLog:
             records = ct_log.certificates(payload("ct_log", name, label=label))
             assert records[0]["issuer"] == "let's encrypt"
             assert "mofa.gov.tw" in records[0]["dns_names"]
+
+    def test_the_declared_interval_is_the_anonymous_quota(self):
+        """30 requests/hour tokenless -> one group slot per 120s.
+
+        The declaration once said 4.0 — the legacy INTRA-sweep politeness
+        sleep — which told the limiter this source tolerates 900
+        requests/hour. Shadow, 2026-08-13: ~106 sent/hour, 314 of 636
+        answered 429 within six hours.
+        """
+        assert ct_log.CT_LOG_ADAPTER.min_interval_sec == 120.0
+        assert ct_log.ANON_QUOTA_MIN_INTERVAL_SEC == 120.0
 
     def test_a_wildcard_at_a_government_tld_fires_and_scores_two(self):
         draft = self._draft("certspotter_wildcard_gov.json", "certspotter")
