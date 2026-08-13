@@ -165,13 +165,82 @@ class TestEveryEnabledAdapterResolves:
             real_geography.telegram_channels)
 
 
+class TestCtLogRotatesRatherThanSweepingEverything:
+    """`radar/sensors/ct_log.py:366-382` — up to two domains per country
+    per cycle, the rest reached on later cycles.
+
+    Measured on the shadow (2026-08-13): the un-rotated expansion sent 162
+    steps an hour against CertSpotter's 30/hr anonymous tier and 89% of
+    them failed. A sweep that cannot complete is not a wider sweep.
+    """
+
+    def _domains(self, supplied):
+        return [scope.values["domain"] for scope in supplied["ct_log"].scopes]
+
+    def test_two_domains_per_country_per_cycle(self, real_geography):
+        from v3.adapters.cyber.ct_log import MAX_QUERIES_PER_COUNTRY
+        supplied = expansion.for_cycle(real_geography, ["TW"], now=NOW)
+        assert len(real_geography.watched_domains["TW"]) > \
+            MAX_QUERIES_PER_COUNTRY
+        assert len(supplied["ct_log"].scopes) == MAX_QUERIES_PER_COUNTRY
+
+    def test_consecutive_cycles_cover_the_whole_list(self, real_geography):
+        """v1's cursor advances a window each cycle and wraps. So does this
+        one — derived from `now`, so a restart cannot reset it (F-01)."""
+        from v3.adapters.cyber.ct_log import (CT_LOG_ADAPTER,
+                                              MAX_QUERIES_PER_COUNTRY)
+        cadence = CT_LOG_ADAPTER.cadence.cadence_sec
+        declared = set(real_geography.watched_domains["TW"])
+        cycles = -(-len(declared) // MAX_QUERIES_PER_COUNTRY)
+        seen: set = set()
+        for index in range(cycles):
+            seen.update(self._domains(expansion.for_cycle(
+                real_geography, ["TW"], now=NOW + index * cadence)))
+        assert seen == declared
+
+    def test_the_window_is_a_function_of_now_not_of_process_state(
+            self, real_geography):
+        """F-01's rule applied to a cursor: two independent processes at the
+        same instant plan the same requests, and a restart does not send the
+        first window forever."""
+        first = self._domains(expansion.for_cycle(real_geography, ["TW"],
+                                                  now=NOW))
+        again = self._domains(expansion.for_cycle(real_geography, ["TW"],
+                                                  now=NOW + 1.0))
+        assert first == again
+
+    def test_a_short_list_is_swept_whole(self, real_geography):
+        """`len(all_domains) <= budget` returns the list (`ct_log.py:374`)."""
+        from v3.adapters.cyber.ct_log import MAX_QUERIES_PER_COUNTRY
+        built = geo.from_document({
+            "CT_LOG_WATCHED_DOMAINS": {"TW": ["a.gov.tw"]}})
+        supplied = expansion.for_cycle(built, ["TW"], now=NOW)
+        assert self._domains(supplied) == ["a.gov.tw"]
+        assert len(supplied["ct_log"].scopes) <= MAX_QUERIES_PER_COUNTRY
+
+    def test_a_country_with_no_watched_domain_asks_nothing(self,
+                                                            real_geography):
+        supplied = expansion.for_cycle(real_geography, ["GU"], now=NOW)
+        assert supplied["ct_log"].scopes == ()
+
+    def test_the_focused_sweep_stays_inside_the_anonymous_quota(
+            self, real_geography):
+        """Production's own sizing: 7 domain-carrying participants x 2 = 14
+        queries an hour, against 30/hr."""
+        participants = geo.participants_of(real_geography,
+                                           "taiwan_contingency")
+        supplied = expansion.for_cycle(real_geography, participants, now=NOW)
+        assert len(supplied["ct_log"].scopes) == 14
+
+
 class TestTheNormalizeContextIsSupplied:
     def test_it_carries_the_countries_and_the_geography(self,
                                                         real_geography):
         registry = build_registry()
         adapter = registry.get(registry.resolve("ais_maritime"))
         context = expansion.context_for(adapter, real_geography, ["TW"],
-                                        now=NOW, adversaries=["CN"])
+                                        now=NOW, adversaries=["CN"],
+                                        article_countries=["TW"])
         assert context.countries == ("TW",)
         assert context.chokepoints
         assert all(row[3] == "TW" for row in context.chokepoints)
@@ -183,7 +252,8 @@ class TestTheNormalizeContextIsSupplied:
         registry = build_registry()
         adapter = registry.get(registry.resolve("usgs_seismic"))
         context = expansion.context_for(adapter, real_geography, ["TW"],
-                                        now=NOW, adversaries=["cn", "CN"])
+                                        now=NOW, adversaries=["cn", "CN"],
+                                        article_countries=["TW"])
         assert context.adversaries == ("CN",)
 
     def test_omitting_the_adversaries_is_not_expressible(self,
@@ -201,6 +271,70 @@ class TestTheNormalizeContextIsSupplied:
         from v3.adapters.types import NormalizeContext
         fields = {f.name for f in dataclasses.fields(NormalizeContext)}
         assert not (fields & {"client", "session", "store", "ledger"})
+
+
+class TestTheArticleSensorsKeepTheWholeUnion:
+    """`radar/scheduler.py:56-69`: two country sets leave the scheduler.
+
+    `strategic_theaters` is the union over the FOCUSED scenarios and is
+    what every per-country sensor sweeps; `all_participant_countries` is
+    the union over ALL scenarios and reaches exactly five sensors, all of
+    which read whole articles and attribute them by text.
+    """
+
+    def _adapter(self, name):
+        registry = build_registry()
+        return registry.get(registry.resolve(name))
+
+    def test_the_five_article_sensors_are_the_ones_production_names(self):
+        assert expansion.ARTICLE_SCOPED == frozenset({
+            "apt_intel", "diplomatic", "hacktivist_news",
+            "military_exercise", "rss_narrative"})
+
+    def test_no_adapter_is_in_both_scopes(self):
+        assert not (expansion.ARTICLE_SCOPED & expansion.COUNTRY_SCOPED)
+
+    def test_every_name_is_an_adapter_that_exists(self):
+        """A typo here does not fail — it quietly hands the misspelt
+        adapter the narrow scope, which is the whole defect this set
+        exists to prevent."""
+        registry = build_registry()
+        declared = {a.adapter_id.value for a in registry.all()}
+        assert expansion.ARTICLE_SCOPED <= declared
+
+    def test_an_article_sensor_receives_the_union(self, real_geography):
+        context = expansion.context_for(
+            self._adapter("rss_narrative"), real_geography, ["TW", "CN"],
+            now=NOW, adversaries=["CN"],
+            article_countries=["TW", "CN", "UA", "RU"])
+        assert context.countries == ("TW", "CN", "UA", "RU")
+
+    def test_a_per_country_sensor_receives_the_swept_scope_only(
+            self, real_geography):
+        context = expansion.context_for(
+            self._adapter("ripe_atlas"), real_geography, ["TW", "CN"],
+            now=NOW, adversaries=["CN"],
+            article_countries=["TW", "CN", "UA", "RU"])
+        assert context.countries == ("TW", "CN")
+
+    def test_a_globally_fetched_sensor_receives_the_swept_scope_too(
+            self, real_geography):
+        """`threatfox` reads `strategic_theaters` in production
+        (`radar/sensors/threatfox.py`), not the all-scenario union — the
+        global fetch is what is global, not the attribution scope."""
+        context = expansion.context_for(
+            self._adapter("threatfox"), real_geography, ["TW"],
+            now=NOW, adversaries=["CN"], article_countries=["TW", "UA"])
+        assert context.countries == ("TW",)
+
+    def test_omitting_the_article_scope_is_not_expressible(self):
+        """Same rule as `adversaries`: the set that can be forgotten is the
+        set that silently stops being watched."""
+        import inspect
+        parameter = inspect.signature(
+            expansion.context_for).parameters["article_countries"]
+        assert parameter.default is inspect.Parameter.empty
+        assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
 
 
 class TestTheBaselineAccountIsHonest:

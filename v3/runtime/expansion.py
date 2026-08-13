@@ -27,6 +27,9 @@ from __future__ import annotations
 import datetime
 from typing import Iterable, Mapping, Optional, Sequence
 
+from v3.adapters.cyber.ct_log import CT_LOG_ADAPTER
+from v3.adapters.cyber.ct_log import MAX_QUERIES_PER_COUNTRY as \
+    CT_LOG_QUERIES_PER_COUNTRY
 from v3.adapters.cyber.ooni_censorship import LOOKBACK_DAYS as \
     OONI_LOOKBACK_DAYS
 from v3.adapters.cyber.ripe_bgp import LOOKBACK_SEC as RIPE_BGP_LOOKBACK_SEC
@@ -58,6 +61,24 @@ COUNTRY_SCOPED: frozenset = frozenset({
 ZONE_SCOPED: frozenset = frozenset({"isr_hotspot", "mil_support_air"})
 #: One request per watched maritime/cable chokepoint.
 CHOKEPOINT_SCOPED: frozenset = frozenset({"ais_maritime"})
+#: The five adapters that receive the union over EVERY scenario's
+#: participants rather than the swept scope.
+#:
+#: Not a taste: `radar/scheduler.py:56-69` builds two country sets and puts
+#: `all_participant_countries` in the context beside `strategic_theaters`.
+#: Exactly these five sensors read the first one — `apt_intel.py:332`,
+#: `diplomatic.py:366`, `hacktivist_news_sensor.py:236`,
+#: `military_exercise.py:220`, `rss_narrative.py:640` — and every other
+#: sensor, including the globally-fetched ones (`threatfox.py`,
+#: `gps_jamming.py`, `travel_advisory.py`), reads `strategic_theaters`.
+#: The five have one thing in common: their payload is prose about the
+#: world, so the country it concerns is decided by the TEXT and a narrow
+#: list would discard an article about a scenario nobody is looking at.
+#: A global FETCH is not a global attribution scope, which is why the
+#: other three are not here.
+ARTICLE_SCOPED: frozenset = frozenset({
+    "apt_intel", "diplomatic", "hacktivist_news", "military_exercise",
+    "rss_narrative"})
 
 #: `radar/sensors/usgs_seismic.py:65` — `starttime=_hours_ago(24)`.
 USGS_LOOKBACK_SEC = 24 * 3600.0
@@ -106,6 +127,41 @@ def _time_windows(now: float) -> dict:
         # hundred-sigma Z. The constant is the adapter's, imported.
         "ripe_bgp": {"since_iso": _iso(now - RIPE_BGP_LOOKBACK_SEC)},
     }
+
+
+def rotate_window(items: Sequence[str], *, now: float, per_cycle: int,
+                  cadence_sec: float) -> tuple[str, ...]:
+    """`per_cycle` items this cycle, the rest on the cycles after it.
+
+    `_select_domains_for_theater` (`radar/sensors/ct_log.py:366-382`) asks
+    about CT_LOG_MAX_QUERIES_PER_THEATER domains per theater per poll and
+    advances a cursor, so the whole watch list is covered over several
+    cycles. That is the difference between production's 14 CertSpotter
+    queries an hour and v3's 162 against a 30/hr anonymous quota — 89% of
+    which failed, measured on the shadow 2026-08-13.
+
+    The cursor is DERIVED FROM `now` rather than kept in the process, and
+    that is F-01 rather than a preference: production's `_query_cursor` is
+    an instance attribute, so a restart sends window 0 again and a
+    deployment that restarts often never reaches the tail of the list. A
+    window computed from the clock cannot be reset by a restart, is the
+    same in two processes at the same instant, and replays (NP6).
+
+    The order is the SORTED list, not the file's. `geo_data.json`'s array
+    order is deployment data that an edit reorders, and a rotation whose
+    window boundaries move when an unrelated domain is inserted is a
+    rotation nobody can reason about.
+    """
+    ordered = tuple(sorted(dict.fromkeys(str(item) for item in items if item)))
+    if not ordered:
+        return ()
+    size = max(1, int(per_cycle))
+    if len(ordered) <= size:
+        return ordered                      # `ct_log.py:374-375`
+    windows = -(-len(ordered) // size)      # ceil, without importing math
+    offset = int(float(now) // max(1.0, float(cadence_sec))) % windows
+    start = offset * size
+    return ordered[start:start + size]
 
 
 def _box(lat: float, lng: float, half: float) -> dict:
@@ -206,12 +262,19 @@ def for_cycle(geography: Geography, countries: Sequence[str], *,
             for url in geography.infrastructure_urls.get(
                 country, ())[:MAX_URLS_PER_COUNTRY]),
         common=shared)
+    # ROTATED, not swept whole. See `rotate_window`: the whole watch list
+    # per country per cycle is 170 requests an hour against a free tier
+    # that answers 30, and a source that spends 89% of its cycle being
+    # rate-limited is a source that has stopped measuring.
     expansions["ct_log"] = ExpansionInput(
         scopes=tuple(
             ExpansionScope(scope_key=f"{country}/{domain}",
                            values={"country": country, "domain": domain})
             for country in scope
-            for domain in geography.watched_domains.get(country, ())),
+            for domain in rotate_window(
+                geography.watched_domains.get(country, ()), now=now,
+                per_cycle=CT_LOG_QUERIES_PER_COUNTRY,
+                cadence_sec=CT_LOG_ADAPTER.cadence.cadence_sec)),
         common=shared)
     # Channels are keyed by BLOC, not by participant: `noname05716` is a
     # Russian-bloc channel, and `XX` marks the ones with no bloc at all.
@@ -263,7 +326,8 @@ def for_cycle(geography: Geography, countries: Sequence[str], *,
 
 
 def context_for(adapter, geography: Geography, countries: Sequence[str], *,
-                now: float, adversaries: Sequence[str]) -> NormalizeContext:
+                now: float, adversaries: Sequence[str],
+                article_countries: Sequence[str]) -> NormalizeContext:
     """The pure-function context `normalize` is called with.
 
     Everything is supplied rather than read, which is what keeps
@@ -288,10 +352,29 @@ def context_for(adapter, geography: Geography, countries: Sequence[str], *,
     the scoring-side one that `core.py:590` reads from the single focused
     scenario. v3 matches the sensor side here and registers the scoring
     side separately (§7-2 #119).
+
+    `article_countries` is production's OTHER sensor-side set. The
+    scheduler puts `all_participant_countries` in the same context dict
+    (`radar/scheduler.py:69`) and exactly the five `ARTICLE_SCOPED`
+    adapters read it; this function is where the two are told apart. It is
+    required for the same reason `adversaries` is: a country set that can
+    be omitted is a country set that silently stops being watched, and
+    these five are the only path by which an unfocused scenario is
+    observed at all.
+
+    `adversaries` is deliberately NOT split the same way — the caller
+    supplies the union over every scored scenario, which is WIDER than
+    production's focused-only `adversary_states`. `usgs_seismic` asks
+    about the whole planet and decides nuclear candidacy purely from that
+    list, so narrowing it would stop a KP test site being a candidate
+    while an analyst looks at Taiwan. Wider is the NP1 direction.
     """
     scope = tuple(dict.fromkeys(str(c).upper() for c in countries))
+    supplied = (tuple(dict.fromkeys(str(c).upper()
+                                    for c in article_countries))
+                if str(adapter.adapter_id.value) in ARTICLE_SCOPED else scope)
     return NormalizeContext(
-        adapter_id=adapter.adapter_id, now=now, countries=scope,
+        adapter_id=adapter.adapter_id, now=now, countries=supplied,
         country_coordinates=geography.country_coordinates,
         country_names=geography.country_names,
         chokepoints=geography.chokepoints_for(scope),
@@ -322,5 +405,6 @@ def coverage_report(geography: Geography, countries: Sequence[str]) -> dict:
     }
 
 
-__all__ = ["for_cycle", "context_for", "coverage_report", "COUNTRY_SCOPED",
-           "ZONE_SCOPED", "CHOKEPOINT_SCOPED"]
+__all__ = ["for_cycle", "context_for", "coverage_report", "rotate_window",
+           "COUNTRY_SCOPED", "ZONE_SCOPED", "CHOKEPOINT_SCOPED",
+           "ARTICLE_SCOPED"]

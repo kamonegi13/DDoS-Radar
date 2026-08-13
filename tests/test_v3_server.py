@@ -59,6 +59,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SERVER_DIR = REPO_ROOT / "v3" / "server"
 NOW = 1_800_000_000.0
 SCENARIO = "taiwan_contingency"
+OTHER_SCENARIO = "korean_peninsula"
 
 GEO_DOC = {
     "ISR_HOTSPOTS": [
@@ -69,9 +70,19 @@ GEO_DOC = {
                      "country": "TW"}],
     "COUNTRY_COORDS": {"TW": {"lat": 23.7, "lng": 121.0, "name": "Taiwan"},
                        "CN": {"lat": 35.0, "lng": 105.0, "name": "China"}},
-    "SCENARIOS": {SCENARIO: {
-        "participants": {"TW": {"weight": 1.0, "role": "primary_target"},
-                         "CN": {"weight": 0.7, "role": "adversary"}}}},
+    "SCENARIOS": {
+        SCENARIO: {
+            "participants": {"TW": {"weight": 1.0, "role": "primary_target"},
+                             "CN": {"weight": 0.7, "role": "adversary"}}},
+        # Disabled, so `_scenarios()`'s "every enabled one" default is
+        # unchanged; named explicitly by the C-lite sweep tests, which need
+        # a deployment watching more than one scenario to be able to show
+        # that the sweep is narrower than the watch.
+        OTHER_SCENARIO: {
+            "enabled": False,
+            "participants": {"KR": {"weight": 1.0, "role": "primary_target"},
+                             "KP": {"weight": 0.9, "role": "adversary"}}},
+    },
 }
 
 
@@ -551,6 +562,80 @@ class TestWhatTheEntrypointComposes:
         names = composition.key_names(registry)
         assert settings_module.LEDGER_PATH_KEY in names
         assert names == tuple(sorted(set(names)))
+
+
+# ── 4b. the C-lite sweep scope ────────────────────────────────────────────
+class TestTheDefaultFocusDecidesWhatIsSwept:
+    """`radar/config.py:741-756` — DEFAULT_FOCUSED_SCENARIO is a compute /
+    API-quota decision, not a threshold: the focused scenario runs every
+    sensor, the rest run in C-lite. v3 read no such setting and swept every
+    scenario's participants every tick.
+    """
+
+    def _compose(self, tmp_path, registry, geography, **overrides):
+        return composition.compose(
+            _settings(tmp_path, **overrides), environment={},
+            registry=registry, geography=geography, client=_Client(),
+            clock=lambda: NOW, barrier=False)
+
+    def test_the_key_is_v1s_own_name(self):
+        assert settings_module.DEFAULT_FOCUSED_SCENARIO_KEY == \
+            "DEFAULT_FOCUSED_SCENARIO"
+        assert settings_module.DEFAULT_FOCUSED_SCENARIO_KEY in \
+            settings_module.KEY_IDS
+
+    def test_it_defaults_to_the_scenario_production_boots_into(self):
+        built = settings_module.from_environment(
+            {settings_module.LEDGER_PATH_KEY: "/tmp/v3data/noroshi_v3.db"})
+        assert built.default_focused_scenario == "taiwan_contingency"
+
+    def test_the_environment_can_move_it(self):
+        built = settings_module.from_environment({
+            settings_module.LEDGER_PATH_KEY: "/tmp/v3data/noroshi_v3.db",
+            settings_module.DEFAULT_FOCUSED_SCENARIO_KEY: "eastern_europe"})
+        assert built.default_focused_scenario == "eastern_europe"
+
+    def test_an_unknown_default_focus_is_refused_at_composition(
+            self, tmp_path, registry, geography):
+        """A typo must not be answered by fetching for a scenario that does
+        not exist — which expands to nothing and reads as a quiet world."""
+        with pytest.raises(DomainError) as caught:
+            self._compose(tmp_path, registry, geography,
+                          default_focused_scenario="atlantis")
+        assert "atlantis" in str(caught.value)
+
+    def test_a_default_focus_outside_the_watched_set_is_refused(
+            self, tmp_path, registry, geography):
+        """Sweeping one scenario's participants while scoring another's is
+        a coverage hole with no symptom: every scored country is dark and
+        the sweep still reports success."""
+        with pytest.raises(DomainError) as caught:
+            self._compose(tmp_path, registry, geography,
+                          scenario_ids=(SCENARIO,),
+                          default_focused_scenario=OTHER_SCENARIO)
+        assert OTHER_SCENARIO in str(caught.value)
+
+    def test_with_nothing_focused_the_default_decides_the_sweep(
+            self, tmp_path, registry, geography):
+        """`focus_state` returns None on a fresh ledger, and production
+        still sweeps — DEFAULT_FOCUSED_SCENARIO is what it sweeps."""
+        built = self._compose(tmp_path, registry, geography,
+                              scenario_ids=(SCENARIO, OTHER_SCENARIO))
+        try:
+            report = built.tick(NOW)
+            assert report.scenario_ids == (SCENARIO, OTHER_SCENARIO)
+            assert report.coverage["countries"] == ["TW", "CN"]
+        finally:
+            built.close()
+
+    def test_the_narrowing_is_announced_rather_than_silent(
+            self, tmp_path, registry, geography):
+        built = self._compose(tmp_path, registry, geography)
+        try:
+            assert any(settings_module.DEFAULT_FOCUSED_SCENARIO_KEY in line
+                       for line in built.announcements())
+        finally:
+            built.close()
 
 
 # ── 5. the web surface ────────────────────────────────────────────────────

@@ -46,9 +46,14 @@ GEO_DOC = {
     "CHOKEPOINTS": [{"name": "Bashi Channel", "lat": 21.5, "lng": 121.0,
                      "country": "TW"}],
     "COUNTRY_COORDS": {"TW": {"lat": 23.7, "lng": 121.0, "name": "Taiwan"}},
-    "SCENARIOS": {"taiwan_contingency": {
-        "participants": {"TW": {"weight": 1.0, "role": "primary_target"},
-                         "CN": {"weight": 0.7, "role": "adversary"}}}},
+    "SCENARIOS": {
+        "taiwan_contingency": {
+            "participants": {"TW": {"weight": 1.0, "role": "primary_target"},
+                             "CN": {"weight": 0.7, "role": "adversary"}}},
+        "korean_peninsula": {
+            "participants": {"KR": {"weight": 1.0, "role": "primary_target"},
+                             "KP": {"weight": 0.9, "role": "adversary"}}},
+    },
 }
 
 
@@ -356,6 +361,89 @@ class TestTheTickRunsEndToEnd:
                       scenario_ids=("taiwan_contingency",))
         rows = recorder.fetch_log_for(store, "ripe_atlas")
         assert any("anonymous: no K" in row["detail"] for row in rows)
+
+
+class TestTheSweepScopeIsTheFocusedScenario:
+    """C-lite, ported. `radar/scheduler.py:19-75` builds TWO country sets:
+    `strategic_theaters` (the focused scenarios' participants — what every
+    per-country sensor sweeps) and `all_participant_countries` (the union
+    over all scenarios — what the five article sensors receive).
+
+    v3 fetched the union for BOTH, which is why the shadow's ct_log sent
+    162 steps an hour against a 30/hr quota and ripe_atlas swept for 25
+    minutes. Narrowing the first set is an ALIGNMENT with production, not a
+    new difference.
+    """
+
+    BOTH = ("taiwan_contingency", "korean_peninsula")
+
+    def _recorder(self, name, seen):
+        def _capture(payload, context):
+            seen.append(context)
+            return ()
+
+        return dataclasses.replace(_adapter(name, "physical", ()),
+                                   normalize=_capture)
+
+    def _run(self, store, geography, name, **kwargs):
+        seen: list = []
+        tick.run_tick(now=NOW,
+                      registry=AdapterRegistry([self._recorder(name, seen)]),
+                      store=store, client=_Client(), geography=geography,
+                      scenario_ids=self.BOTH, **kwargs)
+        assert seen, "the adapter was never normalized"
+        return seen[0]
+
+    def test_the_default_focus_narrows_the_sweep_to_its_participants(
+            self, store, geography):
+        context = self._run(store, geography, "ripe_atlas",
+                            default_focused_scenario_id="taiwan_contingency")
+        assert context.countries == ("TW", "CN")
+
+    def test_an_article_sensor_still_receives_every_scenarios_participants(
+            self, store, geography):
+        context = self._run(store, geography, "rss_narrative",
+                            default_focused_scenario_id="taiwan_contingency")
+        assert set(context.countries) == {"TW", "CN", "KR", "KP"}
+
+    def test_a_live_focus_beats_the_default(self, store, geography):
+        """The sweep follows the command fold, which is where focus lives
+        (`v3/commands/state.py::focus_state`)."""
+        context = self._run(store, geography, "ripe_atlas",
+                            focused_scenario_id="korean_peninsula",
+                            default_focused_scenario_id="taiwan_contingency")
+        assert context.countries == ("KR", "KP")
+
+    def test_no_focus_and_no_default_sweeps_everything(self, store,
+                                                       geography):
+        """The wide direction is the safe one (NP1), so this is the one
+        parameter in the tick that may be forgotten: a caller that declares
+        no focus fetches more, never less."""
+        context = self._run(store, geography, "ripe_atlas")
+        assert set(context.countries) == {"TW", "CN", "KR", "KP"}
+
+    def test_the_coverage_report_states_the_narrowed_scope(self, store,
+                                                            geography):
+        """A narrowed sweep that reads like a complete one is this
+        programme's signature defect, so the report says which countries
+        were actually in scope."""
+        report = tick.run_tick(
+            now=NOW, registry=AdapterRegistry([_adapter("ripe_atlas",
+                                                        "physical", ())]),
+            store=store, client=_Client(), geography=geography,
+            scenario_ids=self.BOTH,
+            default_focused_scenario_id="taiwan_contingency")
+        assert report.coverage["countries"] == ["TW", "CN"]
+
+    def test_the_adversaries_stay_the_whole_union(self, store, geography):
+        """Deliberately NOT narrowed. `usgs_seismic` reads only
+        `adversary_states` and its request is planet-wide, so a narrowed
+        adversary list would stop a KP test site being a candidate while an
+        analyst looks at Taiwan — a recall loss, which is the direction NP1
+        forbids."""
+        context = self._run(store, geography, "usgs_seismic",
+                            default_focused_scenario_id="taiwan_contingency")
+        assert set(context.adversaries) == {"CN", "KP"}
 
 
 class TestTheOneThread:

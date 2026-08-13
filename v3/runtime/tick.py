@@ -257,12 +257,23 @@ class TickReport:
 
 def fetch_cycle(*, now: float, registry, store, client,
                 geography: Geography, countries: Sequence[str],
+                article_countries: Sequence[str],
                 credentials: Optional[CredentialPlan] = None,
                 tick_id: Optional[str] = None,
                 adversaries: Sequence[str] = (),
                 cores: Sequence[str] = (),
                 fetch_budget: Optional[int] = None):
     """Steps 1-4: schedule, expand, plan, execute. Returns a CycleResult.
+
+    `countries` is the SWEEP scope and `article_countries` the union over
+    every scored scenario. Two sets rather than one because production
+    keeps two (`radar/scheduler.py:56-69`): the per-country sensors run on
+    the focused scenario's participants, and five article sensors receive
+    every scenario's. One set for both is what made the shadow expand
+    ripe_atlas to 108 serial steps and ct_log to 162 against a 30/hr quota.
+    `expansion.context_for` chooses per adapter; everything else here —
+    the baselines, the recorded scalars, the expansion itself — is about
+    what was actually fetched, so it takes the sweep scope.
 
     `adversaries` reaches the cloudflare fold, where an origin country's
     declared role decides the floor its spike is measured against — 0.5%
@@ -311,7 +322,7 @@ def fetch_cycle(*, now: float, registry, store, client,
         tick_id=tick_id or tick_id_for(now), countries=countries,
         context_for=lambda adapter: expansion_module.context_for(
             adapter, geography, countries, now=now,
-            adversaries=adversaries),
+            adversaries=adversaries, article_countries=article_countries),
         hooks=build_hooks(state, baselines=baselines, now=now,
                           credentials=credentials))
     # Step 4b: advance the baselines, from what was just written. A stage
@@ -375,9 +386,45 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
              scenario_ids: Sequence[str],
              credentials: Optional[CredentialPlan] = None,
              config=None, focused_scenario_id: Optional[str] = None,
+             default_focused_scenario_id: Optional[str] = None,
              score=None, fetch_budget: Optional[int] = None,
              llm=None) -> TickReport:
     """One whole tick. The composition root's single unit of work.
+
+    `default_focused_scenario_id` is v1's `DEFAULT_FOCUSED_SCENARIO`
+    (`radar/config.py:741-756`), and with `focused_scenario_id` it decides
+    what the per-country sensors SWEEP: focus if an analyst set one, the
+    default otherwise, exactly one scenario either way. Production's
+    reason is quoted rather than restated — "running every sensor on every
+    scenario every cycle would saturate upstreams" — and the shadow proved
+    it: ct_log sent 162 requests an hour into a 30/hr quota and ripe_atlas
+    took 25 minutes to walk 108 serial steps.
+
+    This is the one country set in the tick that MAY be omitted, and the
+    asymmetry is deliberate. Omitting it sweeps every scored scenario's
+    participants, which is what v3 did until now: wider, slower, and never
+    less sensitive. `article_countries` and `adversaries` have no such
+    default because forgetting THOSE narrows what is watched.
+
+    Two v1 mechanics are deliberately NOT ported here, and are registered
+    rather than left as a silent difference:
+
+      * v1 sweeps the UNION of up to four TTL-bounded active focuses
+        (`radar/state.py:23-34`, ACTIVE_FOCUS_TTL_SEC=1800,
+        ACTIVE_FOCUS_MAX=4), each touched by a `/api/threat_data` view.
+        v3 has no such expiry: `focus_state` is a fold over the C1
+        command log and returns one scenario, forever, until another
+        command replaces it. Porting the TTL means a fold over
+        `command_record` bounded at `now` — `v3/commands/state.py` — and
+        nothing else; it is not this layer's to invent, because a
+        composition root holding its own focus set would be the second
+        source that disagrees with the record (G-15).
+      * the sweep scenario does not become the SCORING focus.
+        `focused_scenario_id` still reaches `score_cycle` untouched, so a
+        deployment nobody has focused scores every scenario as background
+        — which is what it did before this change. v1 keeps the same
+        split (`radar/scheduler.py:56-68` unions for the sensors,
+        `core.py:590` reads the single focused scenario for the score).
 
     `llm` is the dedicated LLM egress (`v3/runtime/llm_stage.LlmEgress`),
     supplied by the composition root and by nothing else. `None` runs the
@@ -418,9 +465,19 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
         raise DomainError(
             "a tick with no scenarios would fetch, write observations and "
             "conclude nothing, which reads downstream as a quiet world")
-    countries = tuple(dict.fromkeys(
+    # The union over every scored scenario: production's
+    # `all_participant_countries`, and the only country set the five
+    # ARTICLE_SCOPED adapters ever see.
+    article_countries = tuple(dict.fromkeys(
         country for scenario_id in scenarios
         for country in participants_of(geography, scenario_id)))
+    # ... and the sweep scope: production's `strategic_theaters`. An
+    # unknown id raises here rather than expanding to nothing, which is
+    # what `scoring.assemble` already does with the same value — a focus
+    # nobody can resolve must not present as a scenario nobody watched.
+    sweep_scenario_id = focused_scenario_id or default_focused_scenario_id
+    countries = (participants_of(geography, sweep_scenario_id)
+                 if sweep_scenario_id else article_countries)
 
     identity = tick_id_for(now)
     # The union of the scored scenarios' effective cores, read through the
@@ -433,7 +490,8 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
         for core in chain_module.effective_cores(scenario)))
     cycle, state = fetch_cycle(
         now=now, registry=registry, store=store, client=client,
-        geography=geography, countries=countries, credentials=credentials,
+        geography=geography, countries=countries,
+        article_countries=article_countries, credentials=credentials,
         tick_id=identity, cores=cores, fetch_budget=fetch_budget,
         adversaries=tuple(dict.fromkeys(
             country for scenario_id in scenarios
@@ -444,9 +502,17 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
     # — L2 reads L1's in-force projection at `now`, and running the stage
     # after the score would make every intel item exactly one tick late
     # with nothing saying why (WP-2.7 / C12).
+    #
+    # The UNION, not the sweep scope. `countries` is the extraction
+    # prompt's `theaters` fallback for a candidate whose article names
+    # none, and `hacktivist_news` — the family that fallback exists for —
+    # is one of the five production feeds `all_participant_countries`
+    # (`radar/sensors/hacktivist_news_sensor.py:236`). Handing it the
+    # focused participants would tell the model to attribute a Ukrainian
+    # claim to Taiwan's list.
     llm_report = llm_stage_module.run(
         egress=llm, store=store, registry=registry,
-        awaiting=state.awaiting_llm, now=now, countries=countries,
+        awaiting=state.awaiting_llm, now=now, countries=article_countries,
         tick_id=identity)
 
     # Step 5: score. AFTER the observations are written, because the

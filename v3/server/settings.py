@@ -72,6 +72,22 @@ LLM_ENABLED_KEY = "LLM_ENABLED"
 LLM_HOST_KEY = "LLM_HOST"
 LLM_MODEL_KEY = "LLM_MODEL"
 LLM_TIMEOUT_KEY = "LLM_TIMEOUT"
+
+# ── the sweep scope (C-lite) ────────────────────────────────────────────
+#
+# v1's OWN name again, for the LLM keys' reason: the shadow inherits
+# `config.env` through `docker-compose.yml`, so reading the same name is
+# what makes the shadow sweep the same theatre production sweeps. A
+# `NOROSHI_V3_` alias would be a second value to keep in step, and the two
+# drifting is how the shadow comes to be measuring a different world than
+# the system it is being compared against.
+#
+# It is composition and NOT a threshold, which is why it belongs here and
+# not in the configuration registry: it decides which countries are
+# fetched for, before any formula exists. Production classifies it the
+# same way — `restart_required=True`, `apply_timing=TIMING_RESTART_REQUIRED`
+# (`radar/config.py:745-747`).
+DEFAULT_FOCUSED_SCENARIO_KEY = "DEFAULT_FOCUSED_SCENARIO"
 # There is deliberately NO key for the sequence chain's owner. WP-4.4
 # registered one (§7-2 #115) and the owner ruling struck it out: production
 # picks a dual-core scenario's owner by live spike, so a configured
@@ -109,6 +125,12 @@ DEFAULT_LLM_TIMEOUT_SEC = 30.0
 #: which layer answered.
 DEFAULT_LLM_ENABLED = True
 
+#: `radar/config.py:743` — the same default, and the same reason: "compute
+#: / API-quota budget. Running every sensor on every scenario every cycle
+#: would saturate upstreams." Only the BOOT default; a C1 focus command
+#: moves the sweep at runtime (`v3/commands/state.py::focus_state`).
+DEFAULT_FOCUSED_SCENARIO = "taiwan_contingency"
+
 #: Every environment name this deployment honours. Includes the two auth
 #: key ids, which live in `v3/auth/session.py` because the surface that
 #: uses them owns their names — listed here so the start-up disclosure can
@@ -117,6 +139,7 @@ KEY_IDS: tuple[str, ...] = (
     LEDGER_PATH_KEY, GEO_PATH_KEY, HOST_KEY, PORT_KEY, SCENARIOS_KEY,
     INTERVAL_KEY, COOKIE_SECURE_KEY,
     LLM_ENABLED_KEY, LLM_HOST_KEY, LLM_MODEL_KEY, LLM_TIMEOUT_KEY,
+    DEFAULT_FOCUSED_SCENARIO_KEY,
     SESSION.SIGNING_KEY_ID, SESSION.BOOTSTRAP_KEY_ID,
 )
 
@@ -153,6 +176,11 @@ class ServerSettings:
     port: int = DEFAULT_PORT
     geo_path: str = str(GEO.DEFAULT_PATH)
     scenario_ids: tuple[str, ...] = ()
+    #: Which scenario's participants the per-country sensors sweep when no
+    #: analyst has focused one. Checked against the geography — and against
+    #: `scenario_ids` — at composition, not here: this layer has not read
+    #: the deployment data yet.
+    default_focused_scenario: str = DEFAULT_FOCUSED_SCENARIO
     interval_sec: float = DEFAULT_INTERVAL_SEC
     cookie_secure: bool = True
     llm_enabled: bool = DEFAULT_LLM_ENABLED
@@ -197,6 +225,14 @@ class ServerSettings:
                                str(item).strip()
                                for item in self.scenario_ids
                                if str(item).strip())))
+        focused = str(self.default_focused_scenario or "").strip()
+        if not focused:
+            raise DomainError(
+                f"{DEFAULT_FOCUSED_SCENARIO_KEY} must name a scenario. An "
+                f"empty one leaves the per-country sensors with no sweep "
+                f"scope at all, and a cycle that expands nothing reports a "
+                f"completed sweep of nowhere")
+        object.__setattr__(self, "default_focused_scenario", focused)
 
     @property
     def ledger_name(self) -> str:
@@ -209,6 +245,7 @@ class ServerSettings:
         return {"ledger_path": self.ledger_path, "host": self.host,
                 "port": self.port, "geo_path": self.geo_path,
                 "scenario_ids": list(self.scenario_ids),
+                "default_focused_scenario": self.default_focused_scenario,
                 "interval_sec": self.interval_sec,
                 "cookie_secure": self.cookie_secure,
                 "llm_enabled": self.llm_enabled,
@@ -247,6 +284,9 @@ def from_environment(source: Optional[Mapping[str, str]] = None
         geo_path=str(material.get(GEO_PATH_KEY, "")
                      or str(GEO.DEFAULT_PATH)).strip(),
         scenario_ids=scenarios,
+        default_focused_scenario=str(
+            material.get(DEFAULT_FOCUSED_SCENARIO_KEY, "")
+            or DEFAULT_FOCUSED_SCENARIO).strip(),
         interval_sec=float(str(material.get(INTERVAL_KEY, "")
                                or DEFAULT_INTERVAL_SEC)),
         cookie_secure=_flag(material.get(COOKIE_SECURE_KEY, ""),
@@ -276,6 +316,11 @@ def describe() -> tuple[dict, ...]:
                  f"v1 の {isolation.V1_PORT} は拒否される"},
         {"key": SCENARIOS_KEY, "required": False,
          "note": "カンマ区切りのシナリオ ID。空なら地理の有効シナリオ全件"},
+        {"key": DEFAULT_FOCUSED_SCENARIO_KEY, "required": False,
+         "note": f"focus 未設定時に per-country センサーが掃引する"
+                 f"シナリオ。既定 {DEFAULT_FOCUSED_SCENARIO}（v1 同値・"
+                 f"同名）。記事系 5 センサーは常に全シナリオ参加国の和集合を"
+                 f"受け取る。地理に無い ID / 監視対象外の ID は合成時に拒否"},
         {"key": LLM_ENABLED_KEY, "required": False,
          "note": f"LLM 抽出ステージの有無。既定 {DEFAULT_LLM_ENABLED}。"
                  f"false なら記事は awaiting のまま残り、tick 報告の "
@@ -305,4 +350,5 @@ def describe() -> tuple[dict, ...]:
 __all__ = ["ServerSettings", "from_environment", "describe", "KEY_IDS",
            "LEDGER_PATH_KEY", "GEO_PATH_KEY", "HOST_KEY", "PORT_KEY",
            "SCENARIOS_KEY", "INTERVAL_KEY", "COOKIE_SECURE_KEY",
+           "DEFAULT_FOCUSED_SCENARIO_KEY", "DEFAULT_FOCUSED_SCENARIO",
            "DEFAULT_PORT", "DEFAULT_HOST"]

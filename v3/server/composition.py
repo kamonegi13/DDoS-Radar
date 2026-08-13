@@ -53,6 +53,7 @@ from v3.ledger.store import LedgerStore
 from v3.runtime import auth as AUTH
 from v3.runtime import chain as CHAIN
 from v3.runtime import config as CONFIG
+from v3.runtime import expansion as EXPANSION
 from v3.runtime import geo as GEO
 from v3.runtime import health as HEALTH
 from v3.runtime import ops_health as OPS
@@ -130,7 +131,8 @@ class Deployment:
     #: the gate does not have to distinguish the two by intent.
     def __init__(self, *, settings, store, registry, client, geography,
                  credentials, config_chain, auth_provider, runtime,
-                 scenario_ids, bootstrap, barrier, clock, llm=None):
+                 scenario_ids, bootstrap, barrier, clock, llm=None,
+                 default_focused_scenario_id=None):
         self.settings = settings
         self.store = store
         self.registry = registry
@@ -145,6 +147,10 @@ class Deployment:
         self.auth_provider = auth_provider
         self.runtime = runtime
         self.scenario_ids = tuple(scenario_ids)
+        #: Which scenario the per-country sensors sweep while nobody has
+        #: focused one. Validated by `_default_focus` before we get here,
+        #: so this attribute is never a scenario the geography lacks.
+        self.default_focused_scenario_id = default_focused_scenario_id
         self.bootstrap = dict(bootstrap)
         self._barrier = barrier
         self._clock = clock
@@ -171,6 +177,13 @@ class Deployment:
         reason: it is MEASURED inside the tick from that tick's own
         observations (`v3/runtime/chain.py`). There is nothing here to
         supply, which is what stops a constant being supplied.
+
+        The DEFAULT focus is passed beside it, and it is a different kind
+        of thing: the fold answers "what is an analyst looking at", the
+        setting answers "what do we sweep when nobody is". Production
+        keeps them apart the same way — `radar/scheduler.py:33-36` appends
+        DEFAULT_FOCUSED_SCENARIO to whatever the active focuses are, and
+        the sweep is the union.
         """
         at = float(self._clock() if now is None else now)
         report = TICK.run_tick(
@@ -178,6 +191,7 @@ class Deployment:
             client=self.client, geography=self.geography,
             scenario_ids=self.scenario_ids, credentials=self.credentials,
             config=self.resolver, llm=self.llm,
+            default_focused_scenario_id=self.default_focused_scenario_id,
             focused_scenario_id=focus_state(ReadOnlyLedger(self.store),
                                             until=at))
         # Recorded only on the way OUT, so a tick that raised leaves the
@@ -332,6 +346,20 @@ class Deployment:
                 f"timeout {self.settings.llm_timeout_sec}s、再試行なし）。"
                 f"{list(LLM_STAGE.UNPROFILED)} は IntelProfile 未定義のため"
                 f"抽出対象外（毎ティック no_intel_profile として計上）")
+        background = [name for name in self.scenario_ids
+                      if name != self.default_focused_scenario_id]
+        lines.append(
+            f"掃引範囲 (C-lite): per-country センサーは focus 未設定時に "
+            f"{SETTINGS.DEFAULT_FOCUSED_SCENARIO_KEY}="
+            f"{self.default_focused_scenario_id} の参加国だけを取得する。"
+            f"背景シナリオ {background} の参加国は per-country センサーの"
+            f"対象外で、記事系 5 センサー "
+            f"{sorted(EXPANSION.ARTICLE_SCOPED)} と global センサーのみが"
+            f"全シナリオ参加国の和集合を見る（v1 の "
+            f"strategic_theaters / all_participant_countries と同じ分割、"
+            f"radar/scheduler.py:56-69）。v1 の TTL 付き多重 focus "
+            f"（最大 4、30 分）は未移植で、v3 の focus は同時に 1 件"
+            f"（ADR 未起票、移植先は command fold）")
         unowned = self.scenarios_without_chain_owner()
         if unowned:
             lines.append(
@@ -437,6 +465,43 @@ def _scenarios(geography, declared: tuple[str, ...]) -> tuple[str, ...]:
     return enabled
 
 
+def _default_focus(geography, scenario_ids: tuple[str, ...],
+                   declared: str) -> str:
+    """The scenario the per-country sensors sweep when focus is unset.
+
+    Refused twice over, because the two ways of being wrong have the same
+    symptom and neither has an error:
+
+      * a scenario the GEOGRAPHY does not declare expands to no
+        participants, so every per-country adapter sends nothing and the
+        tick reports a completed sweep of nowhere;
+      * a scenario this deployment does not WATCH sweeps countries nobody
+        scores while every scored country goes dark — the sweep succeeds,
+        the conclusions have no inputs, and nothing connects the two.
+
+    Checked at composition rather than at the first tick so a typo costs a
+    start-up, not a night of silence.
+    """
+    name = str(declared or "").strip()
+    if name not in geography.scenarios:
+        raise DomainError(
+            f"unknown scenario {name!r} in "
+            f"{SETTINGS.DEFAULT_FOCUSED_SCENARIO_KEY}; the geography "
+            f"declares {sorted(geography.scenarios)}. This value decides "
+            f"which countries the per-country sensors fetch for, so an "
+            f"unrecognised one expands to nothing and the tick reports a "
+            f"completed sweep of nowhere.")
+    if name not in scenario_ids:
+        raise DomainError(
+            f"{SETTINGS.DEFAULT_FOCUSED_SCENARIO_KEY}={name!r} is not "
+            f"among the scenarios this deployment watches "
+            f"({list(scenario_ids)}, from {SETTINGS.SCENARIOS_KEY}). The "
+            f"sweep would fetch for one scenario's participants while the "
+            f"conclusions are drawn about another's, and every scored "
+            f"country would be dark while the sweep reported success.")
+    return name
+
+
 def _llm_egress(config, *, client=None):
     """The SECOND HTTP exit: the one that talks to the model.
 
@@ -500,6 +565,8 @@ def compose(settings=None, *, environment: Optional[Mapping[str, str]] = None,
         world = geography if geography is not None else \
             GEO.load(config.geo_path)
         scenario_ids = _scenarios(world, config.scenario_ids)
+        focus_default = _default_focus(world, scenario_ids,
+                                       config.default_focused_scenario)
 
         credentials = SECRETS.resolve(adapters.enabled(), env)
         transport = client if client is not None else \
@@ -519,7 +586,8 @@ def compose(settings=None, *, environment: Optional[Mapping[str, str]] = None,
             client=transport, geography=world, credentials=credentials,
             config_chain=resolver, auth_provider=provider, runtime=None,
             scenario_ids=scenario_ids, bootstrap=report, barrier=guard,
-            clock=clock, llm=egress)
+            clock=clock, llm=egress,
+            default_focused_scenario_id=focus_default)
         deployment.runtime = Runtime(
             tick=deployment.tick, interval_sec=config.interval_sec,
             clock=clock, on_error=_log_tick_failure)
