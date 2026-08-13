@@ -789,9 +789,15 @@ class TestTheDeploymentShapeIsBesideV1NotInsteadOfIt:
         assert 'profiles: ["shadow"]' in self.compose
 
     def test_the_shadow_has_its_own_container_port_and_volume(self):
+        # `"127.0.0.1:8300:8300"`, never `"8300:8300"`: the bare form
+        # publishes on every host interface (c95324b). This assertion said
+        # `"8300:8300"` from 08-09 to 08-13 — the loopback fix changed the
+        # compose file without changing the test, so the suite was red the
+        # whole time and nothing noticed, which is its own finding.
         text = self.compose
         assert "container_name: noroshi-v3-shadow" in text
-        assert '"8300:8300"' in text
+        assert '"127.0.0.1:8300:8300"' in text
+        assert '- "8300:8300"' not in text
         assert "v3-shadow-data:/app/v3data" in text
         assert "v3-shadow-data:" in text
 
