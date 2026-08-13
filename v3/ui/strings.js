@@ -44,11 +44,17 @@
         'ui.stage.triage': '注目すべき事象（優先度順）',
         'ui.stage.drilldown': '結論と根拠',
         'ui.stage.feedback': 'この判断へのフィードバック',
-        'ui.stage.verify': '検証 — 系の健全性と判断履歴',
+        'ui.stage.verify': '導出と What-If',
 
-        // ── ビュー切替（P9 §3.2 — トップレベルは 2 項だけ） ───────────────
+        // ── サイドバーナビゲーション（P9 §1.5 D-20 — 問いごとに 1 画面） ──
+        'ui.nav.group.overview': '概観',
+        'ui.nav.group.verify': '検証',
+        'ui.nav.group.ops': '運用',
         'ui.nav.situation': '状況',
-        'ui.nav.verify': '検証',
+        'ui.nav.verify': '導出・What-If',
+        'ui.nav.reliability': '信頼性',
+        'ui.nav.decisions': '判断履歴',
+        'ui.nav.settings': '設定',
         'ui.nav.back_to_situation': '← 状況ビューへ戻る',
         'ui.scenario.head': 'シナリオ面: {scenario}',
         'ui.scenario.notice.not_loaded': 'このシナリオの結論（R2）をまだ取得していません。結論の取得は focus 中のシナリオに限られます。',

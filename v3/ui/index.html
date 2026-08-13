@@ -105,25 +105,30 @@
   </form>
 </div>
 
-<p id="auth-bar" class="auth-bar" hidden>
-  <span id="auth-identity"></span>
-  <button type="button" id="auth-signout" data-i18n="ui.auth.signout"></button>
-</p>
-
 <main id="app-main" hidden>
 
   <!--
-    The whole of the top-level navigation: two items (P9 §3.2), now worn
-    as a SIDEBAR (P9 §1.4 D-16 — kuebiko's AppShell shape). The item set,
-    the ids and the two-destination gate are unchanged; only the housing
-    is. The scenario face is deliberately absent from it — a view ABOUT
-    something is entered through the thing it is about, from a card or a
-    lane row.
+    The sidebar navigation (P9 §1.4 D-16 / §1.5 D-20 — kuebiko's AppShell
+    shape, now carrying the decomposed question set). The scenario face is
+    deliberately absent from it — a view ABOUT something is entered
+    through the thing it is about, from a card or a lane row. The signed-in
+    identity sits at the sidebar's foot, where kuebiko keeps its own, so
+    the content column above starts at the viewport's top edge.
   -->
   <nav id="view-nav" class="view-nav" aria-label="ビュー切替">
     <span class="nav-brand" aria-hidden="true">Noroshi</span>
+    <span class="nav-group" data-i18n="ui.nav.group.overview"></span>
     <a id="nav-situation" class="nav-item" href="#/" data-i18n="ui.nav.situation"></a>
+    <span class="nav-group" data-i18n="ui.nav.group.verify"></span>
     <a id="nav-verify" class="nav-item" href="#/verify" data-i18n="ui.nav.verify"></a>
+    <a id="nav-reliability" class="nav-item" href="#/reliability" data-i18n="ui.nav.reliability"></a>
+    <a id="nav-decisions" class="nav-item" href="#/decisions" data-i18n="ui.nav.decisions"></a>
+    <span class="nav-group" data-i18n="ui.nav.group.ops"></span>
+    <a id="nav-settings" class="nav-item" href="#/settings" data-i18n="ui.nav.settings"></a>
+    <p id="auth-bar" class="auth-bar" hidden>
+      <span id="auth-identity"></span>
+      <button type="button" id="auth-signout" data-i18n="ui.auth.signout"></button>
+    </p>
   </nav>
 
   <div class="view-stack">
@@ -300,7 +305,13 @@
     </section>
   </div>
 
-  <!-- ══ 検証ビュー (#/verify) — 5 検証、Tier 2 一式 ══════════════════ -->
+  <!-- ══ 検証系ビュー群 (P9 §1.5 D-20) ═══════════════════════════════════
+       R-B「1 ビュー = 1 問い」を Tier 2 自身に適用し切る: 7 枚の監査
+       テーブルを 1 ページに縦積みした検証ビューは、R-B が自分にだけ
+       適用されていなかった姿だった。内容と供給 API は P8 §2 のまま —
+       変わるのは問いの間の壁だけ。 -->
+
+  <!-- ── #/verify — なぜその結論なのか(導出)と、もしも(What-If) ── -->
   <div id="view-verify" class="view" hidden>
 
     <section id="stage-5" class="stage" aria-labelledby="stage-5-title">
@@ -312,6 +323,28 @@
       <p class="lead" data-i18n="ui.derivation.lead"></p>
       <div id="derivation-body" class="derivation"></div>
 
+      <h3 data-i18n="ui.whatif.title"></h3>
+      <p class="lead" data-i18n="ui.whatif.lead"></p>
+      <p class="hint" data-i18n="ui.whatif.hint"></p>
+      <textarea id="whatif-overlay" rows="4"
+                data-i18n-ph="ui.whatif.placeholder"></textarea>
+      <button type="button" id="whatif-run" data-i18n="ui.whatif.run"></button>
+      <table class="grid">
+        <thead><tr>
+          <th data-i18n="ui.whatif.col.scenario"></th>
+          <th data-i18n="ui.whatif.col.baseline"></th>
+          <th data-i18n="ui.whatif.col.counterfactual"></th>
+          <th data-i18n="ui.whatif.col.severity_delta"></th>
+          <th data-i18n="ui.whatif.col.score_delta"></th>
+        </tr></thead>
+        <tbody id="whatif-body"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <!-- ── #/reliability — この系は生きているか(自己評価・センサー) ── -->
+  <div id="view-reliability" class="view" hidden>
+    <section class="stage">
       <h3 data-i18n="ui.selfeval.title"></h3>
       <p class="lead" data-i18n="ui.selfeval.lead"></p>
       <table class="grid">
@@ -339,7 +372,12 @@
         </tr></thead>
         <tbody id="sensor-rows"></tbody>
       </table>
+    </section>
+  </div>
 
+  <!-- ── #/decisions — 過去の判断は妥当だったか(判断台帳・正解ラベル) ── -->
+  <div id="view-decisions" class="view" hidden>
+    <section class="stage">
       <h3 data-i18n="ui.decisions.title"></h3>
       <p class="lead" data-i18n="ui.decisions.lead"></p>
       <table class="grid">
@@ -354,23 +392,24 @@
         <tbody id="decision-rows"></tbody>
       </table>
 
-      <h3 data-i18n="ui.whatif.title"></h3>
-      <p class="lead" data-i18n="ui.whatif.lead"></p>
-      <p class="hint" data-i18n="ui.whatif.hint"></p>
-      <textarea id="whatif-overlay" rows="4"
-                data-i18n-ph="ui.whatif.placeholder"></textarea>
-      <button type="button" id="whatif-run" data-i18n="ui.whatif.run"></button>
+      <h3 data-i18n="ui.settings.gt_title"></h3>
+      <p class="lead" data-i18n="ui.settings.gt_lead"></p>
       <table class="grid">
         <thead><tr>
-          <th data-i18n="ui.whatif.col.scenario"></th>
-          <th data-i18n="ui.whatif.col.baseline"></th>
-          <th data-i18n="ui.whatif.col.counterfactual"></th>
-          <th data-i18n="ui.whatif.col.severity_delta"></th>
-          <th data-i18n="ui.whatif.col.score_delta"></th>
+          <th data-i18n="ui.settings.gt.scenario"></th>
+          <th data-i18n="ui.settings.gt.observed_at"></th>
+          <th data-i18n="ui.settings.gt.label"></th>
+          <th data-i18n="ui.settings.gt.actor"></th>
+          <th data-i18n="ui.settings.gt.source"></th>
         </tr></thead>
-        <tbody id="whatif-body"></tbody>
+        <tbody id="groundtruth-rows"></tbody>
       </table>
+    </section>
+  </div>
 
+  <!-- ── #/settings — 設定値と未着地の機能 ── -->
+  <div id="view-settings" class="view" hidden>
+    <section class="stage">
       <!--
         SETTINGS (S1-UI-067〜070). The list is short on purpose and says so:
         only the keys that pass the registry's three-stage test appear, which
@@ -397,25 +436,12 @@
         <tbody id="settings-rows"></tbody>
       </table>
 
-      <h4 data-i18n="ui.settings.gt_title"></h4>
-      <p class="lead" data-i18n="ui.settings.gt_lead"></p>
-      <table class="grid">
-        <thead><tr>
-          <th data-i18n="ui.settings.gt.scenario"></th>
-          <th data-i18n="ui.settings.gt.observed_at"></th>
-          <th data-i18n="ui.settings.gt.label"></th>
-          <th data-i18n="ui.settings.gt.actor"></th>
-          <th data-i18n="ui.settings.gt.source"></th>
-        </tr></thead>
-        <tbody id="groundtruth-rows"></tbody>
-      </table>
-
       <!--
         未着地の機能 (P9 §3.3). Every surface this deployment does not have,
-        counted in ONE place at the end of the audit view. WP-4.2 scattered
-        the same fragments through the operational views, where "not built
-        yet" was indistinguishable from "nothing to report" and the screen
-        looked half-broken (D-6).
+        counted in ONE place at the end of the operational catalogue. WP-4.2
+        scattered the same fragments through the operational views, where
+        "not built yet" was indistinguishable from "nothing to report" and
+        the screen looked half-broken (D-6).
 
         The reason cell is filled by `app.js` from `client.js`'s DEFERRED
         registry — the same registry the scattered fragments used, so the

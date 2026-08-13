@@ -9,7 +9,10 @@
  * *content* is unchanged — P8 §2's inventory and its supplying APIs are
  * untouched here. What changes is WHEN a surface is on screen.
  *
- * Three views, two of them reachable from the top navigation:
+ * Six views, five of them reachable from the sidebar (P9 §1.5 D-20 —
+ * the verification view holding seven audit tables was R-B's own
+ * violation, and the fifth owner review said so from the outside: two
+ * sidebar links is a sidebar doing nothing):
  *
  *   `#/`                 状況 — the situation board and the attention lane
  *   `#/scenario/<id>`    シナリオ面 — the conclusion face, the geographic
@@ -17,7 +20,10 @@
  *                        a card or a lane row (never from the navigation:
  *                        it is a view ABOUT something, so it is entered
  *                        through the thing it is about)
- *   `#/verify`           検証 — Tier 2 in full
+ *   `#/verify`           導出・What-If
+ *   `#/reliability`      信頼性 — 自己評価とセンサー
+ *   `#/decisions`        判断履歴 — 判断台帳と正解ラベル
+ *   `#/settings`         設定 — 設定値と未着地の機能
  *
  * The resolution half is pure and total: every hash resolves to a view,
  * unrecognised ones to the situation board with `recognised: false` rather
@@ -51,31 +57,56 @@
     var SITUATION = 'situation';
     var SCENARIO = 'scenario';
     var VERIFY = 'verify';
+    var RELIABILITY = 'reliability';
+    var DECISIONS = 'decisions';
+    var SETTINGS = 'settings';
 
     //: view -> the element that holds it. The DOM half toggles `hidden` on
-    //: exactly these three and nothing else: the NP7 bar, the critical
-    //: banner, the toast rail, the dim overlay and the login gate are
-    //: GLOBAL and live outside every view, because a disclaimer or an
-    //: alarm that a route can take off the screen is not permanent
-    //: (S1-UI-024a / S1-UI-030).
+    //: exactly these and nothing else: the NP7 bar, the critical banner,
+    //: the toast rail, the dim overlay and the login gate are GLOBAL and
+    //: live outside every view, because a disclaimer or an alarm that a
+    //: route can take off the screen is not permanent (S1-UI-024a /
+    //: S1-UI-030).
+    //:
+    //: Six, not three (P9 §1.5 D-20): the verification view holding seven
+    //: audit tables was R-B's own violation — "one view answers one
+    //: question" applied to everything except itself. The Tier 2 content
+    //: and its supplying APIs are still exactly P8 §2's; only the walls
+    //: between the questions are new.
     var CONTAINERS = {};
     CONTAINERS[SITUATION] = 'view-situation';
     CONTAINERS[SCENARIO] = 'view-scenario';
     CONTAINERS[VERIFY] = 'view-verify';
+    CONTAINERS[RELIABILITY] = 'view-reliability';
+    CONTAINERS[DECISIONS] = 'view-decisions';
+    CONTAINERS[SETTINGS] = 'view-settings';
 
     var HASH_SITUATION = '#/';
-    var HASH_VERIFY = '#/verify';
     var HASH_SCENARIO_PREFIX = '#/scenario/';
+    //: view -> its fixed hash. The scenario view is absent on purpose —
+    //: its hash carries an id and is built in `hashFor`.
+    var HASHES = {};
+    HASHES[VERIFY] = '#/verify';
+    HASHES[RELIABILITY] = '#/reliability';
+    HASHES[DECISIONS] = '#/decisions';
+    HASHES[SETTINGS] = '#/settings';
 
-    //: The top navigation, in full. Two items — P9 §3.2. The scenario view
-    //: is deliberately not here.
+    //: The sidebar navigation, in full (P9 §1.5). The scenario view is
+    //: deliberately not here — a view ABOUT something is entered through
+    //: the thing it is about.
     var NAV = [
         { view: SITUATION, id: 'nav-situation', labelKey: 'ui.nav.situation' },
         { view: VERIFY, id: 'nav-verify', labelKey: 'ui.nav.verify' },
+        { view: RELIABILITY, id: 'nav-reliability',
+          labelKey: 'ui.nav.reliability' },
+        { view: DECISIONS, id: 'nav-decisions', labelKey: 'ui.nav.decisions' },
+        { view: SETTINGS, id: 'nav-settings', labelKey: 'ui.nav.settings' },
     ];
 
     function hashFor(view, scenarioId) {
-        if (view === VERIFY) return HASH_VERIFY;
+        if (Object.prototype.hasOwnProperty.call(HASHES, view)) {
+            return HASHES[view];
+        }
         if (view === SCENARIO && scenarioId) {
             return HASH_SCENARIO_PREFIX + encodeURIComponent(String(scenarioId));
         }
@@ -114,7 +145,10 @@
         if (raw === '' || raw === '#' || raw === HASH_SITUATION) {
             return _route(SITUATION, null, true);
         }
-        if (raw === HASH_VERIFY) return _route(VERIFY, null, true);
+        var fixed = Object.keys(HASHES).filter(function (view) {
+            return HASHES[view] === raw;
+        });
+        if (fixed.length === 1) return _route(fixed[0], null, true);
         if (raw.indexOf(HASH_SCENARIO_PREFIX) === 0) {
             var scenarioId = _decode(raw.slice(HASH_SCENARIO_PREFIX.length));
             if (scenarioId === null) return _route(SITUATION, null, false);
@@ -312,5 +346,8 @@
         SITUATION: SITUATION,
         SCENARIO: SCENARIO,
         VERIFY: VERIFY,
+        RELIABILITY: RELIABILITY,
+        DECISIONS: DECISIONS,
+        SETTINGS: SETTINGS,
     };
 });

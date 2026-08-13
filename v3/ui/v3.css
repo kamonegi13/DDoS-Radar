@@ -92,8 +92,9 @@ main {
 .view { flex: 1; min-width: 0; min-height: 0; }
 /* Views that are documents scroll themselves; the situation view is a
  * screen and does not. */
-#view-scenario, #view-verify { overflow-y: auto;
-                               padding: var(--space-3) var(--space-4); }
+#view-scenario, #view-verify, #view-reliability, #view-decisions,
+#view-settings { overflow-y: auto;
+                 padding: var(--space-3) var(--space-4); }
 
 h2, h3, h4, h5 { margin: var(--space-3) 0 var(--space-2); font-weight: 600; }
 h2 { font-size: var(--text-body); }
@@ -233,6 +234,14 @@ td[data-deferred] { color: var(--color-muted); }
     font-weight: 700;
     letter-spacing: 0.12em;
     color: var(--color-text-dim);
+}
+
+/* Group captions (P9 §1.5 — kuebiko's sidebar sections). */
+.nav-group {
+    padding: var(--space-3) var(--space-3) var(--space-1);
+    font-size: var(--text-meta);
+    letter-spacing: 0.14em;
+    color: var(--color-muted);
 }
 
 .nav-item {
@@ -727,15 +736,19 @@ tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust);
 
 /* The signed-in strip. One line, above the loop, so "who am I and how do
  * I leave" is answerable without hunting for a menu. */
+/* At the sidebar's foot (P9 §1.5 D-19): the identity row was a full-width
+ * bar above the content that spent a viewport line on two words. */
 .auth-bar {
     display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: var(--space-3);
-    margin: 0;
-    padding: var(--space-1) var(--space-4);
-    border-bottom: 1px solid var(--color-border);
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+    margin: auto 0 0;
+    padding: var(--space-2) var(--space-3);
+    border-top: 1px solid var(--color-border);
     color: var(--color-text-dim);
+    font-size: var(--text-meta);
+    overflow-wrap: anywhere;
 }
 .auth-bar[hidden] { display: none; }
 .auth-bar button {

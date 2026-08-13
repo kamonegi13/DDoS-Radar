@@ -120,8 +120,18 @@ test('visibility covers every declared container and nothing else', () => {
 
 // ── navigation ───────────────────────────────────────────────────────────
 
-test('the navigation has exactly two items (P9 §3.2)', () => {
-    assert.strictEqual(V.navStateFor(V.resolveHash('#/')).length, 2);
+test('the navigation has exactly the sidebar five (P9 §1.5)', () => {
+    const nav = V.navStateFor(V.resolveHash('#/'));
+    assert.deepStrictEqual(nav.map((item) => item.view),
+        [V.SITUATION, V.VERIFY, V.RELIABILITY, V.DECISIONS, V.SETTINGS]);
+});
+
+test('each decomposed view resolves from its own hash and back', () => {
+    [V.RELIABILITY, V.DECISIONS, V.SETTINGS].forEach((view) => {
+        const route = V.resolveHash(V.hashFor(view, null));
+        assert.strictEqual(route.view, view);
+        assert.strictEqual(route.recognised, true);
+    });
 });
 
 test('the current view is the exact navigation item', () => {

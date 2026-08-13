@@ -646,13 +646,17 @@ class TestTheViewSplitIsStructural:
         ("geo-markers", "view-scenario"),
         ("feedback-slot", "view-scenario"),
         ("proposal-rows", "view-scenario"),
+        # P9 §1.5 D-20: R-B applied to Tier 2 itself. One audit view
+        # holding seven tables was "one view answers one question" applied
+        # to everything except the audit — the fifth owner review saw it
+        # from the outside as a sidebar with nothing to hold.
         ("derivation-body", "view-verify"),
-        ("selfeval-components", "view-verify"),
-        ("sensor-rows", "view-verify"),
-        ("decision-rows", "view-verify"),
         ("whatif-body", "view-verify"),
-        ("settings-rows", "view-verify"),
-        ("groundtruth-rows", "view-verify"),
+        ("selfeval-components", "view-reliability"),
+        ("sensor-rows", "view-reliability"),
+        ("decision-rows", "view-decisions"),
+        ("groundtruth-rows", "view-decisions"),
+        ("settings-rows", "view-settings"),
     )
 
     def _spans(self) -> dict[str, tuple[int, int]]:
@@ -666,8 +670,8 @@ class TestTheViewSplitIsStructural:
         html = (UI_DIR / "index.html").read_text(encoding="utf-8")
         starts = [(m.start(), m.group(1))
                   for m in re.finditer(r'<div id="(view-[\w-]+)"', html)]
-        assert len(starts) == 3, (
-            f"expected exactly three view containers, found {starts}")
+        assert len(starts) == 6, (
+            f"expected exactly six view containers (P9 §1.5), found {starts}")
         end_of_main = html.index("</main>")
         bounds = {}
         for index, (offset, name) in enumerate(starts):
@@ -688,25 +692,26 @@ class TestTheViewSplitIsStructural:
             f'one question, and a Tier 2 table under the ten-second board is '
             f'diagnosis D-1 rather than an arrangement.')
 
-    def test_no_deferred_fragment_survives_outside_the_verification_view(self):
+    def test_no_deferred_fragment_survives_outside_the_settings_view(self):
         html = (UI_DIR / "index.html").read_text(encoding="utf-8")
-        start, end = self._spans()["view-verify"]
+        start, end = self._spans()["view-settings"]
         stray = [m.group(1) for m in re.finditer(r'data-deferred="([^"]+)"', html)
                  if not start < m.start() < end]
         assert not stray, (
-            f"these deferred slots are outside the verification view: {stray}. "
+            f"these deferred slots are outside the settings view: {stray}. "
             f"P9 §3.3 collects them into 未着地の機能 — a placeholder in an "
             f"operational view reads as a broken feature (D-6).")
 
-    def test_the_navigation_offers_exactly_two_destinations(self):
+    def test_the_navigation_offers_exactly_the_sidebar_five(self):
         html = (UI_DIR / "index.html").read_text(encoding="utf-8")
         nav = html[html.index('<nav id="view-nav"'):html.index("</nav>")]
         links = re.findall(r'<a id="(nav-[\w-]+)"', nav)
-        assert links == ["nav-situation", "nav-verify"], (
-            f"the top navigation is {links}. P9 §3.2 fixes it at two items; "
-            f"the scenario face is entered from a card or a lane row, "
-            f"because a view ABOUT something is reached through the thing "
-            f"it is about.")
+        assert links == ["nav-situation", "nav-verify", "nav-reliability",
+                         "nav-decisions", "nav-settings"], (
+            f"the sidebar is {links}. P9 §1.5 fixes it at five destinations "
+            f"— one per question — and the scenario face is entered from a "
+            f"card or a lane row, because a view ABOUT something is reached "
+            f"through the thing it is about.")
 
 
 class TestMetaLanguageIsAbsent:
