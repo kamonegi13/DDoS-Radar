@@ -105,6 +105,21 @@ services:
       - NOROSHI_V3_TICK_INTERVAL_SEC=${NOROSHI_V3_TICK_INTERVAL_SEC:-60}
       # http on a loopback-published port; flip to true behind TLS.
       - NOROSHI_V3_COOKIE_SECURE=${NOROSHI_V3_COOKIE_SECURE:-false}
+      #
+      # NOT listed here on purpose: LLM_ENABLED / LLM_HOST / LLM_MODEL /
+      # LLM_TIMEOUT. v3's extraction stage (WP-2.7,
+      # v3/runtime/llm_stage.py) reads v1's OWN variable names, so the
+      # `env_file: config.env` above already supplies them and the shadow
+      # asks the SAME model as production — which is what S5-VERIF-022's
+      # replay comparison assumes. Restating them here would be a second
+      # value to keep in step.
+      #
+      # Operational note: this doubles the load on one Ollama. The stage
+      # is bounded to LLM_ARTICLES_PER_TICK (4) exchanges per tick with
+      # one attempt and no retry, so the added ceiling is 4 x LLM_TIMEOUT
+      # per tick. Set LLM_ENABLED=false in the shadow's own override to
+      # take it off entirely — the tick then reports `llm_disabled`
+      # rather than falling silent.
     healthcheck:
       # The check asserts the LOOP, not the process. The previous version
       # opened /healthz and accepted any 2xx, and that is how this

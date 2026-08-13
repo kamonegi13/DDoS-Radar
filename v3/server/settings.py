@@ -47,6 +47,31 @@ PORT_KEY = "NOROSHI_V3_PORT"
 SCENARIOS_KEY = "NOROSHI_V3_SCENARIOS"
 INTERVAL_KEY = "NOROSHI_V3_TICK_INTERVAL_SEC"
 COOKIE_SECURE_KEY = "NOROSHI_V3_COOKIE_SECURE"
+
+# ── the model (WP-2.7's stage) ──────────────────────────────────────────
+#
+# These four are v1's OWN names, without the `NOROSHI_V3_` prefix, and
+# that is deliberate — it is the only decision on this page that copies a
+# legacy spelling.
+#
+# The shadow container already receives them: `docker-compose.yml`'s
+# `v3_shadow` service declares `env_file: config.env`, which is where
+# v1's live values live (measured 2026-08-13: `LLM_HOST=
+# http://host.docker.internal:11434`, `LLM_MODEL=gemma4:26b`). Reading the
+# same names is what makes the shadow ask the SAME model as production —
+# and S5-VERIF-022 compares recorded answers, so a shadow quietly running
+# a different model would produce a parity gap with no cause anyone could
+# find. A `NOROSHI_V3_LLM_MODEL` alias would have been a second value to
+# keep in step, which is the drift this project has now measured four
+# times.
+#
+# What the shadow does NOT inherit is unchanged: v1's secrets are blanked
+# by the compose service, and these four are operational configuration of
+# exactly the class the shadow already shares (the adapter credentials).
+LLM_ENABLED_KEY = "LLM_ENABLED"
+LLM_HOST_KEY = "LLM_HOST"
+LLM_MODEL_KEY = "LLM_MODEL"
+LLM_TIMEOUT_KEY = "LLM_TIMEOUT"
 # There is deliberately NO key for the sequence chain's owner. WP-4.4
 # registered one (§7-2 #115) and the owner ruling struck it out: production
 # picks a dual-core scenario's owner by live spike, so a configured
@@ -60,6 +85,30 @@ DEFAULT_PORT = 8300
 #: first run is a shadow deployment somebody else can read.
 DEFAULT_HOST = "127.0.0.1"
 
+#: v1 parity, `config.env.example:329-342`. The HOST default is the one
+#: the CONTAINER can reach — `localhost` inside a container is the
+#: container, and the example file's `http://localhost:11434` is written
+#: for a host-side run. The live `config.env` uses
+#: `http://host.docker.internal:11434`, which is what the shadow inherits
+#: and what this default matches so a missing variable does not silently
+#: point the shadow at itself.
+DEFAULT_LLM_HOST = "http://host.docker.internal:11434"
+#: `config.env.example:339`. The live deployment overrides it
+#: (`gemma4:26b`); the repo-visible default is the repo-visible value,
+#: because a default copied from an untracked file is a default nobody can
+#: review.
+DEFAULT_LLM_MODEL = "llama3.2:3b"
+#: `radar/config.py:675` / `config.env.example:342`. One attempt, no
+#: retry — see `v3/runtime/llm_stage.LlmEgress`.
+DEFAULT_LLM_TIMEOUT_SEC = 30.0
+#: ON by default, unlike `config.env.example:329`. The example ships the
+#: flag off so a first run does not depend on a daemon nobody installed;
+#: a v3 deployment that reaches this code has the stage wired, and a
+#: silently-off extraction path is the state C12 was filed against. An
+#: operator who wants it off sets the variable, and the disclosure says
+#: which layer answered.
+DEFAULT_LLM_ENABLED = True
+
 #: Every environment name this deployment honours. Includes the two auth
 #: key ids, which live in `v3/auth/session.py` because the surface that
 #: uses them owns their names — listed here so the start-up disclosure can
@@ -67,6 +116,7 @@ DEFAULT_HOST = "127.0.0.1"
 KEY_IDS: tuple[str, ...] = (
     LEDGER_PATH_KEY, GEO_PATH_KEY, HOST_KEY, PORT_KEY, SCENARIOS_KEY,
     INTERVAL_KEY, COOKIE_SECURE_KEY,
+    LLM_ENABLED_KEY, LLM_HOST_KEY, LLM_MODEL_KEY, LLM_TIMEOUT_KEY,
     SESSION.SIGNING_KEY_ID, SESSION.BOOTSTRAP_KEY_ID,
 )
 
@@ -105,6 +155,10 @@ class ServerSettings:
     scenario_ids: tuple[str, ...] = ()
     interval_sec: float = DEFAULT_INTERVAL_SEC
     cookie_secure: bool = True
+    llm_enabled: bool = DEFAULT_LLM_ENABLED
+    llm_host: str = DEFAULT_LLM_HOST
+    llm_model: str = DEFAULT_LLM_MODEL
+    llm_timeout_sec: float = DEFAULT_LLM_TIMEOUT_SEC
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "ledger_path",
@@ -119,6 +173,25 @@ class ServerSettings:
                 f"non-positive interval is a busy loop holding the ledger's "
                 f"write lock")
         object.__setattr__(self, "interval_sec", float(self.interval_sec))
+        if self.llm_enabled:
+            # Refused rather than defaulted, the way the ledger path is: an
+            # empty host would make every tick's probe fail with a reason
+            # ("unreachable") that names the wrong cause, and an empty
+            # model id cannot be replayed by (S5-VERIF-022).
+            for name in ("llm_host", "llm_model"):
+                if not str(getattr(self, name) or "").strip():
+                    raise DomainError(
+                        f"{name} must be set while the LLM stage is "
+                        f"enabled; an empty one makes every tick report an "
+                        f"unreachable model instead of a missing setting")
+        if float(self.llm_timeout_sec) <= 0:
+            raise DomainError(
+                f"llm_timeout_sec must be positive, got "
+                f"{self.llm_timeout_sec}: a request without a timeout holds "
+                f"the tick open for as long as the model wants")
+        object.__setattr__(self, "llm_timeout_sec", float(self.llm_timeout_sec))
+        object.__setattr__(self, "llm_host", str(self.llm_host).strip())
+        object.__setattr__(self, "llm_model", str(self.llm_model).strip())
         object.__setattr__(self, "scenario_ids",
                            tuple(dict.fromkeys(
                                str(item).strip()
@@ -137,7 +210,11 @@ class ServerSettings:
                 "port": self.port, "geo_path": self.geo_path,
                 "scenario_ids": list(self.scenario_ids),
                 "interval_sec": self.interval_sec,
-                "cookie_secure": self.cookie_secure}
+                "cookie_secure": self.cookie_secure,
+                "llm_enabled": self.llm_enabled,
+                "llm_host": self.llm_host,
+                "llm_model": self.llm_model,
+                "llm_timeout_sec": self.llm_timeout_sec}
 
 
 def from_environment(source: Optional[Mapping[str, str]] = None
@@ -173,7 +250,15 @@ def from_environment(source: Optional[Mapping[str, str]] = None
         interval_sec=float(str(material.get(INTERVAL_KEY, "")
                                or DEFAULT_INTERVAL_SEC)),
         cookie_secure=_flag(material.get(COOKIE_SECURE_KEY, ""),
-                            COOKIE_SECURE_KEY, True))
+                            COOKIE_SECURE_KEY, True),
+        llm_enabled=_flag(material.get(LLM_ENABLED_KEY, ""),
+                          LLM_ENABLED_KEY, DEFAULT_LLM_ENABLED),
+        llm_host=str(material.get(LLM_HOST_KEY, "")
+                     or DEFAULT_LLM_HOST).strip(),
+        llm_model=str(material.get(LLM_MODEL_KEY, "")
+                      or DEFAULT_LLM_MODEL).strip(),
+        llm_timeout_sec=float(str(material.get(LLM_TIMEOUT_KEY, "")
+                                  or DEFAULT_LLM_TIMEOUT_SEC)))
 
 
 def describe() -> tuple[dict, ...]:
@@ -191,6 +276,20 @@ def describe() -> tuple[dict, ...]:
                  f"v1 の {isolation.V1_PORT} は拒否される"},
         {"key": SCENARIOS_KEY, "required": False,
          "note": "カンマ区切りのシナリオ ID。空なら地理の有効シナリオ全件"},
+        {"key": LLM_ENABLED_KEY, "required": False,
+         "note": f"LLM 抽出ステージの有無。既定 {DEFAULT_LLM_ENABLED}。"
+                 f"false なら記事は awaiting のまま残り、tick 報告の "
+                 f"llm.reason が llm_disabled になる（沈黙しない）"},
+        {"key": LLM_HOST_KEY, "required": False,
+         "note": f"Ollama の endpoint。既定 {DEFAULT_LLM_HOST}。"
+                 f"v1 と同じ変数名を読むため、shadow は config.env の値を"
+                 f"そのまま継承する"},
+        {"key": LLM_MODEL_KEY, "required": False,
+         "note": f"model id。既定 {DEFAULT_LLM_MODEL}。"
+                 f"S5-VERIF-022 は prompt と model の両方で replay する"},
+        {"key": LLM_TIMEOUT_KEY, "required": False,
+         "note": f"1 交換の読み取り上限（秒）。既定 "
+                 f"{DEFAULT_LLM_TIMEOUT_SEC}（v1 同値）。再試行は無し"},
         {"key": INTERVAL_KEY, "required": False,
          "note": f"ティック間隔（秒）。既定 {DEFAULT_INTERVAL_SEC}"},
         {"key": COOKIE_SECURE_KEY, "required": False,

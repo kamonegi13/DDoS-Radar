@@ -46,6 +46,7 @@ from v3.runtime import baselines as baselines_module
 from v3.runtime import chain as chain_module
 from v3.runtime import expansion as expansion_module
 from v3.runtime import health as health_module
+from v3.runtime import llm_stage as llm_stage_module
 from v3.runtime import record as record_module
 from v3.runtime import reduce as reduce_module
 from v3.runtime import scoring as scoring_module
@@ -94,6 +95,13 @@ class _CycleState:
     suppressors: suppression_module.Suppressors = field(
         default_factory=suppression_module.Suppressors)
     produced: dict = field(default_factory=dict)
+    #: adapter_id -> the RAW drafts that arrived carrying an article still
+    #: waiting for a model. Captured here because the fold that follows
+    #: flattens per-article provenance into a row-level feed list
+    #: (`v3/runtime/reduce_common.py:180-186`), and `source_id` on the
+    #: intel envelope is exactly that provenance (S1-INGEST-019). See
+    #: `v3/runtime/llm_stage.py::collect` for why this point and not L1.
+    awaiting_llm: dict = field(default_factory=dict)
 
 
 def build_hooks(state: _CycleState, *, baselines: Mapping, now: float,
@@ -103,6 +111,18 @@ def build_hooks(state: _CycleState, *, baselines: Mapping, now: float,
     from v3.adapters.info.telegram_mirror import USER_AGENT_POOL
 
     def fold(adapter_id: str, drafts):
+        # BEFORE the fold, and only what says it is waiting. The hook runs
+        # inside the transaction that writes (`runner.py:619-626`), so
+        # what is captured here is what L1 receives — which is the
+        # property that makes the LLM stage's input honest rather than a
+        # guess about what was written.
+        pending = tuple(
+            draft for draft in drafts
+            if str((draft.flags or {}).get("awaiting") or "").startswith(
+                llm_stage_module.AWAITING))
+        if pending:
+            state.awaiting_llm[adapter_id] = \
+                state.awaiting_llm.get(adapter_id, ()) + pending
         reduced = reduce_module.reduce_drafts(adapter_id, drafts,
                                               baselines=baselines, now=now)
         if adapter_id in PRODUCER_ORDER:
@@ -202,6 +222,14 @@ class TickReport:
     #: rather than a quiet day, and a report showing only "0 links" would
     #: be indistinguishable from "nothing is escalating".
     chain_events: Mapping[str, object] = field(default_factory=dict)
+    #: The LLM extraction stage's own account of itself
+    #: (`v3/runtime/llm_stage.py`). Never empty on a tick that ran: a
+    #: deployment with no egress reports `llm_not_wired` and a tick that
+    #: found the model down reports how many articles it therefore did not
+    #: ask about. `ops_health`'s LLM rollup has nothing else to read, and
+    #: an absent stage that looked like a quiet one is exactly the shape
+    #: C12 was filed against.
+    llm: Mapping[str, object] = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return {"tick_id": self.tick_id, "now": self.now,
@@ -223,7 +251,8 @@ class TickReport:
                 "chain_owners": dict(self.chain_owners),
                 "chain_ranking": {scenario_id: dict(row) for scenario_id, row
                                   in self.chain_ranking.items()},
-                "chain_events": dict(self.chain_events)}
+                "chain_events": dict(self.chain_events),
+                "llm": dict(self.llm)}
 
 
 def fetch_cycle(*, now: float, registry, store, client,
@@ -346,8 +375,15 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
              scenario_ids: Sequence[str],
              credentials: Optional[CredentialPlan] = None,
              config=None, focused_scenario_id: Optional[str] = None,
-             score=None, fetch_budget: Optional[int] = None) -> TickReport:
+             score=None, fetch_budget: Optional[int] = None,
+             llm=None) -> TickReport:
     """One whole tick. The composition root's single unit of work.
+
+    `llm` is the dedicated LLM egress (`v3/runtime/llm_stage.LlmEgress`),
+    supplied by the composition root and by nothing else. `None` runs the
+    tick without an extraction stage — which is what the parity harness
+    does, and what a deployment with no model does — and the report says
+    so rather than omitting the stage.
 
     `config` is the composition root's `ConfigResolver`. Supplying it is
     what makes the tick SCORE: the settings are resolved through v3's own
@@ -402,6 +438,16 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
         adversaries=tuple(dict.fromkeys(
             country for scenario_id in scenarios
             for country in adversaries_of(geography, scenario_id))))
+
+    # Step 4c: extract. AFTER the cycle wrote its rows and BEFORE scoring,
+    # so an item this tick pulled out of an article is scored by this tick
+    # — L2 reads L1's in-force projection at `now`, and running the stage
+    # after the score would make every intel item exactly one tick late
+    # with nothing saying why (WP-2.7 / C12).
+    llm_report = llm_stage_module.run(
+        egress=llm, store=store, registry=registry,
+        awaiting=state.awaiting_llm, now=now, countries=countries,
+        tick_id=identity)
 
     # Step 5: score. AFTER the observations are written, because the
     # scoring input is the ledger's in-force projection at `now` — the
@@ -461,7 +507,8 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
         skipped=tuple((s.adapter_id.value, s.reason)
                       for s in cycle.plan.skipped),
         withheld=cycle.plan.withheld,
-        observations_written=cycle.observations_written,
+        observations_written=(cycle.observations_written
+                              + llm_report.observations_written),
         health=health_by_scenario,
         conclusions=conclusions_by_scenario,
         credentials=credentials.as_dict() if credentials else {},
@@ -475,7 +522,8 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
         chain_owners={scenario_id: row["owner"]
                       for scenario_id, row in chain_ranking.items()},
         chain_ranking=dict(chain_ranking),
-        chain_events=dict(chain_events))
+        chain_events=dict(chain_events),
+        llm=llm_report.as_dict())
 
 
 def _chain_event_disclosure(events) -> dict:

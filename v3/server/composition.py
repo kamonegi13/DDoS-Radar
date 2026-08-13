@@ -46,6 +46,7 @@ from v3.api.writeonly import CommandLedger
 from v3.api.ws_publish import UNPUBLISHED_EVENTS
 from v3.commands.state import focus_state
 from v3.config import registry as config_registry
+from v3.fetch import llm as LLM
 from v3.fetch.client import HttpClient
 from v3.kernel.errors import DomainError
 from v3.ledger.store import LedgerStore
@@ -129,11 +130,15 @@ class Deployment:
     #: the gate does not have to distinguish the two by intent.
     def __init__(self, *, settings, store, registry, client, geography,
                  credentials, config_chain, auth_provider, runtime,
-                 scenario_ids, bootstrap, barrier, clock):
+                 scenario_ids, bootstrap, barrier, clock, llm=None):
         self.settings = settings
         self.store = store
         self.registry = registry
         self.client = client
+        #: The dedicated LLM egress (`v3/runtime/llm_stage.LlmEgress`), or
+        #: None when this deployment has no model. Separate from `client`
+        #: on purpose — see `compose()`.
+        self.llm = llm
         self.geography = geography
         self.credentials = credentials
         self.resolver = config_chain
@@ -172,7 +177,7 @@ class Deployment:
             now=at, registry=self.registry, store=self.store,
             client=self.client, geography=self.geography,
             scenario_ids=self.scenario_ids, credentials=self.credentials,
-            config=self.resolver,
+            config=self.resolver, llm=self.llm,
             focused_scenario_id=focus_state(ReadOnlyLedger(self.store),
                                             until=at))
         # Recorded only on the way OUT, so a tick that raised leaves the
@@ -311,6 +316,22 @@ class Deployment:
             lines.append(
                 f"bootstrap: {self.bootstrap.get('reason')} — "
                 f"{self.bootstrap.get('note', '既存利用者がいます')}")
+        if self.llm is None:
+            lines.append(
+                f"LLM 抽出ステージ: 無効（{SETTINGS.LLM_ENABLED_KEY}=false）。"
+                f"diplomatic / military_exercise / hacktivist_news の候補"
+                f"記事は awaiting のまま L1 に残り、llm_intel 観測は 1 行も"
+                f"書かれない。ティック報告の llm.reason が llm_disabled を"
+                f"返すので沈黙ではないが、収斂の情報ドメイン寄与は欠落する")
+        else:
+            from v3.runtime import llm_stage as LLM_STAGE
+            lines.append(
+                f"LLM 抽出ステージ: {self.settings.llm_model} @ "
+                f"{self.settings.llm_host}（1 ティック最大 "
+                f"{LLM_STAGE.LLM_ARTICLES_PER_TICK} 記事、"
+                f"timeout {self.settings.llm_timeout_sec}s、再試行なし）。"
+                f"{list(LLM_STAGE.UNPROFILED)} は IntelProfile 未定義のため"
+                f"抽出対象外（毎ティック no_intel_profile として計上）")
         unowned = self.scenarios_without_chain_owner()
         if unowned:
             lines.append(
@@ -371,7 +392,13 @@ class Deployment:
         try:
             self.runtime.stop(timeout_sec=30)
         finally:
-            for resource in (self.client, self.store):
+            handles = [self.client, self.store]
+            if self.llm is not None:
+                # The LLM egress owns its own `requests.Session`; leaving
+                # it open would leak a connection pool per deployment, and
+                # the suite composes many.
+                handles.insert(0, self.llm.client)
+            for resource in handles:
                 closer = getattr(resource, "close", None)
                 if callable(closer):
                     closer()
@@ -410,8 +437,41 @@ def _scenarios(geography, declared: tuple[str, ...]) -> tuple[str, ...]:
     return enabled
 
 
+def _llm_egress(config, *, client=None):
+    """The SECOND HTTP exit: the one that talks to the model.
+
+    Deliberately not the sensor client, and the three differences are all
+    deliberate:
+
+      timeout      `LLM_TIMEOUT`, 30s by default (v1 parity,
+                   `radar/config.py:675`), where the sensor client's is
+                   sized for public APIs. A model that thinks for 20s is
+                   working; an API that does is broken.
+      attempts     ONE. v1 issues a single request and lets the cycle move
+                   on (`radar/llm_client.py:289`); a retry ladder against a
+                   serial GPU queue multiplies exactly the load that caused
+                   the timeout.
+      connect      5s, which is what v1's `requests.get(_TAGS_URL,
+                   timeout=5)` was protecting against (`:427`) — an
+                   unreachable host, not a slow model.
+
+    Returns None when the operator turned the stage off, and the stage
+    then reports `llm_disabled` rather than falling silent.
+    """
+    from v3.runtime.llm_stage import LlmEgress
+
+    if not config.llm_enabled:
+        return None
+    transport = client if client is not None else HttpClient(
+        timeout_sec=config.llm_timeout_sec,
+        connect_timeout_sec=LLM.AVAILABILITY_TIMEOUT_SEC,
+        max_attempts=1)
+    return LlmEgress(client=transport, endpoint=config.llm_host,
+                     model_id=config.llm_model)
+
+
 def compose(settings=None, *, environment: Optional[Mapping[str, str]] = None,
-            registry=None, geography=None, client=None,
+            registry=None, geography=None, client=None, llm_client=None,
             clock: Callable[[], float] = time.time,
             barrier: bool = True) -> Deployment:
     """Build the whole deployment. The only function that assembles v3.
@@ -445,6 +505,9 @@ def compose(settings=None, *, environment: Optional[Mapping[str, str]] = None,
         transport = client if client is not None else \
             HttpClient(credentials=credentials.material)
         opened.append(transport)
+        egress = _llm_egress(config, client=llm_client)
+        if egress is not None:
+            opened.append(egress.client)
         store = LedgerStore(config.ledger_path)
         opened.append(store)
         resolver = CONFIG.build_resolver(env)
@@ -456,7 +519,7 @@ def compose(settings=None, *, environment: Optional[Mapping[str, str]] = None,
             client=transport, geography=world, credentials=credentials,
             config_chain=resolver, auth_provider=provider, runtime=None,
             scenario_ids=scenario_ids, bootstrap=report, barrier=guard,
-            clock=clock)
+            clock=clock, llm=egress)
         deployment.runtime = Runtime(
             tick=deployment.tick, interval_sec=config.interval_sec,
             clock=clock, on_error=_log_tick_failure)

@@ -533,6 +533,23 @@ class ExtractionOutcome:
         return not self.items
 
 
+def primary_country(data: Mapping) -> str:
+    """The item's own country, as every production copy reads it.
+
+    `theater` first, `country` second, upper-cased and stripped — and no
+    fallback, because S1-INGEST-016 discards an item whose country the
+    model could not name rather than assigning the nearest target.
+
+    Extracted rather than inlined because TWO callers need it now: this
+    module's `build_item`, and the stage that builds the per-source
+    headline fallback (`v3/runtime/llm_stage.py`), whose text names the
+    country. Two spellings of one rule is how the confidence floor came to
+    be 0.35 in seven places and 0.50 in an eighth.
+    """
+    return str(data.get("theater") or data.get("country") or "").strip(
+        ).upper()
+
+
 def explode(profile: IntelProfile, data: Mapping) -> tuple:
     """One model answer -> the answers it actually contains.
 
@@ -600,8 +617,7 @@ def build_item(profile: IntelProfile, data: Mapping, article: Mapping, *,
     if not data.get(profile.signal_field, False):
         return None, profile.signal_absent_reason
 
-    primary = str(data.get("theater") or data.get("country") or "").strip(
-        ).upper()
+    primary = primary_country(data)
     if len(primary) != 2:
         return None, NO_PRIMARY_COUNTRY
     if scope and primary not in {str(c).upper() for c in scope}:
@@ -645,6 +661,6 @@ __all__ = [
     "DROP", "CAP", "ACCEPT", "DISPOSITIONS", "DispositionRule",
     "BEHAVIOURAL_SLOTS",
     "apply_dispositions", "relevance_rules",
-    "sanitize", "normalize_countries", "explode",
+    "sanitize", "normalize_countries", "explode", "primary_country",
     "IntelItem", "IntelProfile", "ExtractionOutcome", "build_item",
 ]

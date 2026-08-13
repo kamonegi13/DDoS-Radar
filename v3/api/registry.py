@@ -163,14 +163,21 @@ DEFERRED: tuple[Deferred, ...] = (
              "着地条件: v3/runtime/geo.py が resolver シームを受け取り、"
              "採点ティックがそれ経由でシナリオを組むこと"),
     Deferred("C12", "LLM 運用族", Owner.LLM_PATH,
-             "**繰延理由を WP-4.1g で強化**。旧理由は「fold を読ませる配線"
-             "が無い」だったが、実測はより単純だった: "
-             "`v3/fetch/llm.py::submit` を呼ぶ本番経路が v3 に 1 つも無い"
-             "（AST 実測。呼び手はテストのみ）。kill switch は歩かれない"
-             "経路を止めるスイッチになる。LLM 投入経路そのものが着地する"
-             "スライスで同時に出すのが正しい — `submit` は既に "
-             "`available` 引数と `DISABLED` 結果を持っており、"
-             "fold を読む辺はその 1 箇所で足りる"),
+             "**繰延理由を 2026-08-13 に更新**。旧理由「`v3/fetch/llm.py::"
+             "submit` を呼ぶ本番経路が v3 に 1 つも無い」は**もう真では"
+             "ない**: WP-2.7 の抽出ステージ（`v3/runtime/llm_stage.py`）が"
+             "着地し、ティックが毎回 submit を歩き、`llm_call` に行が入る。"
+             "止まった理由が変わったのに文言を残すのは、この計画が"
+             "繰り返し見つけている「期限切れの根拠が配られ続ける」形なので"
+             "書き換える。"
+             "**現在の繰延理由**: kill switch は既に存在する — "
+             "`LLM_ENABLED`（`v3/server/settings.py`）が合成根で解決され、"
+             "無効時のティック報告は `llm_disabled` を理由付きで返す。"
+             "残っているのは *API 面*（実行中に切り替える C 系コマンドと、"
+             "その command_record fold）であって投入経路ではない。"
+             "着地条件: fold を読む辺は `LlmEgress.enabled` の 1 箇所で"
+             "足りるので、C7 と同じ 3 層解決（既定 = 環境層、override = "
+             "command_record fold）を通す判断が済んだ時点で出せる"),
 )
 
 

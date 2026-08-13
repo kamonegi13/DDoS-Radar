@@ -48,6 +48,20 @@ from v3.adapters.types import RequestSpec
 #: (`_GENERATE_URL = f"{LLM_HOST}/api/generate"`).
 GENERATE_PATH = "/api/generate"
 
+#: The roster path. Pinned from radar/llm_client.py:31 (`_TAGS_URL`), read
+#: by `llm_available()` at `:427`. It lives here for the same reason
+#: `GENERATE_PATH` does: this file is the only one licensed to issue an
+#: Ollama request (`tests/test_fetch_boundary.py`), so the probe cannot be
+#: a second egress somewhere in `v3/runtime/`.
+TAGS_PATH = "/api/tags"
+
+#: radar/llm_client.py:427 — `requests.get(_TAGS_URL, timeout=5)`. v1
+#: spends one scalar on connect AND read; v3's client separates them, so
+#: this is carried as the CONNECT bound (what the 5 was protecting against
+#: is an unreachable host) and the read bound stays the caller's
+#: `LLM_TIMEOUT`.
+AVAILABILITY_TIMEOUT_SEC = 5.0
+
 #: radar/llm_client.py:532 — the shared function's own defaults, which
 #: every one of the eight callers relies on for temperature (none of them
 #: passes it; `ast`-verified across all eight call sites).
@@ -64,6 +78,13 @@ MAX_TOKENS_KEY = "num_predict"
 # outcome vocabulary — S1-INGEST-013/014/020 want these distinguishable
 DISABLED = "llm_disabled"
 UNAVAILABLE = "llm_unavailable"
+#: NEW, and deliberately not v1's. `llm_available()` returns a bare
+#: `False` for "nothing answered on 11434" and for "Ollama answered and
+#: does not hold this model" alike (radar/llm_client.py:427-441). The two
+#: point at different repairs — start the daemon, or pull the model — and
+#: S1-INGEST-020 asks that a cycle's silence be attributable, so they are
+#: counted apart here.
+MODEL_ABSENT = "llm_model_absent"
 HTTP_ERROR = "http_error"
 PARSE_FAILED = "json_parse_failed"
 REPLAY_MISSING = "replay_response_missing"
@@ -214,6 +235,79 @@ def _response_text(payload) -> str:
     return str(envelope.get("thinking") or "").strip()
 
 
+@dataclass(frozen=True, slots=True)
+class Availability:
+    """Whether the model can be asked, and why not when it cannot.
+
+    A boolean would have been enough for the CALLER — it either submits or
+    it does not — and not enough for the report it has to write. G-17: a
+    stage that skipped every article must be able to say which silence it
+    was, and `False` cannot.
+    """
+
+    available: bool
+    reason: str = ""
+    models: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict:
+        return {"available": self.available, "reason": self.reason,
+                "models": list(self.models)}
+
+
+def model_matches(models, model_id: str) -> bool:
+    """v1's match rule, transcribed from radar/llm_client.py:430-431.
+
+    `any(m == LLM_MODEL or m.startswith(LLM_MODEL.split(":")[0]))` — the
+    prefix arm is what lets `gemma4:26b` be satisfied by a roster entry of
+    `gemma4:26b-instruct`, and dropping it would report a present model as
+    absent on every tagged pull.
+    """
+    wanted = str(model_id or "").strip()
+    if not wanted:
+        return False
+    family = wanted.split(":")[0]
+    return any(str(name) == wanted or str(name).startswith(family)
+               for name in models)
+
+
+def probe(*, client, endpoint: str, model_id: str, now: float,
+          enabled: bool = True) -> Availability:
+    """Can this deployment ask the model right now? radar/llm_client.py:427.
+
+    One GET per tick, before any submission, because S1-INGEST-010 wants an
+    unavailable model to be a no-op SUCCESS rather than N failed POSTs: a
+    down Ollama would otherwise cost `cap x LLM_TIMEOUT` of the tick and
+    advance nothing.
+
+    Every non-answer is a NAMED reason, never a bare False — see
+    `MODEL_ABSENT`.
+    """
+    if not enabled:
+        return Availability(False, DISABLED)
+    base = str(endpoint or "").rstrip("/")
+    if not base:
+        raise DomainError(
+            "llm endpoint is required; it is supplied by the composition "
+            "root, never read from the environment here")
+    outcome = client.fetch(RequestSpec(url=f"{base}{TAGS_PATH}",
+                                       label="llm_tags"), now=now)
+    if outcome.outcome != FETCH_OK:
+        return Availability(False, UNAVAILABLE)
+    envelope = None
+    try:
+        envelope = outcome.payload.json() if outcome.payload else None
+    except Exception:                       # noqa: BLE001 - not a document
+        envelope = None
+    if not isinstance(envelope, dict):
+        return Availability(False, UNAVAILABLE)
+    names = tuple(str((row or {}).get("name") or "")
+                  for row in (envelope.get("models") or [])
+                  if isinstance(row, Mapping))
+    if not model_matches(names, model_id):
+        return Availability(False, MODEL_ABSENT, names)
+    return Availability(True, "", names)
+
+
 def replay(request: LlmRequest, *, store) -> Optional[LlmResult]:
     """The recorded exchange for this prompt, or None. S5-VERIF-022.
 
@@ -276,6 +370,8 @@ def submit(request: LlmRequest, *, client, store, adapter_id: str,
 
 
 __all__ = ["LlmRequest", "LlmResult", "submit", "replay", "parse_response",
-           "GENERATE_PATH", "MAX_TOKENS_KEY", "DEFAULT_TEMPERATURE",
-           "DEFAULT_MAX_TOKENS", "DISABLED", "UNAVAILABLE", "HTTP_ERROR",
-           "PARSE_FAILED", "REPLAY_MISSING"]
+           "Availability", "probe", "model_matches",
+           "GENERATE_PATH", "TAGS_PATH", "AVAILABILITY_TIMEOUT_SEC",
+           "MAX_TOKENS_KEY", "DEFAULT_TEMPERATURE",
+           "DEFAULT_MAX_TOKENS", "DISABLED", "UNAVAILABLE", "MODEL_ABSENT",
+           "HTTP_ERROR", "PARSE_FAILED", "REPLAY_MISSING"]

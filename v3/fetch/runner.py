@@ -620,10 +620,10 @@ def execute_plan(plan: FetchPlan, registry, *, client, store,
                 # The fold runs INSIDE the transaction that writes, so a
                 # reduction failure aborts the write rather than leaving
                 # half a cycle recorded.
-                written = _append_drafts(store, adapter,
-                                         lent.folded(adapter.name, drafts),
-                                         tick_id=tick_id, now=plan.now,
-                                         connection=conn)
+                written = append_drafts(store, adapter,
+                                        lent.folded(adapter.name, drafts),
+                                        tick_id=tick_id, now=plan.now,
+                                        connection=conn)
             recorder.save_state(store, state, updated_at=plan.now,
                                 connection=conn)
 
@@ -683,9 +683,16 @@ def _answers(outcome, advance_on: str) -> bool:
     return True
 
 
-def _append_drafts(store, adapter: SourceAdapter, drafts, *, tick_id: str,
-                   now: float, connection=None) -> int:
-    """Wrap drafts in kernel Evidence and append. Adapters never do this."""
+def append_drafts(store, adapter: SourceAdapter, drafts, *, tick_id: str,
+                  now: float, connection=None) -> int:
+    """Wrap drafts in kernel Evidence and append. Adapters never do this.
+
+    PUBLIC since WP-2.7's stage landed. It was `_append_drafts` while the
+    runner was its only caller; `v3/runtime/llm_stage.py` is the second,
+    and a private name there would have invited a copy — which is how the
+    freshness horizon comes to be set in two places and B-03 comes back.
+    One seam, two callers, one horizon.
+    """
     written = 0
     for draft in drafts:
         flags = dict(draft.flags)
@@ -713,7 +720,8 @@ def _append_drafts(store, adapter: SourceAdapter, drafts, *, tick_id: str,
     return written
 
 
-__all__ = ["run_due", "apply_budget", "execute_plan", "FetchPlan",
+__all__ = ["run_due", "apply_budget", "execute_plan", "append_drafts",
+           "FetchPlan",
            "PlannedFetch", "CycleHooks",
            "SkippedFetch", "CycleResult", "AdapterResult",
            "NOT_DUE", "BREAKER_OPEN", "RATE_LIMITED", "DISABLED",
