@@ -295,3 +295,31 @@ D1 の全モジュールが仕様化済または理由付き除外、対応条�
   **未追随の負債**: `v3/parity/conditions.py` は旧 14 条件を実装しており、条件表・override 禁止集合
   （C-02 / C-08 / C-14 に「C-03 の insensitive 不一致」と C-17 を追加）・VOID 除外・新設 3 条件の
   反映が **WP-5.1 の作業として残る**。本改訂はドキュメントのみ。
+- **2026-08-13**: **WP-0.1 の 7 日後確認 PASS + シャドウ・フラッピング RCA と修正 3 件**。
+  WP-0.1: 本番 `sensor_observation_ts` 最古行齢 8.07 日（> 7 日）、TTL 60 日解決、書込み継続 —
+  24h 暗黙 prune の消滅を実測確認。次回確認 2026-09-05（パリティ測定可能日）。
+  **シャドウ RCA**: 初稼働（08-09）以来 healthz が 200/503 をフラッピング。healthz は正直
+  （tick 成功後 300s 超で 503）で、tick 実測が平均 1,078s（121 tick / 36.2h、設計 60s）。
+  fetch が壁時計の 67%（6h 窓で 14,427s）を直列消費。原因 3 件を修正:
+  (1) **ct_log**: HALF_OPEN「プローブ」が 162 ステップ全掃引だった — 319 req/10 分、全行
+  HALF_OPEN、fetch 時間の 69%。既存テストは 1 リクエスト・アダプタで green のまま
+  （probe と resumption を区別できない — measurement-vs-verification の新例）。
+  `run_due` が probe を 1 step に截断 + `probe_deferred` 開示（G-17）+ min_interval を
+  匿名クォータの 120s に（旧 4.0 = 掃引内スリープの誤流用）。**ライブ実証: probe = 1 req, OK, 1.0s**。
+  (2) **gdelt**: TLS 握手実測 9.0-10.3s（TCP 0.2s）が connect 予算 5s に殺され 108/108 timeout。
+  urllib3 は握手超過を「read timeout=5.0」と誤表示する（タプル順は正しい — httpbin A/B で確認）。
+  予算 15s へ。ライブ実証: (15,20) で応答到達。v1 の `timeout=10`（gdelt.py:26）も同帯域 = v1 間欠の説明。
+  (3) **greynoise**: GNQL v2 が 410 Gone、OK 0 件で sweep ANOMALY を恒久化（NP5+8 違反）。
+  docstring の「K11 preserved exactly」は未移植の虚偽記載だった。`enabled=False`（= v3 流の
+  no-GNQL モード）+ 鍵をインベントリから除去。
+  併せて **compose loopback テスト修理**: c95324b がテスト未更新で suite は 08-09 から HEAD で赤、
+  4 コミットがその上に着地していた。bare publish を拒否する形に強化。
+  全スイート 7,494 passed / check_ci 全通過。コミット cd48aea / 5492244 / d65d6f2 / 871eeaa。
+  **新規発見（未修正、次作業候補）**: (a) **ripe_atlas: cadence 600s に対し掃引実測 ~25 分**
+  （216 req × 平均 7.08s、直列）— 構造的に常時遅刻し、修正後の tick 遅延の現主因
+  （CPU 0.5% = ネットワーク直列ブロックを実測）。count 基準の fetch 予算（120）は
+  slow-but-OK 掃引の時間を拘束しない — 時間基準予算 / 並列化 / cadence 是正の裁定が必要。
+  (b) **fetch OK なのに L1 観測 0 行のソースが 9 件**（check_host 142 OK / ooni 27 OK /
+  ripe_atlas 含む）— sweep dark は greynoise 固有ではない。normalize 沈黙が正当か
+  reduce/append 欠陥かの切り分けが必要。 (c) **LLM ステージ: llm_call 台帳 0 行**（未配線
+  または全失敗）。`stream:false` + read 20s では 20s 超の生成が構造的に完了不能。
