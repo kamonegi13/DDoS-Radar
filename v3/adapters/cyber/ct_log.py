@@ -45,7 +45,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlparse
 
-from v3.adapters.common import list_or_empty, load_json, mapping_or_empty
+from v3.adapters.common import (country_of, list_or_empty, load_json,
+                                mapping_or_empty)
 from v3.adapters.types import (AdapterId, AUTH_API_KEY, AuthRequirement,
                                CYBER, NormalizeContext, ObservationDraft,
                                RequestChain, RequestSpec, SourceAdapter,
@@ -341,7 +342,12 @@ def normalize(payload, context: NormalizeContext
     port counted certificates, which reads the same on the common case
     and undercounts exactly the certificate that is most worth reading.
     """
-    country = (context.countries[0] if len(context.countries) == 1 else "")
+    # `country_of` reads the label's trailing `:{country}` segment. The
+    # single-country context fallback alone was the shadow's measured
+    # silence (2026-08-13): the runtime supplies the whole watch scope
+    # (~21 countries), so `countries[0] if len == 1` was unresolvable on
+    # every production payload and every draft was silently ().
+    country = country_of(payload, context)
     if not country:
         return ()
     domain = watched_domain(payload)
@@ -451,12 +457,16 @@ CT_LOG_ADAPTER = SourceAdapter(
                         headers={"User-Agent":
                                  "OSINT-Radar/8.0 (CT-anomaly-detector)",
                                  "Accept": "application/json"},
-                        label="certspotter"),
+                        # The trailing `:{country}` is how `normalize`
+                        # attributes the payload — the greynoise
+                        # `gnql:{country}` convention, resolved at
+                        # expansion (`expand.py` templates labels too).
+                        label="certspotter:{country}"),
             RequestSpec(url=_CRTSH_URL, expect_content="json",
                         params=(("Identity", "{domain}"), ("output", "json"),
                                 ("exclude", "expired")),
                         headers={"Accept": "application/json"},
-                        label="crtsh")),
+                        label="crtsh:{country}")),
         reason="K05 / radar/sensors/ct_log.py:144-152 — CertSpotter became "
                "primary after crt.sh's chronic instability; crt.sh is "
                "reached only for what CertSpotter rejects (some ccTLD gov "

@@ -322,7 +322,7 @@ class TestCtLogCanFetch:
         assert '"expand": ["dns_names", "issuer"],' in source
 
     def test_the_shipped_request_sends_expand_twice(self):
-        calls, _ = wire("ct_log", {"domain": "gov.tw"})
+        calls, _ = wire("ct_log", {"domain": "gov.tw", "country": "TW"})
         params = list(calls[0]["params"])
         assert [value for name, value in params if name == "expand"] == [
             "dns_names", "issuer"]
@@ -336,7 +336,7 @@ class TestCtLogCanFetch:
         assert ct_log.parse_issuer("C=US, O=Let's Encrypt")[1] != "unknown"
 
     def test_the_full_certspotter_query_is_production_order(self):
-        calls, _ = wire("ct_log", {"domain": "gov.tw"})
+        calls, _ = wire("ct_log", {"domain": "gov.tw", "country": "TW"})
         assert list(calls[0]["params"]) == [
             ("domain", "gov.tw"), ("include_subdomains", "true"),
             ("match_wildcards", "true"), ("expand", "dns_names"),
@@ -347,22 +347,22 @@ class TestCtLogCanFetch:
         assert "if self._api_token:" in source
 
     def test_the_free_tier_is_reachable_without_a_token(self):
-        calls, outcomes = wire("ct_log", {"domain": "gov.tw"},
+        calls, outcomes = wire("ct_log", {"domain": "gov.tw", "country": "TW"},
                                credentials={})
         assert len(calls) == 1 and outcomes[0].succeeded
         assert "Authorization" not in calls[0]["headers"]
 
     def test_a_token_becomes_a_bearer_header(self):
-        calls, _ = wire("ct_log", {"domain": "gov.tw"})
+        calls, _ = wire("ct_log", {"domain": "gov.tw", "country": "TW"})
         assert calls[0]["headers"]["Authorization"] == "Bearer cs-token"
 
     def test_crtsh_is_a_fallback_not_a_second_query(self):
-        calls, _ = wire("ct_log", {"domain": "gov.tw"})
+        calls, _ = wire("ct_log", {"domain": "gov.tw", "country": "TW"})
         assert len(calls) == 1
         assert "certspotter" in calls[0]["url"]
 
     def test_crtsh_is_reached_when_certspotter_rejects(self):
-        calls, _ = wire("ct_log", {"domain": "gov.tw"},
+        calls, _ = wire("ct_log", {"domain": "gov.tw", "country": "TW"},
                         responses=(_Response(403, b""), _Response(200)))
         assert [call["url"] for call in calls] == [
             "https://api.certspotter.com/v1/issuances", "https://crt.sh/"]
@@ -409,7 +409,7 @@ class TestCheckHostCanFetch:
                                           for n in default.split(",")]
 
     def test_the_shipped_request_sends_all_five(self):
-        calls, _ = wire("check_host", {"target_url": "https://www.gov.tw"},
+        calls, _ = wire("check_host", {"target_url": "https://www.gov.tw", "country": "TW"},
                         responses=_HANDSHAKE)
         params = list(calls[0]["params"])
         assert params == [
@@ -427,7 +427,7 @@ class TestCheckHostCanFetch:
         parses to no nodes is indistinguishable here from a country whose
         nodes all answered.
         """
-        calls, _ = wire("check_host", {"target_url": "https://www.gov.tw"},
+        calls, _ = wire("check_host", {"target_url": "https://www.gov.tw", "country": "TW"},
                         responses=_HANDSHAKE)
         for call in calls:
             assert call["headers"]["Accept"] == "application/json"
@@ -487,7 +487,7 @@ class TestCheckHostContinuation:
         """It is not the caller's to supply, so it is not an error."""
         adapter = build_registry().get(build_registry().resolve("check_host"))
         step, = expand_requests(adapter.requests, ExpansionInput(
-            scopes=(ExpansionScope(values={"target_url": "https://x.tw"}),)))
+            scopes=(ExpansionScope(values={"target_url": "https://x.tw", "country": "TW"}),)))
         assert step.continuation is not None
         assert "{request_id}" in step.continuation.spec.url
         assert step.continuation.carried_slots == frozenset({"request_id"})
@@ -495,7 +495,7 @@ class TestCheckHostContinuation:
     def test_the_second_request_is_addressed_by_the_first_response(self):
         sleeps = []
         calls, outcomes = wire("check_host",
-                               {"target_url": "https://www.gov.tw"},
+                               {"target_url": "https://www.gov.tw", "country": "TW"},
                                responses=_HANDSHAKE, sleeps=sleeps)
         assert len(calls) == 2
         assert calls[1]["url"] == "https://check-host.net/check-result/abc123"
@@ -521,7 +521,7 @@ class TestCheckHostContinuation:
         plan = runner.run_due(
             T0, [adapter], {"check_host": AdapterState(adapter_id="check_host")},
             expansions={"check_host": ExpansionInput(scopes=(
-                ExpansionScope(values={"target_url": "https://x.tw"}),))})
+                ExpansionScope(values={"target_url": "https://x.tw", "country": "TW"}),))})
         assert plan.planned_ids == ("check_host",)
         result = runner.execute_plan(plan, registry(), client=http,
                                      store=store, tick_id="t1",
@@ -545,7 +545,7 @@ class TestCheckHostContinuation:
         plan = runner.run_due(
             T0, [adapter], {"check_host": AdapterState(adapter_id="check_host")},
             expansions={"check_host": ExpansionInput(scopes=(
-                ExpansionScope(values={"target_url": "https://x.tw"}),))})
+                ExpansionScope(values={"target_url": "https://x.tw", "country": "TW"}),))})
         result = runner.execute_plan(plan, registry(), client=http,
                                      store=store, tick_id="t1",
                                      countries=("TW",))
@@ -628,13 +628,19 @@ class TestNoPlaceholderCanReachTheWire:
         assert {name: value for name, value in declared.items() if value} == {
             "ais_maritime": ["chokepoint", "lat", "latmax", "latmin", "lon",
                              "lonmax", "lonmin"],
-            "check_host": ["request_id", "target_url"],
+            # `country` rides in the LABEL (`result:{target_url}:{country}`)
+            # so `normalize` can attribute the payload — the shadow's
+            # measured silence (2026-08-13) was the single-country context
+            # fallback resolving on no production payload.
+            "check_host": ["country", "request_id", "target_url"],
             # WP-4.1d. Four of its eight declarations are the per-target
             # attack-ORIGIN distribution; the other four ask about the
             # world and carry no placeholder, which is why the expander
             # still sends them once (`v3/runtime/expansion.py`).
             "cloudflare_radar": ["country"],
-            "ct_log": ["domain"],
+            # Same device for `ct_log`: `certspotter:{country}` /
+            # `crtsh:{country}`.
+            "ct_log": ["country", "domain"],
             # WP-2.7. `{gdelt_query}` is the per-country search expression
             # (`QUERY_TEMPLATES`, or a name-based fallback), and
             # `{history_window}` the baseline span in days — production

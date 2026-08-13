@@ -1106,6 +1106,35 @@ class TestCheckHost:
             payload("check_host", "check_http_request.json", label="request"),
             context("check_host")) == ()
 
+    def test_country_resolves_when_many_countries_are_in_scope(self):
+        """The shadow's measured silence: 142 OK fetches, zero L1 rows.
+
+        `normalize` resolved the country as `context.countries[0] if
+        len == 1 else ""` while the runtime supplies the whole watch
+        scope (~21 countries), so every production draft was silently ().
+        The result label now ends with the country the expansion scope
+        already carried (`expansion.py` supplies `{country}` per step).
+        """
+        draft = check_host.normalize(
+            payload("check_host", "check_result.json",
+                    label="result:https://www.mofa.gov.tw:TW"),
+            context("check_host", countries=("TW", "JP", "US")))[0]
+        assert draft.country == "TW"
+
+    def test_the_result_label_carries_the_country_placeholder(self):
+        assert check_host._RESULT_SPEC.label.endswith(":{country}")
+
+    def test_target_url_survives_the_country_suffix(self):
+        """`target_url_of` keys the latency history; the country segment
+        must strip without eating a port or a scheme colon."""
+        class _P:
+            label = "result:https://www.mofa.gov.tw:TW"
+        assert check_host.target_url_of(_P()) == "https://www.mofa.gov.tw"
+
+        class _Port:
+            label = "result:https://example.test:8443:TW"
+        assert check_host.target_url_of(_Port()) == "https://example.test:8443"
+
 
 # ── ripe_atlas ──────────────────────────────────────────────────────────
 

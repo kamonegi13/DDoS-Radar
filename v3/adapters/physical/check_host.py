@@ -33,7 +33,8 @@ country verdict is OBSERVED rather than guessed.
 """
 from __future__ import annotations
 
-from v3.adapters.common import as_float, as_int, load_json, mapping_or_empty
+from v3.adapters.common import (as_float, as_int, country_of, iso2,
+                                load_json, mapping_or_empty)
 from v3.adapters.types import (AdapterId, NormalizeContext, ObservationDraft,
                                PHYSICAL, RequestContinuation, RequestSpec,
                                ResponseValue, SourceAdapter,
@@ -178,7 +179,10 @@ def normalize(payload, context: NormalizeContext
     """
     if payload.label == "request":
         return ()
-    country = (context.countries[0] if len(context.countries) == 1 else "")
+    # The label's trailing `:{country}` segment decides; the context
+    # fallback inside `country_of` only applies when exactly one country
+    # is in scope (which the runtime never supplies — see _RESULT_SPEC).
+    country = country_of(payload, context)
     if not country:
         return ()
     summary = summarise_nodes(load_json(payload))
@@ -249,15 +253,32 @@ _REQUEST_SPEC = RequestSpec(
 #: key by, and a country-wide average would hide the single URL being
 #: throttled behind the two that are not. Same device `ais_maritime` and
 #: `gdelt` already use for scope that the address does not carry.
+#: The trailing `:{country}` is how `normalize` attributes the payload
+#: (`country_from_label` reads the LAST segment). The single-country
+#: context fallback alone was the shadow's measured silence (2026-08-13):
+#: the runtime supplies the whole watch scope, so `countries[0] if
+#: len == 1` resolved on no production payload and every draft was ().
 _RESULT_SPEC = RequestSpec(url=_RESULT_URL, expect_content="json",
-                           headers=_HEADERS, label="result:{target_url}")
+                           headers=_HEADERS,
+                           label="result:{target_url}:{country}")
 
 
 def target_url_of(payload) -> str:
-    """The URL this measurement is about, from the label."""
+    """The URL this measurement is about, from the label.
+
+    The label is `result:{target_url}:{country}`; the target itself
+    contains colons (`https://…`), so the country is identified from the
+    right and only stripped when the final segment actually validates as
+    ISO2 — `:80` or `://x` endings stay part of the URL.
+    """
     label = str(getattr(payload, "label", "") or "")
-    _, separator, target = label.partition(":")
-    return target.strip() if separator else ""
+    _, separator, rest = label.partition(":")
+    if not separator:
+        return ""
+    target, tail_sep, tail = rest.rpartition(":")
+    if tail_sep and iso2(tail):
+        return target.strip()
+    return rest.strip()
 
 CHECK_HOST_ADAPTER = SourceAdapter(
     adapter_id=CHECK_HOST, category=PHYSICAL,

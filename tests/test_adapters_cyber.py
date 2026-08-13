@@ -546,6 +546,27 @@ class TestCtLog:
             assert records[0]["issuer"] == "let's encrypt"
             assert "mofa.gov.tw" in records[0]["dns_names"]
 
+    def test_country_resolves_when_many_countries_are_in_scope(self):
+        """The shadow's measured silence: 636 fetches, zero observations.
+
+        `normalize` resolved the country as `context.countries[0] if
+        len == 1 else ""` — a single-country assumption, while the
+        runtime supplies the whole watch scope (~21 countries), so the
+        country was unresolvable on EVERY production payload and every
+        draft was silently (). The label now carries the country the
+        expansion scope already knew, the way greynoise's `gnql:{country}`
+        always has.
+        """
+        draft = ct_log.normalize(
+            payload("ct_log", "certspotter_issuances.json",
+                    label="certspotter:TW", url=self.CERTSPOTTER_URL),
+            context("ct_log", countries=("TW", "JP", "US")))[0]
+        assert draft.country == "TW"
+
+    def test_the_declared_labels_carry_the_country_placeholder(self):
+        specs = ct_log.CT_LOG_ADAPTER.requests[0].alternatives
+        assert all("{country}" in spec.label for spec in specs)
+
     def test_the_declared_interval_is_the_anonymous_quota(self):
         """30 requests/hour tokenless -> one group slot per 120s.
 
