@@ -527,8 +527,11 @@ class TestKnowledgeItems:
         # The result label carries the target URL (WP-4.1b): the result
         # payload's own address is `check-result/{request_id}`, so without
         # it there is no key for the per-URL latency history production
-        # keeps (`_url_latency_history[url]`).
-        assert labels == ["request", "result:{target_url}"]
+        # keeps (`_url_latency_history[url]`). The trailing `:{country}`
+        # (2026-08-13) is what `normalize` attributes the payload by —
+        # the single-country context fallback resolved on no production
+        # payload and every draft was silently ().
+        assert labels == ["request", "result:{target_url}:{country}"]
         assert "{request_id}" in declared.then.url
         assert [value.placeholder for value in declared.carries] \
             == ["request_id"]
