@@ -229,6 +229,22 @@
                   })) + '</p>'
                   : '')
             : '';
+        // The participant strip (P9 §3.7, D-10): which countries this
+        // scenario is about, hardest-coupled first. Also the accessible
+        // twin of the board map — see `board.js::_participantStrip`.
+        var strip = '';
+        if (card.participants && card.participants.length) {
+            strip = '<ul class="card-countries" aria-label="'
+                + esc(_t('ui.board.participants_label')) + '">'
+                + card.participants.map(function (p) {
+                    return '<li class="cc'
+                        + (p.isAdversary ? ' cc-adversary' : '')
+                        + '" title="' + esc(p.country + ' — ' + _t(p.roleKey))
+                        + '"><span class="cc-flag">' + esc(p.flag)
+                        + '</span><span class="cc-iso">' + esc(p.country)
+                        + '</span></li>';
+                }).join('') + '</ul>';
+        }
         var name = card.displayName || card.scenarioId;
         return '<article class="card card-' + esc(tl.band)
             + (card.focused ? ' card-focused' : '') + '" data-scenario="'
@@ -275,6 +291,7 @@
             + esc(_t('ui.board.score', { score: Fmt.num(card.score, 2) }))
             + '</span></p>'
             + '</div></div>'
+            + strip
             + domainBar
             + '<p class="card-coverage">' + esc(_t(card.coverage.labelKey, {
                 mode: card.coverage.scoringMode || Fmt.ABSENT }))
@@ -654,6 +671,78 @@
         return blocks + spill;
     }
 
+    /**
+     * One tile of the situation view's scenario map (P9 §2.2 R-F).
+     *
+     * The tile's colour is `--bm-color`, the CSS variable of the most
+     * severe scenario the country participates in — supplied by
+     * `board_map.js`, which did the severity comparison in the one module
+     * allowed to (through `format.js`). The tooltip lists every scenario
+     * the country belongs to; `data-map-scenarios` carries the same list
+     * for the card-hover highlight, space-separated so
+     * `[data-map-scenarios~="id"]` matches.
+     */
+    function bmTileHtml(tile) {
+        var tip = tile.memberships.map(function (m) {
+            var line = m.tl.tl === null
+                ? _t('ui.board_map.membership_null', { name: m.displayName })
+                : _t('ui.board_map.membership', {
+                    name: m.displayName, tl: String(m.tl.tl) });
+            return line
+                + (m.isAdversary ? _t('ui.board_map.adversary_suffix') : '');
+        }).join('\n');
+        return '<li class="geo-tile bm-tile bm-band-' + esc(tile.band)
+            + (tile.isAdversary ? ' geo-tile-adversary' : '')
+            + (tile.hasFocused ? ' bm-tile-focused' : '')
+            + '" data-country="' + esc(tile.country) + '"'
+            + ' data-map-scenarios="' + esc(tile.scenarioIds.join(' ')) + '"'
+            + ' style="' + (tile.placed
+                ? 'grid-column:' + esc(String(tile.col))
+                  + ';grid-row:' + esc(String(tile.row)) + ';'
+                : '')
+            + '--bm-color: var(' + esc(tile.cssVar) + ')"'
+            + ' title="' + esc(tip) + '">'
+            + '<span class="tile-flag">' + esc(tile.flag) + '</span>'
+            + '<span class="tile-iso">' + esc(tile.country) + '</span>'
+            + (tile.membershipCount > 1
+                ? '<span class="bm-multi">' + esc(String(tile.membershipCount))
+                  + '</span>'
+                : '')
+            + '</li>';
+    }
+
+    /**
+     * The whole-board scenario map. Same regional skeleton as the scenario
+     * face's `geoTileMapHtml` — one block per region that has a
+     * participant, spillover for countries the placement table does not
+     * know — but the tiles carry scenario membership and TL colour instead
+     * of event dots (events are R2's, and R2 serves the focused scenario
+     * only).
+     */
+    function boardMapHtml(map) {
+        var blocks = map.regions.map(function (region) {
+            return '<section class="geo-region" data-region="'
+                + esc(region.id) + '">'
+                + '<h5 class="geo-region-name">' + esc(_t(region.labelKey))
+                + '</h5>'
+                + '<ul class="geo-region-grid" style="grid-template-columns:repeat('
+                + esc(String(region.columns)) + ',1fr);grid-template-rows:repeat('
+                + esc(String(region.rows)) + ',auto)">'
+                + region.tiles.map(bmTileHtml).join('')
+                + '</ul></section>';
+        }).join('');
+        var spill = map.spillover.present
+            ? '<section class="geo-region geo-region-unplaced" data-region="unplaced">'
+              + '<h5 class="geo-region-name">'
+              + esc(_t(map.spillover.labelKey)) + '</h5>'
+              + '<p class="hint">' + esc(_t(map.spillover.noteKey)) + '</p>'
+              + '<ul class="geo-region-grid geo-region-grid-flow">'
+              + map.spillover.tiles.map(bmTileHtml).join('')
+              + '</ul></section>'
+            : '';
+        return blocks + spill;
+    }
+
     /** One layer toggle. An unserved layer says what it is waiting for. */
     function geoLayerHtml(layer, on) {
         if (!layer.available) {
@@ -766,6 +855,8 @@
         geoMarkerHtml: geoMarkerHtml,
         geoTileHtml: geoTileHtml,
         geoTileMapHtml: geoTileMapHtml,
+        bmTileHtml: bmTileHtml,
+        boardMapHtml: boardMapHtml,
         geoLayerHtml: geoLayerHtml,
         settingsRowHtml: settingsRowHtml,
         groundTruthRowHtml: groundTruthRowHtml,

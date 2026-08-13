@@ -145,6 +145,18 @@
         'ui.board.since.unknown': '前回確認（{ago}前）との比較ができません（前回 TL {previous}、現在は結論不可）。',
         'ui.board.summary.unsupplied': '状況サマリ文がサーバから供給されていません（R1 の board_summary 未供給）。下のカードと注目レーンを直接読んでください。',
         'ui.board.summary.template': '文の生成テンプレート: {ref}',
+        'ui.board.participants_label': 'このシナリオの参加国（結合の強い順）',
+
+        // ── 状況ビューのシナリオ地図（P9 §2.2 R-F / §3.7） ────────────────
+        'ui.board_map.title': 'シナリオの参加国地図',
+        'ui.board_map.lead': 'タイルの色は、その国が参加するシナリオのうち最も深刻な脅威レベルです。カードにポインタを重ねると、そのシナリオの参加国が強調されます。',
+        'ui.board_map.membership': '{name} — TL {tl}',
+        'ui.board_map.membership_null': '{name} — TL 未算出',
+        'ui.board_map.adversary_suffix': '（敵対側）',
+        'empty.board_map.role': 'ここには監視中の全シナリオの参加国が、地域ブロックのタイル地図で表示されます。',
+        'empty.board_map.reason_not_loaded': 'シナリオ台帳（R1）をまだ取得できていないため、いまは空です。',
+        'empty.board_map.reason_no_scenarios': 'シナリオが 1 件も構成されていないため、いまは空です。',
+        'empty.board_map.fills_when': 'シナリオ定義が読めた時点で、参加国タイルが自動的に並びます。',
 
         // ── domains ─────────────────────────────────────────────────────
         'ui.domain.cyber': 'サイバー',

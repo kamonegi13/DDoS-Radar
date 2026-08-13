@@ -37,6 +37,11 @@
     var F = (typeof require === 'function')
         ? require('./format')
         : (typeof window !== 'undefined' ? window.NoroshiFormat : null);
+    //: For the participant strip's flag glyphs only — placement stays the
+    //: board map's business and no cell is read here.
+    var Tiles = (typeof require === 'function')
+        ? require('./geo_tiles')
+        : (typeof window !== 'undefined' ? window.NoroshiGeoTiles : null);
 
     //: The three domains, in the order the tool always names them.
     var DOMAINS = ['cyber', 'physical', 'info'];
@@ -233,6 +238,40 @@
         };
     }
 
+    /**
+     * The card's participant strip (P9 §3.7): the geographic identity the
+     * second owner review found missing from Tier 0 (D-10). Weight order,
+     * ties on the code, matching the server's own sweep order
+     * (`v3/runtime/geo.py::participants_of`) — the country the scenario is
+     * coupled to hardest comes first. This strip is also the accessible
+     * twin of the board map: the map's grid is decoration over exactly
+     * these facts, so it can stay `aria-hidden`.
+     */
+    function _participantStrip(scenario) {
+        var participants = scenario.participants || {};
+        var roles = scenario.roles || {};
+        var adversaries = Array.isArray(scenario.adversaries)
+            ? scenario.adversaries : [];
+        return Object.keys(participants).sort(function (a, b) {
+            var wa = typeof participants[a] === 'number' ? participants[a] : 0;
+            var wb = typeof participants[b] === 'number' ? participants[b] : 0;
+            if (wa !== wb) return wb - wa;
+            return a < b ? -1 : (a > b ? 1 : 0);
+        }).map(function (country) {
+            var code = String(country).toUpperCase();
+            var role = typeof roles[country] === 'string'
+                ? roles[country] : null;
+            return {
+                country: code,
+                flag: Tiles.flagOf(code),
+                role: role,
+                roleKey: role ? 'ui.geo.role.' + role : 'ui.geo.role.unlisted',
+                isAdversary: adversaries.indexOf(country) !== -1
+                    || adversaries.indexOf(code) !== -1,
+            };
+        });
+    }
+
     function _card(scenario, options) {
         var focused = scenario.scenario_id === options.focusedScenario;
         var participants = scenario.participants || {};
@@ -262,6 +301,7 @@
             coverage: _coverage(scenario, focused),
             domains: focused ? _domainBar(options.perDomain) : null,
             participantCount: Object.keys(participants).length,
+            participants: _participantStrip(scenario),
             adversaries: Array.isArray(scenario.adversaries)
                 ? scenario.adversaries.slice() : [],
             roles: scenario.roles || {},

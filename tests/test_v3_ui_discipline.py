@@ -629,6 +629,11 @@ class TestTheViewSplitIsStructural:
     #: appearing in the wrong view.
     HOMES = (
         ("board-summary", "view-situation"),
+        # P9 §2.2 R-F (D-10): the whole-board scenario map is Tier 0 — it
+        # answers "which region is this about" for every configured
+        # scenario, from R1 rows alone. Distinct from `geo-tilemap` below,
+        # which is the focused scenario's EVENT map and stays Tier 1.
+        ("board-map", "view-situation"),
         ("board-cards", "view-situation"),
         ("lane-rows", "view-situation"),
         ("onboarding-card", "view-situation"),

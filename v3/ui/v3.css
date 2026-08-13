@@ -792,6 +792,39 @@ tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust);
 .tile-dot-suppressed { background: transparent;
                        box-shadow: inset 0 0 0 1px currentColor; }
 
+/* ── the situation view's scenario map (P9 §2.2 R-F / §3.7) ──────────────
+ * Reuses the regional skeleton above. The tile's left border carries the
+ * colour of the most severe scenario the country participates in
+ * (--bm-color, set inline from the TL band's own variable), so the map and
+ * the card that scenario paints read as one system. */
+.board-map { display: flex; flex-wrap: wrap; gap: var(--space-3);
+             align-items: flex-start; }
+.board-map .bm-tile { border-left-color: var(--bm-color, var(--color-border));
+                      color: var(--color-text); }
+.bm-tile-focused { box-shadow: inset 0 0 0 1px var(--color-accent); }
+/* The card-hover highlight: emphasis, not information — every fact the
+ * glow points at is in the card's participant strip. */
+/* Background rather than outline or box-shadow: the adversary ring owns
+ * `outline` and the focused ring owns `box-shadow`, and the highlight must
+ * compose with both. */
+.bm-tile.map-hot { border-color: var(--color-accent);
+                   background: var(--color-border); }
+.bm-multi { font-size: var(--text-meta); color: var(--color-text-dim); }
+.board-map-block .lead { color: var(--color-text-dim); }
+
+/* ── the card's participant strip (P9 §3.7, D-10) ──────────────────────── */
+.card-countries { margin: var(--space-2) 0 0; padding: 0; list-style: none;
+                  display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.card-countries .cc { display: inline-flex; align-items: center; gap: 3px;
+                      padding: 0 var(--space-1);
+                      border: 1px solid var(--color-border);
+                      border-radius: var(--radius-sm);
+                      color: var(--color-text-dim); }
+.card-countries .cc-adversary { border-style: dashed;
+                                border-color: var(--color-severe); }
+.cc-flag { font-size: 14px; line-height: 1.2; }
+.cc-iso { font-size: var(--text-meta); font-weight: 700; }
+
 .geo-markers { margin: 0; padding: 0; list-style: none;
                display: grid; gap: var(--space-2);
                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }

@@ -173,7 +173,27 @@
         a derivation, and a derivation done here leaves no trail (G-09).
       -->
       <p id="board-summary" class="board-summary"></p>
-      <div id="board-cards" class="cards"></div>
+      <!--
+        The situation band (P9 §3.7): the scenario map and the cards, side
+        by side. The map is the answer to "which region is this about" —
+        the question the second owner review (D-10) found the opening
+        screen could not answer — drawn from R1 rows alone: participants,
+        roles, adversaries and each scenario's current TL. No event dots;
+        events are R2's, and R2 serves the focused scenario only.
+
+        `aria-hidden`, because every fact on the map — country, scenario,
+        role, TL — is carried in text by the cards' participant strips. A
+        screen reader hears each fact once; a sighted reader sees where it
+        is.
+      -->
+      <div class="situation-band">
+        <div class="board-map-block">
+          <h3 data-i18n="ui.board_map.title"></h3>
+          <p class="lead" data-i18n="ui.board_map.lead"></p>
+          <div id="board-map" class="board-map" aria-hidden="true"></div>
+        </div>
+        <div id="board-cards" class="cards"></div>
+      </div>
     </section>
 
     <section id="stage-2" class="stage" aria-labelledby="stage-2-title">
@@ -437,6 +457,7 @@
 <script src="format.js"></script>
 <script src="terms.js"></script>
 <script src="geo_tiles.js"></script>
+<script src="board_map.js"></script>
 <script src="freshness.js"></script>
 <script src="trust.js"></script>
 <script src="board.js"></script>

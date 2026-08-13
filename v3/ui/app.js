@@ -37,6 +37,7 @@
     var Dim = window.NoroshiDim;
     var Views = window.NoroshiViews;
     var Terms = window.NoroshiTerms;
+    var BoardMap = window.NoroshiBoardMap;
 
     var _t = S.t;
     var esc = Fmt.escHtml;
@@ -205,6 +206,17 @@
             : board.cards.map(function (card) {
                 return cardHtml(card, now, terms);
             }).join(''));
+
+        // The scenario map (P9 §2.2 R-F) — same R1 rows the cards project,
+        // so it sits behind the same redraw decision: a map that repaints
+        // when the cards were judged unchanged would be two clocks.
+        var mapModel = BoardMap.buildBoardMap({
+            scenarios: scenariosResult && scenariosResult.body
+                ? scenariosResult.body.scenarios : null,
+        });
+        setHtml('board-map', mapModel.empty
+            ? Render.emptyStateHtml(mapModel.emptyState)
+            : Render.boardMapHtml(mapModel));
 
         var names = {};
         board.cards.forEach(function (card) {
@@ -781,6 +793,56 @@
         if (labelId) { submitFeedback(labelId, target); }
     }
 
+    /**
+     * Card ⇄ map highlight (P9 §3.7). Pointing at a card lights the tiles
+     * of that scenario's participants — the map answers "where" for the
+     * card under the pointer. Delegated from the card container so a
+     * redraw does not shed the listeners; keyboard focus gets the same
+     * treatment as hover (the strip's facts are already in the cards, so
+     * this is emphasis, not information).
+     */
+    function _setMapHighlight(scenarioId, on) {
+        var map = $('board-map');
+        if (!map) return;
+        var tiles = map.querySelectorAll(
+            '[data-map-scenarios~="' + scenarioId + '"]');
+        for (var i = 0; i < tiles.length; i += 1) {
+            tiles[i].classList.toggle('map-hot', on);
+        }
+    }
+
+    function _cardScenarioOf(node) {
+        while (node && node !== document) {
+            if (node instanceof window.HTMLElement
+                    && node.hasAttribute('data-scenario')) {
+                return node.getAttribute('data-scenario');
+            }
+            node = node.parentNode;
+        }
+        return null;
+    }
+
+    function bindMapHighlight() {
+        var cards = $('board-cards');
+        if (!cards) return;
+        var hot = null;
+        var move = function (event) {
+            var id = _cardScenarioOf(event.target);
+            if (id === hot) return;
+            if (hot !== null) _setMapHighlight(hot, false);
+            hot = id;
+            if (hot !== null) _setMapHighlight(hot, true);
+        };
+        var leave = function () {
+            if (hot !== null) _setMapHighlight(hot, false);
+            hot = null;
+        };
+        cards.addEventListener('mouseover', move);
+        cards.addEventListener('mouseleave', leave);
+        cards.addEventListener('focusin', move);
+        cards.addEventListener('focusout', leave);
+    }
+
     function bindLaneToggle() {
         var more = $('lane-more');
         if (!more) return;
@@ -848,6 +910,7 @@
 
     function bind() {
         document.addEventListener('click', onClick);
+        bindMapHighlight();
         bindLaneToggle();
         bindRefresh();
         bindReplay();
