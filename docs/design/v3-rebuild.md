@@ -84,6 +84,7 @@ D1 の全モジュールが仕様化済または理由付き除外、対応条�
 | P6 | [v3/P6-consolidation-rulings.md](v3/P6-consolidation-rulings.md) | **統合裁定 O-14〜O-19**（2026-08-06 再評価由来）。採点パイプライン一本化 / トレンド・severity 単一化 / TL 1 ストリーム化 / 収斂統合とインテルの位置づけ / 設定の二分 / API・UI 導出設計（WP-4.0）。**推奨 = 実装既定** |
 | P7 | [v3/P7-api-derivation.md](v3/P7-api-derivation.md) | **API 導出設計**（WP-4.0 成果物）。O-1〜O-12 から順方向導出した v3 面 = REST 約 61 本 + WS 4 イベント（現行 167+10 から約 63% 削減）。O×endpoint マトリクス、threat_data 分解、narrate の AP2 準拠化、**全 167 endpoint の処遇表** |
 | P8 | [v3/P8-ui-derivation.md](v3/P8-ui-derivation.md) | **UI 導出設計**（WP-4.0 成果物）。アナリスト一次ループ（状況確認 10 秒 → トリアージ 30 秒 → ドリルダウン → フィードバック → 週次検証）、Tier 0-2 の画面インベントリ、O→画面トレーサビリティ、**AP3 合成信頼度 1 チップ化**、**地図の Tier 1 降格 + レイヤ半減**、宙吊りパネル全数裁定 |
+| P9 | [v3/P9-ui-ux-redesign.md](v3/P9-ui-ux-redesign.md) | **UI/UX 再設計: 理解可能性の回復**（2026-08-13、オーナー実見起点）。診断 7 件（Tier 平坦化 / 語彙無定義 / 視覚階層欠如 / 空状態白紙 / 地理面リスト化 / deferred 露出 / なぜ導線断絶）と追補原則 R-A（文が先）/ R-B（1 ビュー 1 問い）/ R-C（用語初出定義）。実装は WP-4.3 の 5 スライス。**P8 は不変、実装解釈のみ訂正** |
 
 
 - strangler 切断順序、フロントエンド greenfield 計画、shadow 並走 + パリティゲート数値、旧系 sunset 条件
