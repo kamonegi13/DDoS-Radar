@@ -324,3 +324,47 @@ D1 の全モジュールが仕様化済または理由付き除外、対応条�
   ripe_atlas 含む）— sweep dark は greynoise 固有ではない。normalize 沈黙が正当か
   reduce/append 欠陥かの切り分けが必要。 (c) **LLM ステージ: llm_call 台帳 0 行**（未配線
   または全失敗）。`stream:false` + read 20s では 20s 超の生成が構造的に完了不能。
+- **2026-08-13（同日・第 2 部）**: **Stage A/B 一括実施 + P9（UI/UX 再設計）— オーナー指示「実施できる状態
+  であれば実施」**。体制: Fable 統括、調査 3 本（Explore/sonnet 並列）+ 実装 3 本（opus）委譲、
+  横断修正・裁定・検証は親セッション。**全 12 コミット（871eeaa..本コミット）、フルスイート 7,671 passed /
+  check_ci 全ゲート通過**。
+  **裁定と実装（tick 経路 — C-16 の 30 日時計は本日から再スタート）**:
+  (1) **バグ A**: execute_plan の `if succeeded:` ゲートが「1 ステップの失敗で全 draft 破棄」— 8 ソース
+  沈黙の主因。draft 存在ゲートに変更、breaker は「1 つでも答えたら SUCCESS」（breaker.py 自身の
+  flapping 禁止則に整合）。
+  (2) **バグ B**: check_host / ct_log の国解決が単一国前提（`countries[0] if len == 1`）で本番スコープ
+  （~21 国）では恒久 ()。ラベル末尾 `:{country}` 化（greynoise 規約）。**テストが全アダプタで単一国
+  文脈だった = 本番が通らない分岐だけをテストしていた**（measurement-vs-verification #8）。
+  (3) **C-lite 整列（A1/A2 裁定）**: v1 実測（scheduler.py: per-country = focused 参加国のみ、和集合は
+  記事系 5 センサーのみ）に整列。DEFAULT_FOCUSED_SCENARIO を settings に登録（合成時に地理と監視集合の
+  両方へ検証）、ct_log は 2 ドメイン/国/周期の**時刻導出カーソル**でローテーション（F-01 耐性・NP6 再生可能）。
+  **ct_log 162→14 steps/時（クォータ 30/時の内側）、ripe_atlas 108→32、カタログ 824→279 steps、
+  cold sweep 7→3 tick**。TTL 多重 focus は未移植として起動 announcement に開示。
+  (4) **LLM ステージ建設（A3）**: `v3/runtime/llm_stage.py` — submit() の史上初の本番呼び手。
+  4 記事/tick round-robin、専用 egress（read 30s・再試行なし = v1 忠実）、(adapter, country) 畳み込みで
+  L1 UNIQUE 対応、LLM_* 4 キーは v1 と同名で settings に登録。apt_intel は IntelProfile 未定義を毎 tick 計上。
+  (5) **WP-5.1 実装部（B1）**: conditions.py を ADR-V3-011 の 17 条件に更新（旧 14 条件のまま
+  `is_cutover_ready` を返す状態を解消）。NOT_MEASURED 新設、VOID V-1..V-7 をデータ化（V-1 は
+  context 供給の時間境界）、override 禁止 = {C-02, C-08, C-14, C-17} + insensitive 方向、C-16 は
+  「コンテナ Up / テスト green / パリティ PASS」を名指しで証拠拒否。104 新テスト。
+  残債: C-04 の insensitive 分離 p95 は compare.py が絶対値保存のため NOT_MEASURED、C-10/11 の
+  census キーは etl/reconcile.py 未対応（フォローオン）。
+  (6) **V3-SEC-01 完全解消（B2）**: 導出をコマンド生成側へ（fold は平文キー拒否、**再生決定性も回復** —
+  derive は乱数ソルトで、fold 内導出は再生毎に別ハッシュだった）、保存面掃引テスト新設、shadow の
+  command_record 破棄・空再作成（migration 5 管轄で起動時再作成されない事実を初回失敗で実測 —
+  scripts/v3_discard_command_ledger.py が migration 文を冪等再実行）、パスワードローテーション、
+  **ライブ掃引で全テーブル平文ゼロ + argon2id 保存を実証**。C-17 は resolved=True で PASS（監査痕跡保持）。
+  (7) **greynoise 退役**: GNQL v2 = 410 Gone、K11 の no-GNQL モードは v3 では enabled=False。
+  鍵インベントリも enabled 限定に。
+  (8) **connect 予算 15s**（gdelt TLS 実測 9.0-10.3s）+ **本文読み切断の修理**（redeploy 後初 tick が
+  ChunkedEncodingError で全滅 — `_read_capped` が try の外。retry ladder に編入）。
+  **ライブ実証（redeploy 後）**: ct_log probe = 1 req/OK、**check_host と ct_log が史上初の L1 観測を
+  書込**（tick 途中死でも per-adapter トランザクションで 40 行残存 = バグ A 修正の証明）、新パスワードで
+  ログイン成功、保存 payload は `{"credential": {"algorithm": "argon2id", ...}}`。
+  **P9 新設（オーナー実見「何が表されているのかわからない」起点）**: 診断 7 件（Tier 平坦化 / 語彙無定義 /
+  視覚階層欠如 / 空状態白紙 / 地理面リスト化 / deferred 露出 / なぜ導線断絶）+ 追補原則 R-A（文が先）/
+  R-B（1 ビュー 1 問い）/ R-C（用語初出定義）。実装は **WP-4.3**（5 スライス、受け入れ = オーナー実見
+  10 秒/30 秒テスト）。**WP-1.5 新設**（L5 を v3 自身に再着地）。
+  **未済**: WP-4.3 実装、WP-1.5、ripe_atlas 直列 25 分問題の恒久解（時間基準予算 or 並列化 — C-lite で
+  32 steps に縮小済みのため緊急性低下）、gdelt/llm_call のライブ初観測（certspotter クォータ窓の回復待ち
+  と cadence 到来待ち）。
