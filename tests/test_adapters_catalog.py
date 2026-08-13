@@ -360,10 +360,14 @@ class TestTheExpectedDifferenceRegister:
         assert len(registry.by_category("cyber")) == 7
         assert len(registry.by_category("physical")) == 15
 
-    def test_exactly_two_adapters_are_disabled_and_both_say_why(self):
+    def test_exactly_three_adapters_are_disabled_and_all_say_why(self):
+        # greynoise joined 2026-08-13: GNQL v2 answers 410 Gone, and the
+        # kernel cannot record a retired endpoint as anything but a
+        # failing fetch — so K11's "unavailable, not failing" is
+        # enabled=False here (see the adapter's DISABLED_REASON).
         disabled = build_registry().disabled()
         assert [adapter.name for adapter in disabled] == \
-            ["ihr_health", "notam"]
+            ["greynoise", "ihr_health", "notam"]
         assert all(adapter.disabled_reason for adapter in disabled)
 
     def test_every_identifier_resolves_through_the_registry(self):
@@ -400,15 +404,16 @@ class TestTheDeclarationsAreWellFormed:
         assert groups["opensky"] == ("isr_hotspot", "mil_support_air",
                                      "opensky")
 
-    def test_the_required_secrets_are_the_expected_six(self):
-        # THREE of the six moved to `optional_key_ids` — not because the
-        # sources stopped wanting them, but because production runs without
-        # them: OpenSky ships anonymous (config.env.example:90-91),
+    def test_the_required_secrets_are_the_expected_five(self):
+        # TWO of the original six moved to `optional_key_ids` — not because
+        # the sources stopped wanting them, but because production runs
+        # without them: OpenSky ships anonymous (config.env.example:90-91),
         # CertSpotter's free tier is tokenless. Declaring those mandatory
         # aborted the fetch with AUTH_MISSING before the socket opened.
+        # GREYNOISE_API_KEY left with its adapter (2026-08-13): GNQL v2 is
+        # 410 Gone, so no key of any tier can reach it.
         assert build_registry().required_key_ids() == (
-            "CF_API_TOKEN", "GREYNOISE_API_KEY", "OWM_API_KEY",
-            "THREATFOX_API_KEY")
+            "CF_API_TOKEN", "OWM_API_KEY", "THREATFOX_API_KEY")
         assert build_registry().optional_key_ids() == (
             "CERTSPOTTER_API_TOKEN", "OPENSKY_CLIENT_CREDENTIALS")
 

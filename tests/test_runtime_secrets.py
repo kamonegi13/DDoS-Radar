@@ -46,10 +46,14 @@ class TestTheKeyInventoryIsDerived:
         assert set(derived) == set(registry.required_key_ids()) | set(
             registry.optional_key_ids())
 
-    def test_the_real_registry_declares_the_six_known_keys(self):
+    def test_the_real_registry_declares_the_five_known_keys(self):
+        # GREYNOISE_API_KEY left the inventory with its adapter
+        # (2026-08-13): GNQL v2 is 410 Gone, so no key of any tier can
+        # reach it, and inventorying it told the operator a key was
+        # wanted that no request could ever spend.
         registry = build_registry()
         assert secrets.required_key_ids(registry.all()) == (
-            "CERTSPOTTER_API_TOKEN", "CF_API_TOKEN", "GREYNOISE_API_KEY",
+            "CERTSPOTTER_API_TOKEN", "CF_API_TOKEN",
             "OPENSKY_CLIENT_CREDENTIALS", "OWM_API_KEY", "THREATFOX_API_KEY")
 
 

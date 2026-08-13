@@ -14,7 +14,20 @@ The legacy sensor treats any of those as a **permanent** switch to the
 no-GNQL mode and **still records a successful fetch** — because a source
 that is structurally unavailable is not a failing source, and treating it
 as one manufactures a permanently DEGRADED sensor that nobody looks at
-any more. That is the good version of NP3 and it is preserved exactly.
+any more. That is the good version of NP3.
+
+An earlier revision of this docstring said that mode was "preserved
+exactly". It was not — the claim was another gate verifying the surface
+next to the one it names. The kernel classifies a 410 as `http_error`,
+`normalize` never runs, no observation is ever written, and the sweep
+monitor holds ANOMALY-over-distrust for a source that structurally
+cannot answer (measured on the shadow, 2026-08-13: 81 requests in six
+hours, all 410, the catalogue's only adapter with zero OK fetches ever).
+In v3's model the no-GNQL mode IS `enabled=False` with the reason
+carried: `run_due` skips a disabled adapter as "never in scope"
+(UNCOUNTED_SKIPS), which is exactly "unavailable, not failing".
+Re-enable by porting the request to a reachable GreyNoise endpoint and
+deleting `enabled=False` — everything below it still works.
 
 Two more rules that look like details and are not:
   * the query must NOT filter `classification:malicious` — that excludes
@@ -58,6 +71,14 @@ COMMUNITY_CACHE_TTL_SEC = 86400.0
 
 _CADENCE = Window.from_days(1.0, cadence_sec=1800.0)
 _FRESHNESS_HORIZON_SEC = 2 * 3600.0
+
+DISABLED_REASON = (
+    "GNQL v2 answers HTTP 410 Gone — the endpoint is retired, with or "
+    "without a key (K11; shadow 2026-08-13: 81/81 requests 410, zero OK "
+    "fetches ever). K11's no-GNQL mode is enabled=False here: the kernel "
+    "has no way to record a structurally dead endpoint as anything but a "
+    "failing fetch. Re-enable when the request is ported to a reachable "
+    "GreyNoise endpoint")
 
 
 def classify(noise_ratio) -> str:
@@ -177,9 +198,11 @@ GREYNOISE_ADAPTER = SourceAdapter(
                               "the adapter is inert, not failing (K11)"),
     rate_limit_group="greynoise",
     min_interval_sec=GREYNOISE_MIN_INTERVAL_SEC,
-    knowledge_refs=("K11", "K15"))
+    knowledge_refs=("K11", "K15"),
+    enabled=False, disabled_reason=DISABLED_REASON)
 
 __all__ = ["GREYNOISE", "GREYNOISE_ADAPTER", "normalize", "classify",
+           "DISABLED_REASON",
            "noise_ratio_of", "counts_of", "classification_rows",
            "NOISE_DOMINANT_RATIO", "MIXED_RATIO",
            "GREYNOISE_MIN_INTERVAL_SEC", "COMMUNITY_DAILY_LIMIT",

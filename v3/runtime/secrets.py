@@ -162,14 +162,21 @@ class CredentialPlan:
 
 
 def required_key_ids(adapters: Iterable) -> tuple[str, ...]:
-    """Every `key_id` the given adapters declare, in sorted order.
+    """Every `key_id` the ENABLED adapters declare, in sorted order.
 
     Derived from the adapters rather than from a second list: a hardcoded
     key inventory is a list that drifts, and drift here presents as a
     source silently running anonymous.
+
+    Disabled adapters are excluded for the same anti-drift reason: an
+    adapter `run_due` will never plan cannot use a credential, and
+    inventorying one (greynoise's, once GNQL went 410) tells the operator
+    a key is wanted that no request could ever spend.
     """
     keys = set()
     for adapter in adapters:
+        if not getattr(adapter, "enabled", True):
+            continue
         for requirement in _requirements(adapter):
             if requirement.key_id:
                 keys.add(requirement.key_id)
