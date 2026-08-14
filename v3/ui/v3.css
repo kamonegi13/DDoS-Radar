@@ -957,6 +957,32 @@ tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust);
                                                      var(--color-accent)); }
 .bm-marker.map-hot .bm-iso { color: var(--color-accent); }
 
+/* ── the observation layer (P8 §9 / NP9) ──────────────────────────────
+ * The count is the 24h fired total; its absence is the point — an
+ * unswept country shows no number, which must read differently from a
+ * swept country showing 0 (G-17). */
+.bm-obs-count { font-size: 9px; font-weight: 700;
+                color: var(--color-text);
+                background: var(--color-surface);
+                border: 1px solid var(--color-border);
+                border-radius: var(--radius-sm);
+                padding: 0 3px; line-height: 1.3; }
+.bm-obs-silent .bm-dot { background: transparent;
+                         box-shadow: inset 0 0 0 1px var(--color-muted); }
+.bm-obs-silent .bm-iso { color: var(--color-muted); }
+.bm-obs-marker { display: flex; flex-direction: column;
+                 align-items: center; gap: 1px;
+                 transform: translate(-50%, -50%); width: max-content;
+                 opacity: 0.55; }
+.bm-obs-dot { width: 5px; height: 5px; border-radius: 50%;
+              background: var(--color-info); }
+.bm-obs-n { font-size: 8px; color: var(--color-text-dim); }
+.board-map-legend { flex: none; margin: 0;
+                    padding: 2px var(--space-2);
+                    font-size: var(--text-meta);
+                    color: var(--color-muted);
+                    border-top: 1px solid var(--color-border); }
+
 /* The tile-grid fallback keeps its own look. */
 .board-map .bm-tile { border-left-color: var(--bm-color, var(--color-border));
                       color: var(--color-text); }

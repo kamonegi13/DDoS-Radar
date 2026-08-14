@@ -134,6 +134,29 @@
                 placed.push(at);
             });
 
+            // The observation reach beyond the rosters (P8 §9 / NP9):
+            // small markers for countries only the global sweeps heard
+            // from. They join `unplaced` accounting but never the
+            // fitBounds set — 147 dots must not zoom the board out to
+            // the whole planet when the scenarios live in three regions.
+            ((model.observationOnly) || []).forEach(function (entry) {
+                var at = coords.coordsOf(entry.country);
+                if (at === null) {
+                    unplaced.push(entry.country);
+                    return;
+                }
+                layer.addLayer(L.marker(at, {
+                    icon: L.divIcon({
+                        className: 'bm-marker-anchor',
+                        html: options.obsMarkerHtml
+                            ? options.obsMarkerHtml(entry) : '',
+                        iconSize: null,
+                    }),
+                    keyboard: false,
+                    interactive: false,
+                }));
+            });
+
             // Fitted once, not per render: the analyst's pan/zoom is
             // interaction state, and a redraw that yanks the viewport
             // back is the map version of a stale-read defect.

@@ -217,6 +217,11 @@
         // ── the read projections actually served today ──────────────────
         var reads = {
             scenarios: function () { return get('R1', '/scenarios'); },
+            // NP9 (P8 §9): the observation board — per-country counts and
+            // the sweep band the map must not draw without.
+            observationBoard: function () {
+                return get('R16', '/observations/board');
+            },
             conclusions: function (sid, params) {
                 return get('R2', '/scenarios/' + encodeURIComponent(sid) + '/conclusions',
                            params);

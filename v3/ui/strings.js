@@ -168,6 +168,13 @@
         'ui.board_map.membership_null': '{name} — TL 未算出',
         'ui.board_map.adversary_suffix': '（敵対側）',
         'ui.board_map.unplaced_on_real': '地図に置けない国: {list}（座標資産の未登録 — 観測は落としていません）',
+        // ── 観測レイヤ（P8 §9 / NP9） ────────────────────────────────────
+        'ui.board_map.obs.counts': '観測（24 時間）: 発火 {fired} 件 / 抑制 {suppressed} 件（{band}）',
+        'ui.board_map.obs.band_dense': '毎 tick の国別掃引',
+        'ui.board_map.obs.band_global': '全球掃引の到達のみ',
+        'ui.board_map.obs.silent': 'この 24 時間、国別掃引の対象外で、全球掃引からも観測が届いていません（静けさではなく未観測）',
+        'ui.board_map.obs.unsupplied': '観測ボード（R16）が未取得のため、観測数は表示できません',
+        'ui.board_map.legend': '数字 = 24 時間の発火観測数。大マーカー = シナリオ参加国（色は最深刻 TL）、小ドット = 全球掃引のみが到達した国。数字なし = 未観測（静けさとは区別されます）',
         'empty.board_map.role': 'ここには監視中の全シナリオの参加国が、地域ブロックのタイル地図で表示されます。',
         'empty.board_map.reason_not_loaded': 'シナリオ台帳（R1）をまだ取得できていないため、いまは空です。',
         'empty.board_map.reason_no_scenarios': 'シナリオが 1 件も構成されていないため、いまは空です。',

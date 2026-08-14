@@ -207,3 +207,50 @@ failures.forEach(({ name, error }) => {
 });
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
+
+// ── the observation layer (P8 §9 / NP9) ─────────────────────────────────
+
+function obsBody(countries) {
+    return { window_sec: 86400.0, countries: countries };
+}
+
+test('an R16 row attaches to its roster tile, re-keyed', () => {
+    const map = BoardMap.buildBoardMap({
+        scenarios: [scenario('a', { participants: { TW: 1.0 },
+                                    threat_level: 3 })],
+        observations: obsBody([{ country: 'TW', band: 'dense',
+                                 fired_total: 5, suppressed_total: 1,
+                                 domains: { cyber: { fired: 5, suppressed: 1 } } }]),
+    });
+    const tile = tileOf(map, 'TW');
+    assert.strictEqual(tile.observation.band, 'dense');
+    assert.strictEqual(tile.observation.fired, 5);
+    assert.strictEqual(map.observationsSupplied, true);
+    assert.strictEqual(map.observationWindowSec, 86400.0);
+});
+
+test('a missing R16 envelope is a state, never zero observations (G-17)', () => {
+    const map = BoardMap.buildBoardMap({
+        scenarios: [scenario('a', { participants: { TW: 1.0 },
+                                    threat_level: 3 })],
+    });
+    assert.strictEqual(map.observationsSupplied, false);
+    assert.strictEqual(tileOf(map, 'TW').observation, null);
+});
+
+test('off-roster observed countries become small markers, GLOBAL excluded', () => {
+    const map = BoardMap.buildBoardMap({
+        scenarios: [scenario('a', { participants: { TW: 1.0 },
+                                    threat_level: 3 })],
+        observations: obsBody([
+            { country: 'TW', band: 'dense', fired_total: 2,
+              suppressed_total: 0, domains: {} },
+            { country: 'BR', band: 'global', fired_total: 15,
+              suppressed_total: 0, domains: {} },
+            { country: 'GLOBAL', band: 'global', fired_total: 3,
+              suppressed_total: 0, domains: {} },
+        ]),
+    });
+    assert.deepStrictEqual(map.observationOnly.map(e => e.country), ['BR']);
+    assert.strictEqual(map.observationOnly[0].observation.fired, 15);
+});

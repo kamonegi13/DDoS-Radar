@@ -192,7 +192,8 @@
         var decision = state.detector.shouldRender('board', {
             view: { board: board, fold: fold },
             results: [scenariosResult, conclusionsResult,
-                      selfEvalResult, thresholdsResult],
+                      selfEvalResult, thresholdsResult,
+                      state.results.R16],
         });
         if (!decision.render) return;
 
@@ -215,9 +216,12 @@
         // map that repaints when the cards were judged unchanged would be
         // two clocks. The view keeps the Leaflet instance across renders
         // and falls back to the tile grid when the library never loaded.
+        var observationsResult = state.results.R16;
         var mapModel = BoardMap.buildBoardMap({
             scenarios: scenariosResult && scenariosResult.body
                 ? scenariosResult.body.scenarios : null,
+            observations: observationsResult && observationsResult.body
+                ? observationsResult.body : null,
         });
         if (!state.boardMapView) {
             state.boardMapView = BoardMapView.createBoardMapView({
@@ -226,6 +230,7 @@
                 containerId: 'board-map',
                 coords: MapCoords,
                 markerHtml: Render.bmMarkerHtml,
+                obsMarkerHtml: Render.bmObsMarkerHtml,
                 fallbackHtml: Render.boardMapHtml,
                 emptyHtml: function (emptyState) {
                     return Render.emptyStateHtml(emptyState
@@ -521,6 +526,7 @@
         var focused = state.store.focusedScenario;
         var reads = [
             state.client.reads.scenarios().then(record),
+            state.client.reads.observationBoard().then(record),
             state.client.reads.attention().then(record),
             state.client.reads.selfEval().then(record),
             state.client.reads.thresholds().then(record),

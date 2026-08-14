@@ -797,6 +797,23 @@
      * unchanged: the highlighter queries the container, and these nodes
      * live inside it whether Leaflet drew them or the fallback grid did.
      */
+    /** The observation half of a marker tooltip (P8 §9 / NP9). */
+    function _obsTipLine(observation) {
+        if (!observation) return _t('ui.board_map.obs.unsupplied');
+        if (observation.band === 'silent') {
+            return _t('ui.board_map.obs.silent');
+        }
+        return _t('ui.board_map.obs.counts', {
+            fired: observation.fired === null
+                ? Fmt.ABSENT : String(observation.fired),
+            suppressed: observation.suppressed === null
+                ? Fmt.ABSENT : String(observation.suppressed),
+            band: _t(observation.band === 'dense'
+                ? 'ui.board_map.obs.band_dense'
+                : 'ui.board_map.obs.band_global'),
+        });
+    }
+
     function bmMarkerHtml(tile) {
         var tip = tile.memberships.map(function (m) {
             var line = m.tl.tl === null
@@ -805,8 +822,11 @@
                     name: m.displayName, tl: String(m.tl.tl) });
             return line
                 + (m.isAdversary ? _t('ui.board_map.adversary_suffix') : '');
-        }).join('\n');
+        }).concat([_obsTipLine(tile.observation)]).join('\n');
+        var obs = tile.observation;
+        var obsBand = obs && obs.band ? obs.band : 'unsupplied';
         return '<div class="bm-marker bm-band-' + esc(tile.band)
+            + ' bm-obs-' + esc(obsBand)
             + (tile.isAdversary ? ' bm-adversary' : '')
             + (tile.hasFocused ? ' bm-marker-focused' : '')
             + '" data-country="' + esc(tile.country) + '"'
@@ -815,6 +835,30 @@
             + ' title="' + esc(tip) + '">'
             + '<span class="bm-dot"></span>'
             + '<span class="bm-iso">' + esc(tile.country) + '</span>'
+            // The 24h fired count rides the marker (NP9). Zero is drawn —
+            // a swept-and-quiet country says 0, and only an unswept one
+            // shows no number at all (G-17: the two must not look alike).
+            + (obs && obs.fired !== null && obs.band !== 'silent'
+                ? '<span class="bm-obs-count">' + esc(String(obs.fired))
+                  + '</span>'
+                : '')
+            + '</div>';
+    }
+
+    /**
+     * A country outside every roster that the global sweeps heard from
+     * (NP9): a small dim dot with its count — observation, not
+     * conclusion, so no TL colour and no scenario wiring.
+     */
+    function bmObsMarkerHtml(entry) {
+        var obs = entry.observation;
+        return '<div class="bm-obs-marker" data-country="'
+            + esc(entry.country) + '"'
+            + ' title="' + esc(entry.country + '\n' + _obsTipLine(obs)) + '">'
+            + '<span class="bm-obs-dot"></span>'
+            + '<span class="bm-obs-n">'
+            + esc(obs && obs.fired !== null ? String(obs.fired) : Fmt.ABSENT)
+            + '</span>'
             + '</div>';
     }
 
@@ -964,6 +1008,7 @@
         geoTileMapHtml: geoTileMapHtml,
         bmTileHtml: bmTileHtml,
         bmMarkerHtml: bmMarkerHtml,
+        bmObsMarkerHtml: bmObsMarkerHtml,
         boardMapHtml: boardMapHtml,
         geoLayerHtml: geoLayerHtml,
         settingsRowHtml: settingsRowHtml,

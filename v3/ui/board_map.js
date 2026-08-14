@@ -87,13 +87,35 @@
             : (a.scenarioId > b.scenarioId ? 1 : 0);
     }
 
-    function _tile(country, memberships) {
+    /**
+     * R16's row for one country, re-keyed for display (P8 §9 / NP9).
+     *
+     * The sweep band is load-bearing: `silent` must stay distinguishable
+     * from "zero fired", because a country nobody swept and a country
+     * that was swept and stayed quiet are different facts (G-17). A
+     * missing R16 envelope degrades to `null` — the tile then says
+     * "observation supply absent", never "no observations".
+     */
+    function _observationOf(entry) {
+        if (!entry) return null;
+        return {
+            band: entry.band || null,
+            fired: typeof entry.fired_total === 'number'
+                ? entry.fired_total : null,
+            suppressed: typeof entry.suppressed_total === 'number'
+                ? entry.suppressed_total : null,
+            domains: entry.domains || {},
+        };
+    }
+
+    function _tile(country, memberships, observation) {
         var sorted = memberships.slice().sort(_byDominance);
         var dominant = sorted[0] && sorted[0].severity !== null
             ? sorted[0] : null;
         var placement = Tiles.placementOf(country);
         var band = dominant ? dominant.tl : F.tlBand(null);
         return {
+            observation: _observationOf(observation),
             country: country,
             flag: Tiles.flagOf(country),
             region: placement ? placement.region : null,
@@ -138,6 +160,9 @@
                 spillover: { present: false, tiles: [] },
                 countryCount: 0,
                 scenarioCount: 0,
+                observationOnly: [],
+                observationsSupplied: false,
+                observationWindowSec: null,
             };
         }
 
@@ -151,12 +176,39 @@
             });
         });
 
+        // R16, keyed by country. `null` when the supply has not arrived —
+        // a different fact from "arrived and empty" (G-17).
+        var observations = input.observations || null;
+        var obsByCountry = {};
+        ((observations && observations.countries) || []).forEach(function (e) {
+            if (e && typeof e.country === 'string') {
+                obsByCountry[e.country.toUpperCase()] = e;
+            }
+        });
+
         var placed = [];
         var spillover = [];
         Object.keys(byCountry).sort().forEach(function (country) {
-            var tile = _tile(country, byCountry[country]);
+            var tile = _tile(country, byCountry[country],
+                             obsByCountry[country] || null);
             (tile.placed ? placed : spillover).push(tile);
         });
+
+        // The observation reach beyond the rosters (NP9): countries only
+        // the globally-sweeping adapters heard from. Small markers, no TL
+        // — they are observation, not conclusion.
+        var observationOnly = Object.keys(obsByCountry).sort()
+            .filter(function (country) {
+                return !Object.prototype.hasOwnProperty.call(byCountry,
+                                                             country)
+                    && country !== 'GLOBAL';
+            })
+            .map(function (country) {
+                return {
+                    country: country,
+                    observation: _observationOf(obsByCountry[country]),
+                };
+            });
 
         var regions = Tiles.REGIONS.map(function (region) {
             var tiles = placed.filter(function (tile) {
@@ -188,6 +240,13 @@
             },
             countryCount: placed.length + spillover.length,
             scenarioCount: scenarios.length,
+            observationOnly: observationOnly,
+            //: `false` when R16 never arrived — the view says the supply
+            //: is absent rather than drawing a world with no observations.
+            observationsSupplied: observations !== null,
+            observationWindowSec: observations
+                && typeof observations.window_sec === 'number'
+                ? observations.window_sec : null,
         };
     }
 
