@@ -125,6 +125,9 @@ def _decorate_v2(context, payload) -> None:
             continue
         row["narrative_v2"] = narrative
         row["narrative_v2_template_ref"] = ref
+        # R-J (P9 §1.11): the index line needs the substance WITHOUT the
+        # sentence — served, not re-extracted client-side from prose.
+        row["substance"] = substance
 
 
 def _substance_of(stored: dict) -> str:

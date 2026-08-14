@@ -195,7 +195,8 @@
      * none renders no markers — which is what a builder called from a test
      * about something else should do.
      */
-    function cardHtml(card, now, terms) {
+    function cardHtml(card, now, terms, variant) {
+        var full = variant === 'full';
         var marks = Terms.markersOf(terms);
         var tl = card.tl;
         var since = card.sinceLastCheck;
@@ -265,13 +266,17 @@
             // Background scenarios wear the compact form (P9 §1.6 D-21):
             // same DOM, same facts, a fraction of the height — so four
             // scenarios and the attention lane share one viewport.
-            + (card.focused ? ' card-focused' : ' card-compact')
+            + (card.focused ? ' card-focused'
+                : (full ? '' : ' card-compact'))
             // R-I: the changed card carries the accent; the unchanged one
-            // recedes. Same 24h delta the map pulses on — one clock.
+            // recedes. Same 24h delta the map pulses on — one clock. The
+            // drawer's full variant keeps the accent but never recedes —
+            // a surface the reader explicitly opened is not competing for
+            // attention (R-J).
             + (typeof delta === 'number' && delta !== 0
                 ? ' card-changed card-changed-'
                   + (delta > 0 ? 'worse' : 'better')
-                : ' card-quiet')
+                : (full ? '' : ' card-quiet'))
             + '" data-scenario="'
             + esc(card.scenarioId) + '">'
             + '<header class="card-head">'
@@ -385,6 +390,61 @@
      * always visible" is satisfied by the tooltip being one hover away
      * on the chip that IS the rank.
      */
+    /**
+     * One scenario INDEX row for the rail (P9 §1.11 R-J): threat level,
+     * name, movement — one line, no wrapping. Everything else lives in
+     * the drawer this row opens. `data-scenario` stays for the map-hover
+     * highlight; `data-drawer-scenario` is the click's meaning.
+     */
+    function cardRowHtml(card) {
+        var tl = card.tl;
+        var delta = card.trend ? card.trend.delta : null;
+        return '<button type="button" class="crow crow-' + esc(tl.band)
+            + (card.focused ? ' crow-focused' : '')
+            + (typeof delta === 'number' && delta !== 0
+                ? ' crow-changed-' + (delta > 0 ? 'worse' : 'better')
+                : ' crow-quiet')
+            + '" data-drawer-scenario="' + esc(card.scenarioId)
+            + '" data-scenario="' + esc(card.scenarioId) + '">'
+            + '<span class="crow-tl" style="--tl-color: var('
+            + esc(tl.cssVar) + ')">'
+            + esc(tl.tl === null ? Fmt.ABSENT : String(tl.tl)) + '</span>'
+            + '<span class="crow-name">'
+            + esc(card.displayName || card.scenarioId) + '</span>'
+            + '<span class="crow-trend">' + esc(card.trend.glyph) + ' '
+            + esc(Fmt.signed(delta)) + '</span>'
+            + (card.focused
+                ? '<span class="chip chip-focus">'
+                  + esc(_t('ui.board.focused')) + '</span>'
+                : '')
+            + '</button>';
+    }
+
+    /**
+     * One attention INDEX line (R-J): rank, scenario, substance phrase.
+     * The sentence and the four verbs live in the drawer.
+     */
+    function laneLineHtml(row, names) {
+        var label = row.scenarioId
+            ? ((names && typeof names[row.scenarioId] === 'string'
+                && names[row.scenarioId])
+                ? names[row.scenarioId] : row.scenarioId)
+            : Fmt.ABSENT;
+        return '<li class="lane-line'
+            + (row.rankPosition === 1 ? ' lane-row-top' : '') + '">'
+            + '<button type="button" class="lane-line-open" '
+            + 'data-drawer-item="' + esc(row.itemId) + '">'
+            + '<span class="lane-rank-chip">'
+            + esc(row.rankPosition === null
+                ? Fmt.ABSENT : String(row.rankPosition)) + '</span>'
+            + '<strong class="lane-scenario">' + esc(label) + '</strong>'
+            + (row.substance
+                ? '<span class="lane-line-sub">' + esc(row.substance)
+                  + '</span>'
+                : '')
+            + '</button></li>';
+    }
+
     function laneRowHtml(row, lane, names) {
         var basis = Lane.rankBasis(row, lane);
         var tip = _t('ui.lane.basis', {
@@ -1066,6 +1126,8 @@
         liveChipHtml: liveChipHtml,
         modeChipHtml: modeChipHtml,
         cardHtml: cardHtml,
+        cardRowHtml: cardRowHtml,
+        laneLineHtml: laneLineHtml,
         laneRowHtml: laneRowHtml,
         calibrationHtml: calibrationHtml,
         unavailableHtml: unavailableHtml,

@@ -212,6 +212,46 @@ test('a hostile display name cannot break out of the title element', () => {
     assert.ok(!/<script>/.test(html), html);
 });
 
+// ── the index rows and the drawer's full card (P9 §1.11 R-J) ────────────
+
+test('the index row is one line: TL, name, movement, the way in', () => {
+    const html = R.cardRowHtml(card({ displayName: '台湾正面' }));
+    assert.ok(/data-drawer-scenario="taiwan_contingency"/.test(html), html);
+    assert.ok(/crow-focused/.test(html));
+    assert.ok(/台湾正面/.test(html));
+    assert.ok(!/card-derived|card-countries|domain-bar/.test(html),
+        'prose and bars belong to the drawer, not the index');
+});
+
+test('an unchanged index row is quiet; a moved one carries direction', () => {
+    const quiet = R.cardRowHtml(card({ focused: false,
+        trend: { direction: 'flat', delta: 0, labelKey: 'ui.trend.flat',
+                 glyph: '→' } }));
+    assert.ok(/crow-quiet/.test(quiet), quiet);
+    const worse = R.cardRowHtml(card({ focused: false }));
+    assert.ok(/crow-changed-worse/.test(worse), worse);
+});
+
+test('the lane index line says rank, scenario and substance, no sentence', () => {
+    const html = R.laneLineHtml({
+        itemId: 'c-1', scenarioId: 'taiwan_contingency', rankPosition: 1,
+        substance: '検知源 check_host（PH）',
+    }, { taiwan_contingency: '台湾正面' });
+    assert.ok(/data-drawer-item="c-1"/.test(html), html);
+    assert.ok(/lane-row-top/.test(html), 'rank 1 wears the beacon mark');
+    assert.ok(/台湾正面/.test(html));
+    assert.ok(/検知源 check_host（PH）/.test(html));
+    assert.ok(!/data-ack/.test(html), 'the verbs live in the drawer');
+});
+
+test('the drawer full variant never recedes and never compacts', () => {
+    const html = R.cardHtml(card({ focused: false, trend: {
+        direction: 'flat', delta: 0, labelKey: 'ui.trend.flat', glyph: '→',
+    } }), CARD_NOW, null, 'full');
+    assert.ok(!/card-compact/.test(html), html);
+    assert.ok(!/card-quiet/.test(html), html);
+});
+
 // ── the provenance line (P9 §2.2 R-E, D-11) ─────────────────────────────
 
 test('a supplied derivation names each domain and its observation count', () => {

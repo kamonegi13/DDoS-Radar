@@ -1165,3 +1165,67 @@ tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust);
         box-shadow: 0 0 14px var(--bm-color, var(--color-muted)); }
     .bm-ping { animation: none; opacity: 0.6; }
 }
+
+
+/* ── the detail drawer (P9 §1.11 R-J) ─────────────────────────────────── */
+.drawer {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    width: 460px;
+    max-width: 92vw;
+    background: var(--color-surface);
+    border-left: 1px solid var(--color-accent);
+    box-shadow: -12px 0 28px var(--color-bg);
+    z-index: 1100;               /* above every Leaflet pane */
+    display: flex;
+    flex-direction: column;
+    animation: drawer-in 0.2s ease-out;
+}
+@keyframes drawer-in {
+    from { transform: translateX(28px); opacity: 0; }
+}
+.drawer-head { flex: none; display: flex; justify-content: space-between;
+               align-items: center; gap: var(--space-2);
+               padding: var(--space-2) var(--space-3);
+               border-bottom: 1px solid var(--color-border); }
+.drawer-head h3 { margin: 0; border: none; padding: 0; }
+.drawer-body { flex: 1; min-height: 0; overflow-y: auto;
+               padding: var(--space-3); }
+
+/* ── the rail as an index (R-J) ──────────────────────────────────────── */
+.cards .crow {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg);
+    text-align: left;
+    cursor: pointer;
+}
+.crow-quiet { opacity: 0.8; }
+.crow-changed-worse { border-left: 3px solid var(--color-warning); }
+.crow-changed-better { border-left: 3px solid var(--color-ok); }
+.crow-focused { border-color: var(--color-accent); }
+.crow-tl { min-width: 30px; text-align: center; font-weight: 700;
+           font-size: 15px; color: var(--tl-color);
+           border: 1px solid var(--tl-color);
+           border-radius: var(--radius-sm); padding: 0 4px; }
+.crow-name { flex: 1; font-weight: 600; }
+.crow-trend { color: var(--color-text-dim); font-size: var(--text-meta); }
+
+.lane-line { border-bottom: 1px solid var(--color-border);
+             list-style: none; }
+.lane-line-open { display: flex; width: 100%; align-items: center;
+                  gap: var(--space-2); background: none; border: none;
+                  padding: var(--space-2) 0; cursor: pointer;
+                  text-align: left; }
+.lane-line-sub { flex: 1; color: var(--color-text-dim);
+                 font-size: var(--text-meta); overflow: hidden;
+                 text-overflow: ellipsis; white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+    .drawer { animation: none; }
+}

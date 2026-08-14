@@ -167,6 +167,8 @@
         'ui.board_map.membership': '{name} — TL {tl}',
         'ui.board_map.membership_null': '{name} — TL 未算出',
         'ui.board_map.adversary_suffix': '（敵対側）',
+        'ui.drawer.close': '閉じる',
+        'ui.drawer.lane_title': '注目事象の詳細',
         'ui.board_map.unplaced_on_real': '地図に置けない国: {list}（座標資産の未登録 — 観測は落としていません）',
         // ── 観測レイヤ（P8 §9 / NP9） ────────────────────────────────────
         'ui.board_map.obs.counts': '観測（24 時間）: 発火 {fired} 件 / 抑制 {suppressed} 件（{band}）',

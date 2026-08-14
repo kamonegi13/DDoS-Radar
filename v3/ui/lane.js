@@ -116,6 +116,10 @@
                 analyst_blindness: _factor(raw, 'analyst_blindness'),
             },
             components: raw.components || null,
+            //: R-J: the one-phrase "what is this" for the index line,
+            //: served beside the sentence (null when the server did not).
+            substance: typeof raw.substance === 'string' && raw.substance
+                ? raw.substance : null,
             formulaRef: raw.formula_ref || null,
             // WP-4.8d: the read-side v2 sentence (analyst language,
             // `attention.row@2`) is preferred; the stored v1 remains the

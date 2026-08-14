@@ -124,7 +124,16 @@ function makeDocument() {
             results.forEach = Array.prototype.forEach;
             return results;
         },
-        addEventListener() {},
+        // Arrays, because the REAL document keeps every listener: app.js
+        // and settings.js both delegate clicks at document level, and a
+        // last-write-wins fake silently dropped whichever bound first.
+        listeners: {},
+        addEventListener(name, fn) {
+            (this.listeners[name] = this.listeners[name] || []).push(fn);
+        },
+        dispatch(name, event) {
+            (this.listeners[name] || []).forEach(fn => fn(event));
+        },
         createElement(tag) { return makeElement(null, { tag: tag }); },
     };
 }
@@ -564,30 +573,40 @@ test('the trust chip renders and folds to a band', async () => {
         `the reason must name the worst component: ${chip}`);
 });
 
-test('both scenario cards render, focused first', async () => {
+test('the rail indexes both scenarios, focused first (R-J)', async () => {
     const { doc } = await boot();
     const cards = html(doc, 'board-cards');
     assert.ok(cards.indexOf('taiwan_contingency') < cards.indexOf('baltic_pressure'),
         'the focused scenario must render first');
-    assert.ok(/card-focused/.test(cards));
-    assert.ok(/結論不可/.test(cards), 'the null-zone card declares it');
-    // WP-4.5b: the scope self-declaration lives in the merged provenance
-    // line now — the lite card names its narrower scoring scope there.
-    assert.ok(/LLM 情勢\+グローバル信号のみ/.test(cards),
-        'the background card self-declares its limits');
+    assert.ok(/crow-focused/.test(cards));
+    // Index rows carry the way into the drawer, and no prose.
+    assert.ok(/data-drawer-scenario="taiwan_contingency"/.test(cards));
+    assert.ok(!/domain-bar/.test(cards),
+        'the full card lives in the drawer, not the rail');
 });
 
-test('the domain mini-bar renders for the focused card only', async () => {
-    const { doc } = await boot();
-    const cards = html(doc, 'board-cards');
-    assert.strictEqual((cards.match(/domain-bar/g) || []).length, 1);
-    assert.ok(/domain-ACTIVE/.test(cards));
+test('choosing an index row opens the drawer with the FULL card', async () => {
+    const { doc, win } = await boot();
+    // The delegated document click handler is the app's own — call it the
+    // way the browser would, with the index-row button as the target.
+    const rail = doc.getElementById('board-cards');
+    const button = { getAttribute: (n) =>
+        n === 'data-drawer-scenario' ? 'taiwan_contingency' : null,
+        hasAttribute: (n) => n === 'data-drawer-scenario',
+        parentNode: rail, disabled: false };
+    Object.setPrototypeOf(button, win.HTMLElement.prototype);
+    doc.dispatch('click', { target: button });
+    assert.strictEqual(doc.getElementById('detail-drawer').hidden, false);
+    const body = html(doc, 'drawer-body');
+    assert.ok(/card-focused/.test(body), 'the drawer holds the full card');
+    assert.ok(/domain-bar/.test(body), 'with its domain bars');
+    assert.ok(/結論あり|結論不可/.test(body));
 });
 
-test('the lane renders the server ranking and counts the suppressed row', async () => {
+test('the lane indexes the server ranking and counts the suppressed row', async () => {
     const { doc } = await boot();
     const rows = html(doc, 'lane-rows');
-    assert.ok(/サーバが生成した 1 行ナラティブ/.test(rows), rows);
+    assert.ok(/lane-line-open/.test(rows), 'index lines, not full rows (R-J)');
     assert.ok(!/c-2/.test(rows), 'the snoozed row is not in the active list');
     assert.ok(/抑止中 1 件/.test(html(doc, 'lane-suppressed')),
         'but it is counted in the open');

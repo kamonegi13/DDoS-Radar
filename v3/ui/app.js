@@ -105,6 +105,8 @@
         dimTimer: null,
         views: null,            // which view is on screen (P9 R-B)
         boardMapView: null,     // the real-map keeper (P9 §1.3, WP-4.5a)
+        board: null,            // last board view model, for the drawer (R-J)
+        drawer: null,           // {kind: 'scenario'|'lane', id} | null
         //: scenario_id -> the name the analyst reads, as R1 supplies it.
         //: A display lookup, never a source of truth: `scenario_id` stays
         //: the identity everywhere a value is keyed or sent.
@@ -152,6 +154,73 @@
             why: error.message || error.code || _t('ui.error.unknown'),
         });
         return false;
+    }
+
+    // ── the detail drawer (P9 §1.11 R-J) ────────────────────────────────
+    //
+    // One transient surface, slid in from the right, holding the FULL
+    // representation of whatever index row was chosen. Not the floating
+    // panels P8 §7 retired: single, undraggable, closed by ✕ / Esc /
+    // navigation, and re-rendered from the CURRENT view models each
+    // cycle so it can never show older facts than the rail beside it.
+    function renderDrawer() {
+        var node = $('detail-drawer');
+        if (!node) return;
+        var open = state.drawer !== null;
+        node.hidden = !open;
+        if (!open) return;
+        var title = '';
+        var body = '';
+        if (state.drawer.kind === 'scenario' && state.board) {
+            var card = null;
+            state.board.cards.forEach(function (c) {
+                if (c.scenarioId === state.drawer.id) card = c;
+            });
+            if (card) {
+                title = card.displayName || card.scenarioId;
+                body = Render.cardHtml(card, Date.now() / 1000, null, 'full');
+            }
+        } else if (state.drawer.kind === 'lane' && state.lane) {
+            var row = null;
+            state.lane.rows.forEach(function (r) {
+                if (r.itemId === state.drawer.id) row = r;
+            });
+            if (row) {
+                title = _t('ui.drawer.lane_title');
+                body = laneRowHtml(row, state.lane, state.names);
+            }
+        }
+        if (!body) {
+            // The target left the model (rank moved, scenario removed):
+            // close rather than showing a stale ghost (G-10's shape).
+            closeDrawer();
+            return;
+        }
+        var titleNode = $('drawer-title');
+        if (titleNode) titleNode.textContent = title;
+        setHtml('drawer-body', body);
+    }
+
+    function openDrawer(kind, id) {
+        state.drawer = { kind: kind, id: id };
+        renderDrawer();
+    }
+
+    function closeDrawer() {
+        state.drawer = null;
+        var node = $('detail-drawer');
+        if (node) node.hidden = true;
+    }
+
+    /** Walk up for an attribute — index rows put spans inside buttons. */
+    function _attrUp(node, name) {
+        while (node && node !== document) {
+            if (node instanceof window.HTMLElement && node.hasAttribute(name)) {
+                return node.getAttribute(name);
+            }
+            node = node.parentNode;
+        }
+        return null;
     }
 
     // ── freshness badge ─────────────────────────────────────────────────
@@ -205,11 +274,12 @@
         // The sentence first, then the cards it summarises (P9 R-A).
         setHtml('board-summary', Render.boardSummaryHtml(board.summary));
         var now = Date.now() / 1000;
+        state.board = board;
+        // R-J (P9 §1.11): the rail is an INDEX — one line per scenario.
+        // The full card renders in the drawer this row opens.
         setHtml('board-cards', board.empty
             ? Render.emptyStateHtml(board.emptyState)
-            : board.cards.map(function (card) {
-                return cardHtml(card, now, terms);
-            }).join(''));
+            : board.cards.map(Render.cardRowHtml).join(''));
 
         // The scenario map (P9 §2.2 R-F; real map per §1.3) — same R1 rows
         // the cards project, so it sits behind the same redraw decision: a
@@ -284,6 +354,7 @@
         state.names = names;
         renderScopeHead();
 
+        renderDrawer();
         state.store = Object.assign({}, state.store, {
             lastSeen: Board.rememberSeen(state.store.lastSeen, board.cards,
                                          Date.now() / 1000),
@@ -312,8 +383,9 @@
         setHtml('lane-rows', lane.empty
             ? Render.emptyStateHtml(lane.emptyState, { tag: 'li' })
             : rows.map(function (row) {
-                return laneRowHtml(row, lane, state.names);
+                return Render.laneLineHtml(row, state.names);
             }).join(''));
+        renderDrawer();
         setHtml('lane-summary', _t('ui.lane.summary', {
             shown: rows.length, total: lane.total,
             considered: lane.considered === null ? Fmt.ABSENT : lane.considered,
@@ -837,11 +909,21 @@
         // what is on screen. It sends nothing, writes nothing to the
         // ledger, and does not move focus — moving focus is C1, and it
         // asks for a reason because it is a decision (S1-UI-035).
-        var openScenario = target.getAttribute('data-open-scenario');
+        var openScenario = _attrUp(target, 'data-open-scenario');
         if (openScenario && state.views) {
+            closeDrawer();
             state.views.go(Views.hashFor(Views.SCENARIO, openScenario));
             return;
         }
+
+        if (_attrUp(target, 'data-drawer-close') !== null) {
+            closeDrawer();
+            return;
+        }
+        var drawerScenario = _attrUp(target, 'data-drawer-scenario');
+        if (drawerScenario) { openDrawer('scenario', drawerScenario); return; }
+        var drawerItem = _attrUp(target, 'data-drawer-item');
+        if (drawerItem) { openDrawer('lane', drawerItem); return; }
 
         for (var i = 0; i < COMMANDS.length; i += 1) {
             var id = target.getAttribute(COMMANDS[i].attr);
@@ -1044,6 +1126,9 @@
 
     function bind() {
         document.addEventListener('click', onClick);
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') closeDrawer();
+        });
         bindMapHighlight();
         bindLaneToggle();
         bindRefresh();
@@ -1125,7 +1210,7 @@
         state.views = Views.createViews({
             doc: document,
             win: window,
-            onRoute: function () { renderScopeHead(); },
+            onRoute: function () { closeDrawer(); renderScopeHead(); },
         });
         state.views.bind();
         bind();

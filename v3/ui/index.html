@@ -237,6 +237,22 @@
           </section>
         </aside>
       </div>
+
+      <!--
+        The detail drawer (P9 §1.11 R-J — kuebiko's ArticlePeek shape):
+        ONE transient slide-over holding the full representation of the
+        index row that was chosen. Not the floating panels P8 §7 retired —
+        single, undraggable, undockable, closed by ✕ / Esc / navigation.
+      -->
+      <aside id="detail-drawer" class="drawer" hidden
+             aria-labelledby="drawer-title">
+        <div class="drawer-head">
+          <h3 id="drawer-title"></h3>
+          <button type="button" id="drawer-close" data-drawer-close
+                  data-i18n="ui.drawer.close"></button>
+        </div>
+        <div id="drawer-body" class="drawer-body"></div>
+      </aside>
     </section>
   </div>
 
