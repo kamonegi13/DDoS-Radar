@@ -260,11 +260,18 @@
                 + '</ul>';
         }
         var name = card.displayName || card.scenarioId;
+        var delta = card.trend ? card.trend.delta : null;
         return '<article class="card card-' + esc(tl.band)
             // Background scenarios wear the compact form (P9 §1.6 D-21):
             // same DOM, same facts, a fraction of the height — so four
             // scenarios and the attention lane share one viewport.
             + (card.focused ? ' card-focused' : ' card-compact')
+            // R-I: the changed card carries the accent; the unchanged one
+            // recedes. Same 24h delta the map pulses on — one clock.
+            + (typeof delta === 'number' && delta !== 0
+                ? ' card-changed card-changed-'
+                  + (delta > 0 ? 'worse' : 'better')
+                : ' card-quiet')
             + '" data-scenario="'
             + esc(card.scenarioId) + '">'
             + '<header class="card-head">'
@@ -393,7 +400,9 @@
                 && names[row.scenarioId])
                 ? names[row.scenarioId] : row.scenarioId)
             : Fmt.ABSENT;
-        return '<li class="lane-row" data-item="' + esc(row.itemId) + '">'
+        return '<li class="lane-row'
+            + (row.rankPosition === 1 ? ' lane-row-top' : '')
+            + '" data-item="' + esc(row.itemId) + '">'
             + '<p class="lane-head">'
             + '<span class="lane-rank-chip" title="' + esc(tip) + '">'
             + esc(row.rankPosition === null
@@ -860,12 +869,20 @@
         var obsBand = obs && obs.band ? obs.band : 'unsupplied';
         return '<div class="bm-marker bm-band-' + esc(tile.band)
             + ' bm-obs-' + esc(obsBand)
+            // R-I (P9 §1.9): motion and glow belong to change and to the
+            // attention top alone; everything else sits quiet. The classes
+            // only EMPHASISE facts the sentences already state.
+            + (tile.change ? ' bm-changed bm-changed-' + esc(tile.change)
+                           : ' bm-quiet')
+            + (tile.isAttentionTop ? ' bm-attention-top' : '')
             + (tile.isAdversary ? ' bm-adversary' : '')
             + (tile.hasFocused ? ' bm-marker-focused' : '')
             + '" data-country="' + esc(tile.country) + '"'
             + ' data-map-scenarios="' + esc(tile.scenarioIds.join(' ')) + '"'
             + ' style="--bm-color: var(' + esc(tile.cssVar) + ')"'
             + ' title="' + esc(tip) + '">'
+            + (tile.isAttentionTop
+                ? '<span class="bm-ping" aria-hidden="true"></span>' : '')
             + '<span class="bm-dot"></span>'
             + '<span class="bm-iso">' + esc(tile.country) + '</span>'
             // The 24h fired count rides the marker (NP9). Zero is drawn —

@@ -193,7 +193,7 @@
             view: { board: board, fold: fold },
             results: [scenariosResult, conclusionsResult,
                       selfEvalResult, thresholdsResult,
-                      state.results.R16],
+                      state.results.R16, state.results.R6],
         });
         if (!decision.render) return;
 
@@ -217,11 +217,20 @@
         // two clocks. The view keeps the Leaflet instance across renders
         // and falls back to the tile grid when the library never loaded.
         var observationsResult = state.results.R16;
+        var attentionResult = state.results.R6;
+        var attentionRows = attentionResult && attentionResult.body
+            && Array.isArray(attentionResult.body.attention)
+            ? attentionResult.body.attention : [];
         var mapModel = BoardMap.buildBoardMap({
             scenarios: scenariosResult && scenariosResult.body
                 ? scenariosResult.body.scenarios : null,
             observations: observationsResult && observationsResult.body
                 ? observationsResult.body : null,
+            // R-I ②: the lane's #1 pings on the map — R6's own order, not
+            // a re-ranking (the row with rank_position 1 may be filtered
+            // by the floor, so take the first SHOWN row).
+            attentionTopScenario: attentionRows.length > 0
+                ? attentionRows[0].scenario_id || null : null,
         });
         if (!state.boardMapView) {
             state.boardMapView = BoardMapView.createBoardMapView({

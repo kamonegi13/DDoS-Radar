@@ -71,6 +71,13 @@
             role: typeof roles[country] === 'string' ? roles[country] : null,
             isAdversary: adversaries.indexOf(country) !== -1,
             focused: scenario.focused === true,
+            //: R-I (P9 §1.9): the 24h severity movement, signed. The map
+            //: reserves motion for exactly this — a scenario that moved
+            //: pulses through its participants; one that did not sits
+            //: quiet. null = not comparable, which is quiet too (a change
+            //: nobody measured must not glow, G-17).
+            severityDelta: typeof scenario.severity_delta_24h === 'number'
+                ? scenario.severity_delta_24h : null,
         };
     }
 
@@ -108,13 +115,27 @@
         };
     }
 
-    function _tile(country, memberships, observation) {
+    function _tile(country, memberships, observation, attentionTop) {
         var sorted = memberships.slice().sort(_byDominance);
         var dominant = sorted[0] && sorted[0].severity !== null
             ? sorted[0] : null;
         var placement = Tiles.placementOf(country);
         var band = dominant ? dominant.tl : F.tlBand(null);
+        // R-I: worsened wins over improved when a country sits in both —
+        // NP1's direction, applied to emphasis.
+        var worsened = sorted.some(function (m) {
+            return m.severityDelta !== null && m.severityDelta > 0;
+        });
+        var improved = sorted.some(function (m) {
+            return m.severityDelta !== null && m.severityDelta < 0;
+        });
         return {
+            //: 'worse' | 'better' | null — what the pulse animation keys on.
+            change: worsened ? 'worse' : (improved ? 'better' : null),
+            //: The attention lane's #1 scenario pings here (R-I ②).
+            isAttentionTop: attentionTop !== null && sorted.some(function (m) {
+                return m.scenarioId === attentionTop;
+            }),
             observation: _observationOf(observation),
             country: country,
             flag: Tiles.flagOf(country),
@@ -186,11 +207,15 @@
             }
         });
 
+        var attentionTop = typeof input.attentionTopScenario === 'string'
+            && input.attentionTopScenario
+            ? input.attentionTopScenario : null;
+
         var placed = [];
         var spillover = [];
         Object.keys(byCountry).sort().forEach(function (country) {
             var tile = _tile(country, byCountry[country],
-                             obsByCountry[country] || null);
+                             obsByCountry[country] || null, attentionTop);
             (tile.placed ? placed : spillover).push(tile);
         });
 

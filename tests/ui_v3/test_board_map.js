@@ -199,14 +199,6 @@ test('the model counts scenarios and countries', () => {
     assert.strictEqual(map.countryCount, 2);
 });
 
-// ── report ──────────────────────────────────────────────────────────────
-
-process.stdout.write('\n');
-failures.forEach(({ name, error }) => {
-    console.error(`FAIL ${name}\n  ${error.message}`);
-});
-console.log(`${passed} passed, ${failed} failed`);
-if (failed > 0) process.exit(1);
 
 // ── the observation layer (P8 §9 / NP9) ─────────────────────────────────
 
@@ -279,3 +271,59 @@ test('all sensors writing reports the count and no names', () => {
     ] });
     assert.strictEqual(coverage.silentCount, 0);
 });
+
+// ── the quiet/moving discipline (WP-4.10, R-I) ──────────────────────────
+
+test('a scenario that moved in 24h marks its participants as changed', () => {
+    const map = BoardMap.buildBoardMap({ scenarios: [
+        scenario('moved', { participants: { TW: 1.0 }, threat_level: 3,
+                            severity_delta_24h: 2 }),
+        scenario('calm', { participants: { US: 1.0 }, threat_level: 3,
+                           severity_delta_24h: 0 }),
+        scenario('healed', { participants: { JP: 1.0 }, threat_level: 5,
+                             severity_delta_24h: -1 }),
+    ] });
+    assert.strictEqual(tileOf(map, 'TW').change, 'worse');
+    assert.strictEqual(tileOf(map, 'US').change, null);
+    assert.strictEqual(tileOf(map, 'JP').change, 'better');
+});
+
+test('worse outranks better when a country sits in both (NP1)', () => {
+    const map = BoardMap.buildBoardMap({ scenarios: [
+        scenario('a', { participants: { US: 1.0 }, threat_level: 3,
+                        severity_delta_24h: 1 }),
+        scenario('b', { participants: { US: 1.0 }, threat_level: 5,
+                        severity_delta_24h: -1 }),
+    ] });
+    assert.strictEqual(tileOf(map, 'US').change, 'worse');
+});
+
+test('an unmeasured delta stays quiet — it must not glow (G-17)', () => {
+    const map = BoardMap.buildBoardMap({ scenarios: [
+        scenario('a', { participants: { TW: 1.0 }, threat_level: 3 }),
+    ] });
+    assert.strictEqual(tileOf(map, 'TW').change, null);
+});
+
+test('the attention top scenario pings through its participants', () => {
+    const map = BoardMap.buildBoardMap({
+        scenarios: [
+            scenario('hot', { participants: { TW: 1.0, JP: 0.5 },
+                              threat_level: 3 }),
+            scenario('other', { participants: { US: 1.0 },
+                                threat_level: 5 }),
+        ],
+        attentionTopScenario: 'hot',
+    });
+    assert.strictEqual(tileOf(map, 'TW').isAttentionTop, true);
+    assert.strictEqual(tileOf(map, 'US').isAttentionTop, false);
+});
+
+// ── report ──────────────────────────────────────────────────────────────
+
+process.stdout.write('\n');
+failures.forEach(({ name, error }) => {
+    console.error(`FAIL ${name}\n  ${error.message}`);
+});
+console.log(`${passed} passed, ${failed} failed`);
+if (failed > 0) process.exit(1);

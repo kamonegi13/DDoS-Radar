@@ -1117,3 +1117,51 @@ tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust);
 .grid tr.trust-reserved td:nth-child(2) { color: var(--trust-reserved); }
 .grid tr.trust-distrust td:nth-child(2) { color: var(--trust-distrust); }
 .grid tr.trust-trusted td:nth-child(2) { color: var(--trust-trusted); }
+
+/* ── R-I: the quiet/moving discipline (P9 §1.9 D-24, WP-4.10) ──────────
+ * Motion and glow are reserved for CHANGE and for the attention top;
+ * everything else recedes. A screen with nothing moving IS the answer
+ * "nothing changed" — legible before a single sentence is read. The
+ * classes only emphasise facts the sentences already state. */
+@keyframes bm-pulse {
+    0%, 100% { box-shadow: 0 0 6px var(--bm-color, var(--color-muted)); }
+    50% { box-shadow: 0 0 18px var(--bm-color, var(--color-muted)),
+                      0 0 4px var(--color-text); }
+}
+@keyframes bm-ping-ring {
+    0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0.9; }
+    100% { transform: translate(-50%, -50%) scale(3.2); opacity: 0; }
+}
+
+/* Unchanged markers recede; the eye should not land on them first. */
+.bm-marker.bm-quiet { opacity: 0.62; }
+.bm-marker.bm-quiet .bm-dot { box-shadow: none; }
+.bm-marker.bm-changed .bm-dot { animation: bm-pulse 1.6s ease-in-out
+                                           infinite; }
+.bm-marker.bm-changed-better .bm-dot { animation-duration: 3.2s; }
+
+/* The attention top: a sonar ping under the dot. */
+.bm-ping { position: absolute; left: 50%; top: 8px;
+           width: 22px; height: 22px; border-radius: 50%;
+           border: 2px solid var(--color-accent);
+           transform: translate(-50%, -50%);
+           animation: bm-ping-ring 2.2s ease-out infinite;
+           pointer-events: none; }
+.bm-marker { position: relative; }
+
+/* Cards follow the same clock: changed carries the accent, quiet recedes. */
+.card-changed { border-left: 3px solid var(--color-warning); }
+.card-changed-better { border-left-color: var(--color-ok); }
+.card-quiet:not(.card-focused) { opacity: 0.75; }
+
+/* The lane's #1 — the same beacon colour as its ping on the map. */
+.lane-row-top .lane-rank-chip { background: var(--color-accent);
+                                color: var(--color-bg);
+                                box-shadow: 0 0 8px var(--color-accent); }
+
+/* Motion sensitivity: the emphasis survives, the animation stops. */
+@media (prefers-reduced-motion: reduce) {
+    .bm-marker.bm-changed .bm-dot { animation: none;
+        box-shadow: 0 0 14px var(--bm-color, var(--color-muted)); }
+    .bm-ping { animation: none; opacity: 0.6; }
+}
