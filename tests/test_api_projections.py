@@ -802,3 +802,68 @@ class TestTheSeamCannotBeGrafted:
         request = ApiRequest(method="GET", path="/healthz")
         with pytest.raises(DomainError):
             handle(request, store)
+
+
+class TestR16ObservationBoard:
+    """P8 §9 / NP9 — the observation layer's supply.
+
+    The load-bearing clause is the BAND: a count-only projection shows
+    "not swept" as "quiet" (G-17's newest shape, P9 §1.8 ①). Dense
+    derives from the same focus state and refs the tick's sweep scope is
+    built from; counts fold `signals_between`; suppressed rows are
+    counted apart, never dropped (E-17).
+    """
+
+    def test_counts_fold_per_country_and_suppressed_stays_apart(self, seeded):
+        body = _get(seeded, "/api/v3/observations/board").as_dict()
+        tw = [c for c in body["countries"] if c["country"] == "TW"][0]
+        assert tw["domains"]["cyber"] == {"fired": 1, "suppressed": 1}
+        assert tw["fired_total"] == 1 and tw["suppressed_total"] == 1
+
+    def test_the_focused_participants_wear_the_dense_band(self, seeded):
+        body = _get(seeded, "/api/v3/observations/board").as_dict()
+        by = {c["country"]: c for c in body["countries"]}
+        assert by["TW"]["band"] == "dense"
+        assert by["US"]["band"] == "dense"
+
+    def test_a_roster_country_with_nothing_is_silent_not_absent(self, seeded):
+        """G-17: the country nobody swept and nobody heard from is a row
+        saying so, never a hole in the list."""
+        body = _get(seeded, "/api/v3/observations/board", scenarios=(
+            ScenarioRef(scenario_id=SCENARIO,
+                        participants={"TW": 1.0}, focused=True),
+            ScenarioRef(scenario_id="background_one",
+                        participants={"ZZ": 1.0}),)).as_dict()
+        by = {c["country"]: c for c in body["countries"]}
+        assert by["ZZ"]["band"] == "silent"
+        assert by["ZZ"]["domains"] == {}
+
+    def test_an_off_roster_observation_is_global_never_dropped(self, seeded):
+        seeded.append_signal(SignalObservation(
+            tick_id="tick6", sensor="travel_advisory",
+            signal_source="advisory", domain="info", country="BR",
+            evidence=Evidence.observe({}, source="advisory",
+                                      observed_at=NOW - 100,
+                                      freshness_horizon_sec=3600.0),
+            status="FIRED", raw_score=1.0, confidence=0.5), NOW)
+        body = _get(seeded, "/api/v3/observations/board").as_dict()
+        by = {c["country"]: c for c in body["countries"]}
+        assert by["BR"]["band"] == "global"
+
+    def test_the_window_and_the_basis_ride_the_envelope(self, seeded):
+        body = _get(seeded, "/api/v3/observations/board").as_dict()
+        assert body["window_sec"] == 86400.0
+        assert "bands_from" in body["basis"]
+        assert body["bands"] == ["dense", "global", "silent"]
+
+    def test_signals_older_than_the_window_do_not_count(self, seeded):
+        seeded.append_signal(SignalObservation(
+            tick_id="old", sensor="ripe_bgp", signal_source="bgp-old",
+            domain="cyber", country="TW",
+            evidence=Evidence.observe({}, source="ripe",
+                                      observed_at=NOW - 200000,
+                                      freshness_horizon_sec=3600.0),
+            status="FIRED", raw_score=1.0, confidence=0.5), NOW - 200000)
+        body = _get(seeded, "/api/v3/observations/board").as_dict()
+        tw = [c for c in body["countries"] if c["country"] == "TW"][0]
+        assert tw["fired_total"] == 1, "the two-day-old row must not count"

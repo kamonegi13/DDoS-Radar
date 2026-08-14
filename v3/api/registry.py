@@ -68,10 +68,14 @@ class Deferred:
     reason: str
 
 
-#: P7 §1.1 — the 15 read projections.
+#: P7 §1.1 — the 15 read projections, plus R16 added by P8 §9 (NP9,
+#: 2026-08-14): the observation board, first supply of the
+#: representation face. The definition amendment created a product P7's
+#: original inventory had no row for; the row is added HERE, in the
+#: inventory, rather than smuggled past the accounting.
 READ_SURFACE: tuple[str, ...] = (
     "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11",
-    "R12", "R13", "R14", "R15")
+    "R12", "R13", "R14", "R15", "R16")
 
 #: P7 §1.2 — the 13 command families.
 COMMAND_SURFACE: tuple[str, ...] = tuple(f"C{n}" for n in range(1, 14))
@@ -94,6 +98,9 @@ SERVED: tuple[Served, ...] = (
     Served("R14", "O-18 可変キーの現在値・出所層・読み手", ("R14",)),
     Served("R12", "唯一の報告出力（結論 Markdown）", ("R12",)),
     Served("R15", "起動設定 / 死活 probe", ("R15c", "R15h")),
+    # ── NP9 (2026-08-14): the representation face's first supply ────────
+    Served("R16", "観測ボード — 国別観測数 + 掃引 3 帯（P8 §9、NP9 観測レイヤ）",
+           ("R16",)),
     # ── WP-4.1c: the command surface's first three ──────────────────────
     Served("C1", "focus 登録（読み取りの副作用から分離）", ("C1",)),
     Served("C2", "結論フィードバック投稿（G-01 の恒久化）", ("C2",)),

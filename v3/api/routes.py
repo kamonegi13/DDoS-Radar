@@ -33,6 +33,7 @@ from v3.api.handlers import config as H_config
 from v3.api.handlers import disclosure as H_disclosure
 from v3.api.handlers import evidence as H_evidence
 from v3.api.handlers import intel as H_intel
+from v3.api.handlers import observations as H_observations
 from v3.api.handlers import proposals as H_proposals
 from v3.api.handlers import reliability as H_reliability
 from v3.api.handlers import scenarios as H_scenarios
@@ -278,6 +279,10 @@ ROUTES: tuple[Route, ...] = (
           note="唯一の報告出力。SALUTE/weather/sitrep/daily は持たない"),
     _read("R15c", f"{API_PREFIX}/app_config", H_disclosure.read_app_config,
           ("I-2",)),
+    _read("R16", f"{API_PREFIX}/observations/board",
+          H_observations.read_observation_board, ("O-4",),
+          note="NP9 観測レイヤ（P8 §9）: 国別観測数 + 掃引 3 帯。"
+               "帯が無い件数地図は G-17 の新形（未掃引が静けさに見える）"),
     Route(route_id="R15h", method=GET, path="/healthz",
           access=Access.public_route(reason=_PROBE),
           handler=H_disclosure.read_health, serves=("I-2",),
