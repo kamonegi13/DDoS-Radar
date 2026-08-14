@@ -212,6 +212,16 @@
         if (node) node.hidden = true;
     }
 
+    /** Is the node inside the drawer? Click-away must not eat the
+     *  drawer's own verbs (ack, focus, なぜ), only the world outside. */
+    function _inDrawer(node) {
+        while (node && node !== document) {
+            if (node.id === 'detail-drawer') return true;
+            node = node.parentNode;
+        }
+        return false;
+    }
+
     /** Walk up for an attribute — index rows put spans inside buttons. */
     function _attrUp(node, name) {
         while (node && node !== document) {
@@ -904,6 +914,17 @@
         var target = event.target;
         if (!(target instanceof window.HTMLElement)) return;
         if (target.disabled) return;
+
+        // Click-away (R-J refinement, 11th review): a click that is not
+        // on the drawer, not in it, and not an index row opening/switching
+        // it, dismisses it — and then falls through, so the click still
+        // does whatever else it meant to do.
+        if (state.drawer !== null
+                && !_inDrawer(target)
+                && _attrUp(target, 'data-drawer-scenario') === null
+                && _attrUp(target, 'data-drawer-item') === null) {
+            closeDrawer();
+        }
 
         // Navigation before commands: opening a scenario face changes only
         // what is on screen. It sends nothing, writes nothing to the

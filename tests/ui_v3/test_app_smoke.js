@@ -597,6 +597,22 @@ test('choosing an index row opens the drawer with the FULL card', async () => {
     Object.setPrototypeOf(button, win.HTMLElement.prototype);
     doc.dispatch('click', { target: button });
     assert.strictEqual(doc.getElementById('detail-drawer').hidden, false);
+    // Click-away: anywhere outside the drawer dismisses it (11th review).
+    const outside = { getAttribute: () => null, hasAttribute: () => false,
+                      parentNode: null, disabled: false, id: 'board-map' };
+    Object.setPrototypeOf(outside, win.HTMLElement.prototype);
+    doc.dispatch('click', { target: outside });
+    assert.strictEqual(doc.getElementById('detail-drawer').hidden, true,
+        'a click outside the drawer closes it');
+    // But a click INSIDE it (a verb, say) must not.
+    doc.dispatch('click', { target: button });
+    const inside = { getAttribute: () => null, hasAttribute: () => false,
+                     parentNode: doc.getElementById('detail-drawer'),
+                     disabled: false };
+    Object.setPrototypeOf(inside, win.HTMLElement.prototype);
+    doc.dispatch('click', { target: inside });
+    assert.strictEqual(doc.getElementById('detail-drawer').hidden, false,
+        'a click inside the drawer keeps it open');
     const body = html(doc, 'drawer-body');
     assert.ok(/card-focused/.test(body), 'the drawer holds the full card');
     assert.ok(/domain-bar/.test(body), 'with its domain bars');
