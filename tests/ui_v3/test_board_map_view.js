@@ -146,8 +146,10 @@ test('a country with no centroid is reported, never dropped (G-17)', () => {
     assert.deepStrictEqual(outcome.unplaced, ['GLOBAL']);
 });
 
-test('the tile source is v1’s CARTO dark build', () => {
-    assert.ok(/basemaps\.cartocdn\.com\/dark_all/.test(View.TILE_URL));
+test('the tile source is CARTO dark WITHOUT its labels', () => {
+    // Seventh review: the basemap's own country names collided with the
+    // observation counts. Our markers carry the names; the ground is quiet.
+    assert.ok(/basemaps\.cartocdn\.com\/dark_nolabels/.test(View.TILE_URL));
 });
 
 // ── empty model ─────────────────────────────────────────────────────────

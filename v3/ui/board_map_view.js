@@ -34,9 +34,14 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
 
-    //: v1's tile source, verbatim (radar.js:1741). A URL, not a colour.
+    //: CARTO's dark base WITHOUT its place-name labels. v1 used `dark_all`
+    //: (radar.js:1741), but v1 drew no numbers on the map — since the
+    //: observation layer (R16) every marker carries an ISO2 and a count,
+    //: and the seventh review found the basemap's own country names
+    //: colliding with them. Our markers name the countries; the ground
+    //: stays quiet. A URL, not a colour.
     var TILE_URL =
-        'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+        'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png';
     var TILE_ATTRIBUTION = '&copy; CARTO';
     //: 26, not 24: the backend's SEQUENCE_DECAY_HORIZON_H is 24.0 and the
     //: constant-collision gate (rightly) refuses the coincidence.

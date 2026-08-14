@@ -976,7 +976,9 @@ tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust);
                  opacity: 0.55; }
 .bm-obs-dot { width: 5px; height: 5px; border-radius: 50%;
               background: var(--color-info); }
-.bm-obs-n { font-size: 8px; color: var(--color-text-dim); }
+.bm-obs-n { font-size: 8px; color: var(--color-text-dim);
+            text-shadow: 0 0 3px var(--color-bg), 0 0 5px var(--color-bg); }
+.bm-obs-count { text-shadow: 0 0 3px var(--color-bg); }
 .board-map-legend { flex: none; margin: 0;
                     padding: 2px var(--space-2);
                     font-size: var(--text-meta);
