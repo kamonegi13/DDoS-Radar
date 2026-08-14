@@ -175,6 +175,9 @@
         'ui.board_map.obs.silent': 'この 24 時間、国別掃引の対象外で、全球掃引からも観測が届いていません（静けさではなく未観測）',
         'ui.board_map.obs.unsupplied': '観測ボード（R16）が未取得のため、観測数は表示できません',
         'ui.board_map.legend': '数字 = 24 時間の発火観測数。大マーカー = シナリオ参加国（色は最深刻 TL）、小ドット = 全球掃引のみが到達した国。数字なし = 未観測（静けさとは区別されます）',
+        'ui.board_map.coverage_silent': '観測範囲: センサー {total} 基中 {silent} 基が沈黙 — {names}（上の数字はこれらの寄与を含みません）',
+        'ui.board_map.coverage_all': '観測範囲: 宣言センサー {total} 基すべてが観測を書き込んでいます',
+        'ui.board_map.coverage_unsupplied': '観測範囲: センサー面（R8）が未取得のため確認できません',
         'empty.board_map.role': 'ここには監視中の全シナリオの参加国が、地域ブロックのタイル地図で表示されます。',
         'empty.board_map.reason_not_loaded': 'シナリオ台帳（R1）をまだ取得できていないため、いまは空です。',
         'empty.board_map.reason_no_scenarios': 'シナリオが 1 件も構成されていないため、いまは空です。',
@@ -302,6 +305,10 @@
 
         // ── replay (AP4) ────────────────────────────────────────────────
         'ui.replay.label': '過去断面 (UTC)',
+        'ui.replay.slider_label': '時間をたどる（7 日）',
+        'ui.replay.live': 'ライブへ',
+        'ui.replay.at_live': 'ライブ',
+        'ui.replay.at_instant': '{at} 時点',
         'ui.replay.active': 'Replay 表示中: {at} 時点の断面です。現在の状況ではありません。',
 
         // ── feedback form (S1-UI-043 is the reference form) ─────────────

@@ -240,6 +240,25 @@
             });
         }
         var mapOutcome = state.boardMapView.render(mapModel);
+
+        // WP-4.9c: the silent-sensor line, on the same surface as the
+        // counts those sensors are absent from (NP9 (b)).
+        var coverage = BoardMap.foldSensorCoverage(
+            state.results.R8 && state.results.R8.body
+                ? state.results.R8.body : null);
+        var coverageNode = $('board-map-coverage');
+        if (coverageNode) {
+            coverageNode.textContent = !coverage.supplied
+                ? _t('ui.board_map.coverage_unsupplied')
+                : (coverage.silentCount === 0
+                    ? _t('ui.board_map.coverage_all',
+                         { total: String(coverage.total) })
+                    : _t('ui.board_map.coverage_silent', {
+                        total: String(coverage.total),
+                        silent: String(coverage.silentCount),
+                        names: coverage.silentNames.join(', '),
+                    }));
+        }
         var noteNode = $('board-map-note');
         if (noteNode) {
             var unplacedOnMap = mapOutcome.unplaced || [];
@@ -902,14 +921,86 @@
 
     function bindReplay() {
         var replayInput = $('replay-at');
-        if (!replayInput) return;
-        replayInput.addEventListener('change', function () {
-            var value = replayInput.value ? Date.parse(replayInput.value) : NaN;
-            state.replayAt = Number.isFinite(value) ? Math.floor(value / 1000) : null;
-            // S1-UI-012: a replay cross-section invalidates every cached
-            // signature; the same components then render past data.
-            cycle('replay_applied');
-        });
+        if (replayInput) {
+            replayInput.addEventListener('change', function () {
+                var value = replayInput.value
+                    ? Date.parse(replayInput.value) : NaN;
+                state.replayAt = Number.isFinite(value)
+                    ? Math.floor(value / 1000) : null;
+                _syncReplaySlider();
+                // S1-UI-012: a replay cross-section invalidates every
+                // cached signature; the same components render past data.
+                cycle('replay_applied');
+            });
+        }
+        _bindReplaySlider();
+    }
+
+    // ── the replay scrubber (WP-4.9b, R-H) ──────────────────────────────
+    //
+    // Dragging emits `input` events continuously; each one repositions
+    // the label immediately (the manipulation must feel attached), and a
+    // short debounce turns the LATEST position into a fetch — a full
+    // drag is a handful of round trips, not six hundred.
+    var REPLAY_DEBOUNCE_MS = 250;
+    var _replayTimer = null;
+
+    function _replayScale() {
+        return window.NoroshiReplay.scaleFor(Date.now() / 1000);
+    }
+
+    function _syncReplaySlider() {
+        var slider = $('replay-slider');
+        if (!slider) return;
+        var scale = _replayScale();
+        slider.min = '0';
+        slider.max = String(scale.steps);
+        slider.value = String(
+            window.NoroshiReplay.positionFor(scale, state.replayAt));
+        var label = $('replay-slider-at');
+        if (label) {
+            label.textContent = state.replayAt === null
+                ? _t('ui.replay.at_live')
+                : _t('ui.replay.at_instant',
+                     { at: Fmt.utcStamp(state.replayAt) });
+        }
+    }
+
+    function _bindReplaySlider() {
+        var slider = $('replay-slider');
+        if (slider) {
+            slider.addEventListener('input', function () {
+                var scale = _replayScale();
+                var instant = window.NoroshiReplay.instantFor(
+                    scale, slider.value);
+                state.replayAt = instant;
+                var label = $('replay-slider-at');
+                if (label) {
+                    label.textContent = instant === null
+                        ? _t('ui.replay.at_live')
+                        : _t('ui.replay.at_instant',
+                             { at: Fmt.utcStamp(instant) });
+                }
+                if (_replayTimer !== null) {
+                    window.clearTimeout(_replayTimer);
+                }
+                _replayTimer = window.setTimeout(function () {
+                    _replayTimer = null;
+                    cycle('replay_scrubbed');
+                }, REPLAY_DEBOUNCE_MS);
+            });
+        }
+        var live = $('replay-live');
+        if (live) {
+            live.addEventListener('click', function () {
+                state.replayAt = null;
+                var replayInput = $('replay-at');
+                if (replayInput) replayInput.value = '';
+                _syncReplaySlider();
+                cycle('replay_live');
+            });
+        }
+        _syncReplaySlider();
     }
 
     function bindWhatIf() {

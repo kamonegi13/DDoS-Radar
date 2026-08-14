@@ -177,6 +177,11 @@
           -->
           <p class="board-map-legend" data-i18n="ui.board_map.legend"></p>
           <!--
+            WP-4.9c: which declared sensors are silent, on the same
+            surface as the counts they are absent from (NP9 (b)).
+          -->
+          <p id="board-map-coverage" class="board-map-legend"></p>
+          <!--
             G-17 under the real map: a country whose centroid the display
             asset does not know is named here, never silently absent.
           -->
@@ -253,6 +258,20 @@
         <h2 id="stage-3-title"><span data-i18n="ui.stage.drilldown"></span></h2>
         <div class="stage-tools">
           <span id="face-freshness" class="freshness-slot"></span>
+          <!--
+            The replay scrubber (WP-4.9b, R-H): v1's slider back. Dragging
+            walks the conclusions face through time via R2's `?at=` — the
+            order and speed of a change as an experience, not a delta
+            number. The datetime field stays as the precision entry; the
+            slider is the interaction. The right edge is LIVE, and only
+            the arithmetic module knows how positions become instants.
+          -->
+          <label class="replay-control replay-slider-control">
+            <span data-i18n="ui.replay.slider_label"></span>
+            <input type="range" id="replay-slider" step="1">
+            <span id="replay-slider-at" class="replay-slider-at"></span>
+            <button type="button" id="replay-live" data-i18n="ui.replay.live"></button>
+          </label>
           <label class="replay-control">
             <span data-i18n="ui.replay.label"></span>
             <input type="datetime-local" id="replay-at">
@@ -507,6 +526,7 @@
 <script src="board_map.js"></script>
 <script src="map_coords.js"></script>
 <script src="board_map_view.js"></script>
+<script src="replay.js"></script>
 <script src="freshness.js"></script>
 <script src="trust.js"></script>
 <script src="board.js"></script>

@@ -151,6 +151,13 @@ ALLOWED_LITERALS: dict[tuple[str, float], str] = {
         "FRESHNESS_STALE_SEC — four cadences. Same reason as the above.",
     ("format.js", 3600.0): "seconds per hour, for rendering a duration.",
     ("format.js", 86400.0): "seconds per day, for rendering a duration.",
+    ("replay.js", 86400.0):
+        "seconds per day — the scrubber's window arithmetic (WP-4.9b). "
+        "A display constant; the coincidence with "
+        "ANOMALY_NOVELTY_LOOKBACK_SEC is the day, not the ladder.",
+    ("replay.js", 900.0):
+        "STEP_SEC — the scrubber's 15-minute step. Display granularity; "
+        "nothing downstream of a conclusion reads it.",
     ("format.js", 1000.0): "milliseconds per second, for Date construction.",
     ("render.js", 100.0): "percent, for a CSS bar width.",
     ("app.js", 100.0): "page size for the decision-ledger read (R9 `limit`).",

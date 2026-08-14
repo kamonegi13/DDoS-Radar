@@ -254,3 +254,28 @@ test('off-roster observed countries become small markers, GLOBAL excluded', () =
     assert.deepStrictEqual(map.observationOnly.map(e => e.country), ['BR']);
     assert.strictEqual(map.observationOnly[0].observation.fired, 15);
 });
+
+// ── the coverage line (WP-4.9c, NP9 (b)) ────────────────────────────────
+
+test('silent sensors are named on the map surface, never folded away', () => {
+    const coverage = BoardMap.foldSensorCoverage({ sensors: [
+        { sensor: 'ripe_bgp', observation_count: 40 },
+        { sensor: 'notam', observation_count: 0 },
+        { sensor: 'greynoise', observation_count: 0 },
+    ] });
+    assert.strictEqual(coverage.supplied, true);
+    assert.strictEqual(coverage.total, 3);
+    assert.deepStrictEqual(coverage.silentNames, ['greynoise', 'notam']);
+});
+
+test('an unsupplied sensor face is a state, not zero silence', () => {
+    const coverage = BoardMap.foldSensorCoverage(null);
+    assert.strictEqual(coverage.supplied, false);
+});
+
+test('all sensors writing reports the count and no names', () => {
+    const coverage = BoardMap.foldSensorCoverage({ sensors: [
+        { sensor: 'a', observation_count: 1 },
+    ] });
+    assert.strictEqual(coverage.silentCount, 0);
+});

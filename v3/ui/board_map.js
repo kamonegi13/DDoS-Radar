@@ -250,7 +250,32 @@
         };
     }
 
+    /**
+     * WP-4.9c (P8 §9 / NP9 (b)): the coverage line under the map — which
+     * declared sensors are actually writing, and which are silent. R8
+     * already refuses to omit a silent adapter (G-17); this fold carries
+     * that honesty to Tier 0, where the observation numbers live. A
+     * reader of the counts must be able to see, on the same surface,
+     * that e.g. NOTAM contributes nothing to them right now.
+     */
+    function foldSensorCoverage(sensorsBody) {
+        if (!sensorsBody || !Array.isArray(sensorsBody.sensors)) {
+            return { supplied: false, total: 0, silentCount: 0,
+                     silentNames: [] };
+        }
+        var silent = sensorsBody.sensors.filter(function (row) {
+            return row && row.observation_count === 0;
+        }).map(function (row) { return String(row.sensor); }).sort();
+        return {
+            supplied: true,
+            total: sensorsBody.sensors.length,
+            silentCount: silent.length,
+            silentNames: silent,
+        };
+    }
+
     return {
         buildBoardMap: buildBoardMap,
+        foldSensorCoverage: foldSensorCoverage,
     };
 });
