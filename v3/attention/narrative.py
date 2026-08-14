@@ -154,14 +154,75 @@ def render_row(*, inputs, provenance, rank: int) -> tuple[str, str]:
         "score": f"{provenance.score:.4f}"}), ROW_TEMPLATE.ref)
 
 
+#: WP-4.8d (P9 §1.6 D-23b) — the READ-SIDE sentence, version 2. The v1
+#: sentence above is rendered in the tick and STORED, and P9 §1.8's audit
+#: discipline forbids touching the write path for presentation (the C-16
+#: clock). So v2 is composed at projection time from the same stored
+#: numbers, versioned like every template, and the stored v1 remains the
+#: AP4 record of what was written when.
+#:
+#: Wording: the analyst's language first — the display name, the
+#: conclusion type as a word, and the DOMINANT factor as a phrase. The
+#: full arithmetic stays in `components`, which the UI already carries in
+#: the rank chip's tooltip (AP1: the basis is always one hover away).
+ROW_TEMPLATE_V2 = Template(
+    template_id="attention.row", version="2",
+    text="『{scenario}』の{subject}を {rank} 位に置きました — "
+         "主因は{driver}（{driver_term} {driver_value}）。")
+
+#: Conclusion types as analyst words. The raw value is the API's and
+#: stays on the wire; this is prose vocabulary, not a state rename.
+TYPE_TEXT: dict = {
+    "anomaly": "異常検知",
+    "threat_level": "脅威レベル",
+    "trend": "トレンド",
+    "attack_mode": "攻撃様態",
+    "per_domain": "ドメイン別状況",
+}
+
+DRIVER_TEXT: dict = {
+    "novelty": "変化の新しさ",
+    "confidence_delta": "確信度の変動",
+    "analyst_blindness": "未対応時間の長さ",
+}
+
+
+def dominant_driver(components: Mapping) -> tuple:
+    """`(factor_name, value)` — the largest of the three, ties broken by
+    the listed order (AP2: two renders of one row name one driver)."""
+    ordered = (
+        ("novelty", float(components.get("novelty") or 0.0)),
+        ("confidence_delta",
+         float(components.get("confidence_delta") or 0.0)),
+        ("analyst_blindness",
+         float(components.get("analyst_blindness") or 0.0)),
+    )
+    return max(ordered, key=lambda pair: pair[1])
+
+
+def render_row_v2(*, components: Mapping, scenario_label: str,
+                  subject: str, rank) -> tuple:
+    """`(narrative, template_ref)`, composed read-side from stored numbers."""
+    driver_term, value = dominant_driver(components)
+    return (ROW_TEMPLATE_V2.render({
+        "scenario": scenario_label,
+        "subject": TYPE_TEXT.get(subject, subject),
+        "rank": rank,
+        "driver": DRIVER_TEXT[driver_term],
+        "driver_term": driver_term,
+        "driver_value": f"{value:.3f}"}), ROW_TEMPLATE_V2.ref)
+
+
 def disclosure() -> dict:
     """Every template with its id, version and slots (AP2 / NP6)."""
     return {template.ref: {"template_id": template.template_id,
                            "version": template.version,
                            "slots": list(template.slots),
                            "text": template.text}
-            for template in (ROW_TEMPLATE, SILENT_TEMPLATE)}
+            for template in (ROW_TEMPLATE, SILENT_TEMPLATE,
+                             ROW_TEMPLATE_V2)}
 
 
-__all__ = ["Template", "ROW_TEMPLATE", "SILENT_TEMPLATE", "REASON_TEXT",
-           "render_row", "disclosure"]
+__all__ = ["Template", "ROW_TEMPLATE", "SILENT_TEMPLATE", "ROW_TEMPLATE_V2",
+           "REASON_TEXT", "TYPE_TEXT", "DRIVER_TEXT", "dominant_driver",
+           "render_row", "render_row_v2", "disclosure"]

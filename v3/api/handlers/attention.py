@@ -72,11 +72,53 @@ def read_attention(context, *, at=None, scenario_id=None) -> ApiResponse:
     payload = projection_module.project(
         context.ledger, now=context.now, actor_id=actor_id, at=_at(at),
         scenario_id=None if scenario_id is None else str(scenario_id))
+    _decorate_v2(context, payload)
     return tool_response(
         observed_at=payload.pop("computed_at") or context.now,
         at=_at(at), **payload,
         threshold_disclosure=T.disclosure(),
         narrative_templates=narrative_module.disclosure())
+
+
+def _decorate_v2(context, payload) -> None:
+    """WP-4.8d: the read-side sentence, beside the stored one.
+
+    The stored `narrative` was rendered in the tick and stays untouched —
+    it is AP4's record of what was written when, and P9 §1.8's audit
+    forbids touching the write path for presentation (the C-16 clock).
+    `narrative_v2` is composed HERE from the same stored numbers: the
+    scenario's display name (the refs the context already carries), the
+    conclusion type read back through `conclusion_by_id` (the same lookup
+    R4 serves), and the dominant ranking factor as a phrase. Deterministic,
+    versioned (`attention.row@2`), disclosed in `narrative_templates`.
+    """
+    import json as _json
+    labels = {ref.scenario_id: ref.display_name_ja
+              for ref in context.scenarios}
+    for row in payload.get("attention") or []:
+        subject = str(row.get("item_kind") or "")
+        if subject == "conclusion" and row.get("item_id"):
+            stored = context.ledger.conclusion_by_id(str(row["item_id"]))
+            if stored and stored.get("conclusion_type"):
+                subject = str(stored["conclusion_type"])
+        label = labels.get(str(row.get("scenario_id")),
+                           str(row.get("scenario_id")))
+        components = row.get("components") or {}
+        if isinstance(components, str):
+            try:
+                components = _json.loads(components)
+            except ValueError:
+                components = {}
+        try:
+            narrative, ref = narrative_module.render_row_v2(
+                components=components, scenario_label=label,
+                subject=subject, rank=row.get("rank_position"))
+        except DomainError:
+            # A row v2 cannot speak for still has its stored sentence;
+            # the decoration is additive and must never take a row down.
+            continue
+        row["narrative_v2"] = narrative
+        row["narrative_v2_template_ref"] = ref
 
 
 def _item(context, item_id: str) -> str:

@@ -117,10 +117,23 @@
             },
             components: raw.components || null,
             formulaRef: raw.formula_ref || null,
-            narrative: typeof raw.narrative === 'string' && raw.narrative
-                ? raw.narrative : null,
-            narrativeTemplateRef: raw.narrative_template_ref || null,
-            narrativeMissingKey: (typeof raw.narrative === 'string' && raw.narrative)
+            // WP-4.8d: the read-side v2 sentence (analyst language,
+            // `attention.row@2`) is preferred; the stored v1 remains the
+            // fallback and the ledger's own record. Whichever is shown,
+            // its template ref rides along (AP2).
+            narrative: (typeof raw.narrative_v2 === 'string'
+                        && raw.narrative_v2)
+                ? raw.narrative_v2
+                : (typeof raw.narrative === 'string' && raw.narrative
+                    ? raw.narrative : null),
+            narrativeTemplateRef: (typeof raw.narrative_v2 === 'string'
+                                   && raw.narrative_v2)
+                ? (raw.narrative_v2_template_ref || null)
+                : (raw.narrative_template_ref || null),
+            narrativeMissingKey: ((typeof raw.narrative_v2 === 'string'
+                                   && raw.narrative_v2)
+                                  || (typeof raw.narrative === 'string'
+                                      && raw.narrative))
                 ? null : 'ui.lane.narrative.unsupplied',
             analystState: state,
             analystStateKey: 'ui.lane.state.' + state,

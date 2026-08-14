@@ -447,3 +447,23 @@ class TestAccess:
         _get(ranked, "/api/v3/attention")
         assert (ranked.count_commands(),
                 ranked.count_attention_ranks()) == before
+
+
+class TestNarrativeV2IsComposedReadSide:
+    """WP-4.8d (P9 §1.6 D-23b): the analyst-language sentence, rendered at
+    projection time from the STORED numbers. The stored v1 narrative is
+    the tick's record and stays untouched (P9 §1.8: no write-path change
+    for presentation — the C-16 clock)."""
+
+    def test_every_served_row_gains_a_v2_sentence_and_its_ref(self, ranked):
+        row = _rows(_get(ranked, "/api/v3/attention"))[0]
+        assert row["narrative_v2_template_ref"] == "attention.row@2"
+        assert "位に置きました" in row["narrative_v2"]
+        assert "主因は" in row["narrative_v2"]
+        # The stored v1 sentence is still there, unrewritten.
+        assert row["narrative_template_ref"].startswith("attention.row@1") \
+            or row["narrative_template_ref"].startswith("attention.")
+
+    def test_the_v2_template_is_disclosed_beside_the_rows(self, ranked):
+        body = _get(ranked, "/api/v3/attention").as_dict()
+        assert "attention.row@2" in body["narrative_templates"]

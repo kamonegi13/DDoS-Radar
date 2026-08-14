@@ -247,6 +247,36 @@ test('buildLane does not mutate its input', () => {
 
 // ── Report ───────────────────────────────────────────────────────────────
 
+// ── narrative v2 preference (WP-4.8d) ───────────────────────────────────
+
+(function () {
+    const L = require('../../v3/ui/lane');
+    test('the read-side v2 sentence is preferred and carries its own ref', () => {
+        const lane = L.buildLane({ attention: { attention: [{
+            item_id: 'c-9', scenario_id: 's', rank_position: 1, score: 0.5,
+            novelty: 0.5, confidence_delta: 0.1, analyst_blindness: 0.2,
+            narrative: 'raw v1 sentence', narrative_template_ref: 'attention.row@1',
+            narrative_v2: '『台湾正面』の異常検知を 1 位に置きました — 主因は変化の新しさ（novelty 0.500）。',
+            narrative_v2_template_ref: 'attention.row@2',
+            analyst_state: 'active',
+        }] } });
+        assert.ok(/主因は変化の新しさ/.test(lane.rows[0].narrative));
+        assert.strictEqual(lane.rows[0].narrativeTemplateRef, 'attention.row@2');
+    });
+
+    test('without a v2 the stored sentence still speaks', () => {
+        const lane = L.buildLane({ attention: { attention: [{
+            item_id: 'c-9', scenario_id: 's', rank_position: 1, score: 0.5,
+            novelty: 0.5, confidence_delta: 0.1, analyst_blindness: 0.2,
+            narrative: 'raw v1 sentence', narrative_template_ref: 'attention.row@1',
+            analyst_state: 'active',
+        }] } });
+        assert.strictEqual(lane.rows[0].narrative, 'raw v1 sentence');
+        assert.strictEqual(lane.rows[0].narrativeTemplateRef, 'attention.row@1');
+    });
+}());
+
+
 console.log(`\n\n${passed} passed, ${failed} failed`);
 if (failed > 0) {
     failures.forEach(({ name, error }) => {
@@ -256,3 +286,4 @@ if (failed > 0) {
     process.exit(1);
 }
 process.exit(0);
+
