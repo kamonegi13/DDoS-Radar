@@ -295,7 +295,7 @@ test('the strip prints flag and ISO2 per participant, adversary dashed', () => {
 
 test('the change line is a sentence carrying how long ago that was', () => {
     const html = R.cardHtml(card(), CARD_NOW);
-    assert.ok(/前回確認（2 時間前）から悪化しました。TL 4 → 3/.test(html), html);
+    assert.ok(/前回確認（2 時間前）から脅威レベルが悪化。TL 4 → 3/.test(html), html);
 });
 
 test('a first sighting says so instead of claiming nothing changed', () => {
@@ -304,7 +304,7 @@ test('a first sighting says so instead of claiming nothing changed', () => {
                           seenAt: null, labelKey: 'ui.board.since.first_sighting' },
     }), CARD_NOW);
     assert.ok(/初回です/.test(html), html);
-    assert.ok(!/変化はありません/.test(html));
+    assert.ok(!/変化なし/.test(html));
 });
 
 test('an inconclusive card states the state and what would clear it', () => {

@@ -88,19 +88,24 @@ def _decorate_v2(context, payload) -> None:
     forbids touching the write path for presentation (the C-16 clock).
     `narrative_v2` is composed HERE from the same stored numbers: the
     scenario's display name (the refs the context already carries), the
-    conclusion type read back through `conclusion_by_id` (the same lookup
-    R4 serves), and the dominant ranking factor as a phrase. Deterministic,
-    versioned (`attention.row@2`), disclosed in `narrative_templates`.
+    conclusion the item points at read back through `conclusion_by_id`
+    (the same lookup R4 serves) for its type and SUBSTANCE, and the two
+    ranking factors that discriminate (P9 §1.10 D-25 — novelty is
+    degenerate until WP-4.11 and is not spoken). Deterministic, versioned
+    (`attention.row@3`), disclosed in `narrative_templates`.
     """
     import json as _json
     labels = {ref.scenario_id: ref.display_name_ja
               for ref in context.scenarios}
     for row in payload.get("attention") or []:
         subject = str(row.get("item_kind") or "")
+        substance = "内容の要約は取得できませんでした"
         if subject == "conclusion" and row.get("item_id"):
             stored = context.ledger.conclusion_by_id(str(row["item_id"]))
-            if stored and stored.get("conclusion_type"):
-                subject = str(stored["conclusion_type"])
+            if stored:
+                if stored.get("conclusion_type"):
+                    subject = str(stored["conclusion_type"])
+                substance = _substance_of(stored)
         label = labels.get(str(row.get("scenario_id")),
                            str(row.get("scenario_id")))
         components = row.get("components") or {}
@@ -110,15 +115,47 @@ def _decorate_v2(context, payload) -> None:
             except ValueError:
                 components = {}
         try:
-            narrative, ref = narrative_module.render_row_v2(
+            narrative, ref = narrative_module.render_row_v3(
                 components=components, scenario_label=label,
-                subject=subject, rank=row.get("rank_position"))
+                subject=subject, rank=row.get("rank_position"),
+                substance=substance)
         except DomainError:
-            # A row v2 cannot speak for still has its stored sentence;
-            # the decoration is additive and must never take a row down.
+            # A row the sentence cannot speak for still has its stored
+            # one; the decoration is additive and never takes a row down.
             continue
         row["narrative_v2"] = narrative
         row["narrative_v2_template_ref"] = ref
+
+
+def _substance_of(stored: dict) -> str:
+    """One phrase for "what IS this" (P9 §1.10 D-25), from the conclusion
+    row the attention item points at. For an anomaly that is the sensor
+    and the country it fired for — raw API values by policy
+    (ja-localization §2); for the other types the stored state word. The
+    fallback says it is a fallback rather than pretending to summarise.
+    """
+    import json as _json
+    metadata = stored.get("metadata")
+    if isinstance(metadata, str):
+        try:
+            metadata = _json.loads(metadata)
+        except ValueError:
+            metadata = {}
+    metadata = metadata or {}
+    if str(stored.get("conclusion_type") or "") == "anomaly":
+        sensor = metadata.get("sensor") or stored.get("state")
+        country = metadata.get("contributing_country")
+        if sensor and country:
+            return f"検知源 {sensor}（{country}）"
+        if sensor:
+            return f"検知源 {sensor}"
+    state = stored.get("state")
+    if state:
+        return f"状態 {state}"
+    reason = stored.get("conclusion_unavailable_reason")
+    if reason:
+        return f"結論不可（{reason}）"
+    return "内容の要約は取得できませんでした"
 
 
 def _item(context, item_id: str) -> str:

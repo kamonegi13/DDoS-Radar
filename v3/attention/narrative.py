@@ -154,21 +154,22 @@ def render_row(*, inputs, provenance, rank: int) -> tuple[str, str]:
         "score": f"{provenance.score:.4f}"}), ROW_TEMPLATE.ref)
 
 
-#: WP-4.8d (P9 §1.6 D-23b) — the READ-SIDE sentence, version 2. The v1
-#: sentence above is rendered in the tick and STORED, and P9 §1.8's audit
-#: discipline forbids touching the write path for presentation (the C-16
-#: clock). So v2 is composed at projection time from the same stored
-#: numbers, versioned like every template, and the stored v1 remains the
-#: AP4 record of what was written when.
-#:
-#: Wording: the analyst's language first — the display name, the
-#: conclusion type as a word, and the DOMINANT factor as a phrase. The
-#: full arithmetic stays in `components`, which the UI already carries in
-#: the rank chip's tooltip (AP1: the basis is always one hover away).
-ROW_TEMPLATE_V2 = Template(
-    template_id="attention.row", version="2",
-    text="『{scenario}』の{subject}を {rank} 位に置きました — "
-         "主因は{driver}（{driver_term} {driver_value}）。")
+#: The READ-SIDE sentence (WP-4.8d, revised by P9 §1.10 D-25). The v1
+#: sentence above is rendered in the tick and STORED; P9 §1.8's audit
+#: discipline forbids touching that path for presentation (the C-16
+#: clock), so this one is composed at projection time from the same
+#: stored numbers. Version 3 replaces the short-lived version 2, which
+#: crowned the DOMINANT ranking factor — and the dominant factor is
+#: novelty, degenerately 1.0 for every row because `supply.py` feeds it
+#: the latest row's write time. Beside a no-change card, "主因は変化の
+#: 新しさ" read as nonsense (the ninth review said so). v3 states the
+#: SUBSTANCE — which sensor, where — and the two factors that actually
+#: discriminate today. The arithmetic stays in `components` (AP1).
+ROW_TEMPLATE_V3 = Template(
+    template_id="attention.row", version="3",
+    text="『{scenario}』の{subject}が注目 {rank} 位 — {substance}。"
+         "確度 {confidence_from} → {confidence}、"
+         "アナリスト未対応 {idle_hours} 時間。")
 
 #: Conclusion types as analyst words. The raw value is the API's and
 #: stays on the wire; this is prose vocabulary, not a state rename.
@@ -180,37 +181,32 @@ TYPE_TEXT: dict = {
     "per_domain": "ドメイン別状況",
 }
 
-DRIVER_TEXT: dict = {
-    "novelty": "変化の新しさ",
-    "confidence_delta": "確信度の変動",
-    "analyst_blindness": "未対応時間の長さ",
-}
+def render_row_v3(*, components: Mapping, scenario_label: str,
+                  subject: str, rank, substance: str) -> tuple:
+    """`(narrative, template_ref)`, composed read-side from stored numbers.
 
-
-def dominant_driver(components: Mapping) -> tuple:
-    """`(factor_name, value)` — the largest of the three, ties broken by
-    the listed order (AP2: two renders of one row name one driver)."""
-    ordered = (
-        ("novelty", float(components.get("novelty") or 0.0)),
-        ("confidence_delta",
-         float(components.get("confidence_delta") or 0.0)),
-        ("analyst_blindness",
-         float(components.get("analyst_blindness") or 0.0)),
-    )
-    return max(ordered, key=lambda pair: pair[1])
-
-
-def render_row_v2(*, components: Mapping, scenario_label: str,
-                  subject: str, rank) -> tuple:
-    """`(narrative, template_ref)`, composed read-side from stored numbers."""
-    driver_term, value = dominant_driver(components)
-    return (ROW_TEMPLATE_V2.render({
+    `substance` is the caller's one-phrase answer to "what IS this" —
+    the handler builds it from the conclusion row the item points at.
+    The idle time reads from the stored inputs the tick used, so the
+    sentence and the tooltip cannot disagree (one clock, AP2).
+    """
+    stated = dict(components.get("inputs") or {})
+    horizons = dict(components.get("horizons") or {})
+    now = float(stated.get("now") or 0.0)
+    last_action = stated.get("last_analyst_action_at")
+    horizon = float(horizons.get("blindness_horizon_sec") or 0.0)
+    idle = (horizon if last_action is None
+            else max(0.0, now - float(last_action)))
+    previous = stated.get("previous_confidence")
+    return (ROW_TEMPLATE_V3.render({
         "scenario": scenario_label,
         "subject": TYPE_TEXT.get(subject, subject),
         "rank": rank,
-        "driver": DRIVER_TEXT[driver_term],
-        "driver_term": driver_term,
-        "driver_value": f"{value:.3f}"}), ROW_TEMPLATE_V2.ref)
+        "substance": substance,
+        "confidence_from": ("なし" if previous is None
+                            else f"{float(previous):.3f}"),
+        "confidence": f"{float(stated.get('confidence') or 0.0):.3f}",
+        "idle_hours": _hours(idle)}), ROW_TEMPLATE_V3.ref)
 
 
 def disclosure() -> dict:
@@ -220,9 +216,9 @@ def disclosure() -> dict:
                            "slots": list(template.slots),
                            "text": template.text}
             for template in (ROW_TEMPLATE, SILENT_TEMPLATE,
-                             ROW_TEMPLATE_V2)}
+                             ROW_TEMPLATE_V3)}
 
 
-__all__ = ["Template", "ROW_TEMPLATE", "SILENT_TEMPLATE", "ROW_TEMPLATE_V2",
-           "REASON_TEXT", "TYPE_TEXT", "DRIVER_TEXT", "dominant_driver",
-           "render_row", "render_row_v2", "disclosure"]
+__all__ = ["Template", "ROW_TEMPLATE", "SILENT_TEMPLATE", "ROW_TEMPLATE_V3",
+           "REASON_TEXT", "TYPE_TEXT",
+           "render_row", "render_row_v3", "disclosure"]

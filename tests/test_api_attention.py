@@ -455,15 +455,16 @@ class TestNarrativeV2IsComposedReadSide:
     the tick's record and stays untouched (P9 §1.8: no write-path change
     for presentation — the C-16 clock)."""
 
-    def test_every_served_row_gains_a_v2_sentence_and_its_ref(self, ranked):
+    def test_every_served_row_gains_the_read_side_sentence(self, ranked):
         row = _rows(_get(ranked, "/api/v3/attention"))[0]
-        assert row["narrative_v2_template_ref"] == "attention.row@2"
-        assert "位に置きました" in row["narrative_v2"]
-        assert "主因は" in row["narrative_v2"]
+        assert row["narrative_v2_template_ref"] == "attention.row@3"
+        assert "が注目" in row["narrative_v2"]
+        # D-25: substance first — never the degenerate novelty factor.
+        assert "主因" not in row["narrative_v2"]
+        assert "確度" in row["narrative_v2"]
         # The stored v1 sentence is still there, unrewritten.
-        assert row["narrative_template_ref"].startswith("attention.row@1") \
-            or row["narrative_template_ref"].startswith("attention.")
+        assert row["narrative_template_ref"].startswith("attention.")
 
-    def test_the_v2_template_is_disclosed_beside_the_rows(self, ranked):
+    def test_the_template_is_disclosed_beside_the_rows(self, ranked):
         body = _get(ranked, "/api/v3/attention").as_dict()
-        assert "attention.row@2" in body["narrative_templates"]
+        assert "attention.row@3" in body["narrative_templates"]
