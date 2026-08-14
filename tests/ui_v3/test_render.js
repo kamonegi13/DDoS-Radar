@@ -623,23 +623,43 @@ test('a sensor row prints absent for a missing count, never "undefined"', () => 
                                    silent_for_sec: null });
     assert.ok(!/undefined/.test(html), html);
     assert.ok(!/null/.test(html), html);
-    assert.strictEqual((html.match(/—/g) || []).length, 4,
-        'four absent cells: three counts and the silence duration');
 });
 
-test('a sensor row renders a real zero as zero', () => {
+test('a sensor with zero rows wears the silent state, not a zero duration', () => {
+    // WP-4.8d(3): "swept and quiet" and "never wrote" must read apart.
     const html = R.sensorRowHtml({ sensor: 's', domain: 'cyber',
                                    observation_count: 0, fired_count: 0,
-                                   suppressed_count: 0, silent_for_sec: 0 });
-    assert.ok(/<td>0<\/td>/.test(html), html);
+                                   suppressed_count: 0, silent_for_sec: null });
+    assert.ok(/class="sensor-silent"/.test(html), html);
+    assert.ok(/沈黙 — この窓で観測ゼロ/.test(html), html);
 });
 
-test('a decision row names the automated actor rather than leaving it blank', () => {
+test('a writing sensor states when it last wrote', () => {
+    const html = R.sensorRowHtml({ sensor: 's', domain: 'cyber',
+                                   observation_count: 5, fired_count: 3,
+                                   suppressed_count: 2, silent_for_sec: 120 });
+    assert.ok(!/sensor-silent/.test(html), html);
+    assert.ok(/最終観測 2 分前/.test(html), html);
+});
+
+test('a decision row is a sentence naming the automated actor', () => {
+    // WP-4.8d(2): who did what to what, assembled by the renderer. The
+    // VALUES stay the API's own (ja-localization §2).
     const html = R.decisionRowHtml({ decided_at: NOW, decision_type: 'attention_rank',
                                      action: 'attention.rank', target_id: 'c-1',
                                      actor_id: null, reason: null });
+    assert.ok(/<li class="decision">/.test(html), html);
     assert.ok(/自動/.test(html), html);
-    assert.ok(/—/.test(html), 'and an absent reason prints absent');
+    assert.ok(/c-1 に attention.rank を実行（attention_rank）/.test(html), html);
+    assert.ok(!/decision-reason/.test(html), 'no reason line when none was given');
+});
+
+test('a decision with an actor and a reason carries both', () => {
+    const html = R.decisionRowHtml({ decided_at: NOW, decision_type: 'focus',
+                                     action: 'focus_set', target_id: 'taiwan_contingency',
+                                     actor_id: 'admin', reason: '演習開始の報道' });
+    assert.ok(/admin が taiwan_contingency に focus_set を実行（focus）/.test(html), html);
+    assert.ok(/理由: 演習開始の報道/.test(html), html);
 });
 
 test('a terminal proposal offers no verbs', () => {

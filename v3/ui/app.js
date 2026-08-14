@@ -446,7 +446,7 @@
         setHtml('decision-rows', rows.length === 0
             ? Render.emptyStateHtml(
                 Fmt.emptyState('decisions', 'empty.decisions.reason_none'),
-                { tag: 'tr', colspan: 6 })
+                { tag: 'li' })
             : rows.map(Render.decisionRowHtml).join(''));
     }
 

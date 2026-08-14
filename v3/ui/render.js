@@ -570,24 +570,57 @@
 
     /** One sensor health row. Counts print absent, never "undefined". */
     function sensorRowHtml(s) {
+        // WP-4.8d(3): the last cell is a STATE WORD, not a raw duration —
+        // 沈黙 for a sensor with zero rows in the window (the row also
+        // wears the class, so the whole line dims to warning), otherwise
+        // when it last wrote. The counts stay numbers; they were never
+        // the unreadable part.
+        var silentRow = s.observation_count === 0;
         var silent = Fmt.duration(s.silent_for_sec);
-        return '<tr><td>' + esc(s.sensor) + '</td>'
+        var stateText = silentRow
+            ? _t('ui.sensors.state.silent')
+            : (s.silent_for_sec === null || s.silent_for_sec === undefined
+                ? Fmt.ABSENT
+                : _t('ui.sensors.state.last_seen',
+                     { ago: _t(silent.key, silent.vars) }));
+        return '<tr' + (silentRow ? ' class="sensor-silent"' : '') + '>'
+            + '<td>' + esc(s.sensor) + '</td>'
             + '<td>' + esc(s.domain || Fmt.ABSENT) + '</td>'
             + '<td>' + esc(Fmt.num(s.observation_count)) + '</td>'
             + '<td>' + esc(Fmt.num(s.fired_count)) + '</td>'
             + '<td>' + esc(Fmt.num(s.suppressed_count)) + '</td>'
-            + '<td>' + esc(s.silent_for_sec === null || s.silent_for_sec === undefined
-                ? Fmt.ABSENT : _t(silent.key, silent.vars)) + '</td></tr>';
+            + '<td>' + esc(stateText) + '</td></tr>';
     }
 
-    /** One decision-ledger row (AP4). Read-only by construction. */
+    /**
+     * One decision-ledger row as a SENTENCE (AP4; WP-4.8d(2), D-23b).
+     *
+     * The sixth review called the six-column table raw data, and it was:
+     * who did what to what was spread across cells the reader had to
+     * reassemble. The sentence does the assembly; the VALUES stay the
+     * API's own (`focus_set`, actor ids) because ja-localization §2 keeps
+     * state values untranslated — the humanization is the grammar, not a
+     * rename. Read-only by construction, like the table it replaces.
+     */
     function decisionRowHtml(d) {
-        return '<tr><td>' + esc(Fmt.utcStamp(d.decided_at)) + '</td>'
-            + '<td>' + esc(d.decision_type) + '</td>'
-            + '<td>' + esc(d.action) + '</td>'
-            + '<td>' + esc(d.target_id || Fmt.ABSENT) + '</td>'
-            + '<td>' + esc(d.actor_id || _t('ui.decisions.automated')) + '</td>'
-            + '<td>' + esc(d.reason || Fmt.ABSENT) + '</td></tr>';
+        var actor = d.actor_id || _t('ui.decisions.automated');
+        var sentence = d.target_id
+            ? _t('ui.decisions.sentence', {
+                actor: actor, action: String(d.action),
+                target: String(d.target_id), type: String(d.decision_type) })
+            : _t('ui.decisions.sentence_no_target', {
+                actor: actor, action: String(d.action),
+                type: String(d.decision_type) });
+        return '<li class="decision">'
+            + '<span class="decision-at">' + esc(Fmt.utcStamp(d.decided_at))
+            + '</span>'
+            + '<p class="decision-sentence">' + esc(sentence) + '</p>'
+            + (d.reason
+                ? '<p class="decision-reason">'
+                  + esc(_t('ui.decisions.reason', { reason: String(d.reason) }))
+                  + '</p>'
+                : '')
+            + '</li>';
     }
 
     /** One proposal. A terminal proposal offers no verbs. */

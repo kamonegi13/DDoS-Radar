@@ -1101,3 +1101,19 @@ tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust);
     clip-path: inset(50%);
     white-space: nowrap;
 }
+
+
+/* ── decision sentences and sensor states (WP-4.8d(2)(3)) ────────────── */
+.decisions { margin: 0; padding: 0; list-style: none; }
+.decision { padding: var(--space-2) 0;
+            border-bottom: 1px solid var(--color-border); }
+.decision-at { font-size: var(--text-meta); color: var(--color-muted); }
+.decision-sentence { margin: 2px 0 0; }
+.decision-reason { margin: 2px 0 0; font-size: var(--text-meta);
+                   color: var(--color-text-dim); }
+.sensor-silent td { color: var(--color-warning); }
+/* The self-eval band already rides the row class (trust-*); give the
+ * state column its chip look so the band reads without the legend. */
+.grid tr.trust-reserved td:nth-child(2) { color: var(--trust-reserved); }
+.grid tr.trust-distrust td:nth-child(2) { color: var(--trust-distrust); }
+.grid tr.trust-trusted td:nth-child(2) { color: var(--trust-trusted); }

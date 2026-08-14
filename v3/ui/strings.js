@@ -270,17 +270,16 @@
         'ui.sensors.col.observations': '観測数',
         'ui.sensors.col.fired': '発火',
         'ui.sensors.col.suppressed': '抑制',
-        'ui.sensors.col.silent': '無音継続',
+        'ui.sensors.col.silent': '状態',
+        'ui.sensors.state.silent': '沈黙 — この窓で観測ゼロ',
+        'ui.sensors.state.last_seen': '最終観測 {ago}前',
 
         // ── decision ledger (AP4) ───────────────────────────────────────
         'ui.decisions.title': '判断台帳',
         'ui.decisions.lead': '自動化と人が、いつ・何を・どの理由で決めたか（追記のみ・読み取り専用）。',
-        'ui.decisions.col.at': '時刻 (UTC)',
-        'ui.decisions.col.type': '種別',
-        'ui.decisions.col.action': 'アクション',
-        'ui.decisions.col.target': '対象',
-        'ui.decisions.col.actor': '実行者',
-        'ui.decisions.col.reason': '理由',
+        'ui.decisions.sentence': '{actor} が {target} に {action} を実行（{type}）。',
+        'ui.decisions.sentence_no_target': '{actor} が {action} を実行（{type}）。',
+        'ui.decisions.reason': '理由: {reason}',
         'ui.decisions.automated': '自動',
 
         // ── proposals ───────────────────────────────────────────────────

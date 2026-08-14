@@ -404,17 +404,11 @@
     <section class="stage">
       <h3 data-i18n="ui.decisions.title"></h3>
       <p class="lead" data-i18n="ui.decisions.lead"></p>
-      <table class="grid">
-        <thead><tr>
-          <th data-i18n="ui.decisions.col.at"></th>
-          <th data-i18n="ui.decisions.col.type"></th>
-          <th data-i18n="ui.decisions.col.action"></th>
-          <th data-i18n="ui.decisions.col.target"></th>
-          <th data-i18n="ui.decisions.col.actor"></th>
-          <th data-i18n="ui.decisions.col.reason"></th>
-        </tr></thead>
-        <tbody id="decision-rows"></tbody>
-      </table>
+      <!--
+        Sentences, not cells (WP-4.8d(2), D-23b): who did what to what,
+        assembled once by the renderer instead of six times by the reader.
+      -->
+      <ol id="decision-rows" class="decisions"></ol>
 
       <h3 data-i18n="ui.settings.gt_title"></h3>
       <p class="lead" data-i18n="ui.settings.gt_lead"></p>
