@@ -138,6 +138,96 @@ class CalibrationLedgerMixin:
                                                params).fetchall()
         return [_label_row(row) for row in rows]
 
+    # ── FN drafts + the S9 run record (WP-0.4 v2 / ADR-V3-012) ──────────
+    def append_fn_draft(self, draft, *, now: Optional[float] = None,
+                        connection=None) -> bool:
+        """Record one FN draft. True if stored, False if already present.
+
+        Same idempotence shape as `append_label`: the S9 cycle re-scans a
+        sliding window daily, and a re-run must converge on the same
+        draft rather than doubling the pending count that widens the
+        published recall interval.
+        """
+        stamped = time.time() if now is None else float(now)
+        with self._maybe_transaction(connection) as conn:
+            cursor = conn.execute(
+                "INSERT OR IGNORE INTO calibration_fn_draft "
+                "(draft_id, created_at, scenario_id, conclusion_type, "
+                " conclusion_id, label, reason, proposed_analyst_id, "
+                " generator_id, generator_version, rule_id, epoch_id, "
+                " observed_at, labelled_at, sources_json, evidence_url) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (draft.draft_id, stamped, draft.scenario_id,
+                 draft.conclusion_type, draft.conclusion_id, draft.label,
+                 draft.reason, draft.proposed_analyst_id,
+                 draft.generator_id, draft.generator_version,
+                 draft.rule_id, draft.epoch_id, draft.observed_at,
+                 draft.labelled_at,
+                 json.dumps(list(draft.sources)), draft.evidence_url))
+            return cursor.rowcount > 0
+
+    def fn_drafts(self, *, epoch_id: str,
+                  scenario_id: Optional[str] = None) -> list:
+        """Every stored FN draft of one epoch, oldest first."""
+        if not isinstance(epoch_id, str) or not epoch_id.strip():
+            raise DomainError("fn_drafts needs an epoch_id")
+        query = ["SELECT * FROM calibration_fn_draft WHERE epoch_id = ?"]
+        params: list = [epoch_id.strip()]
+        if scenario_id is not None:
+            query.append(" AND scenario_id = ?")
+            params.append(scenario_id)
+        query.append(" ORDER BY observed_at ASC, id ASC")
+        rows = self._read_connection().execute("".join(query),
+                                               params).fetchall()
+        found = []
+        for row in rows:
+            record = dict(row)
+            record["sources"] = json.loads(record.pop("sources_json") or "[]")
+            found.append(record)
+        return found
+
+    def pending_fn_draft_counts(self, *, epoch_id: str) -> dict:
+        """Unresolved drafts per (scenario_id, conclusion_type).
+
+        Pending = no FALSE_NEGATIVE label exists for the draft's
+        conclusion in the same epoch — a later Tier 1 convergence, a
+        Tier 2 agreement or a human confirm all resolve a draft by
+        WRITING THE LABEL, never by touching the draft row. This count
+        is the width of the published recall interval (0.4f): it may
+        only delay a cell's validity, never fake it.
+        """
+        if not isinstance(epoch_id, str) or not epoch_id.strip():
+            raise DomainError("pending_fn_draft_counts needs an epoch_id")
+        rows = self._read_connection().execute(
+            "SELECT d.scenario_id, d.conclusion_type, COUNT(*) AS n "
+            "FROM calibration_fn_draft d WHERE d.epoch_id = ? "
+            "AND NOT EXISTS (SELECT 1 FROM calibration_label l "
+            "  WHERE l.conclusion_id = d.conclusion_id "
+            "  AND l.label = 'FALSE_NEGATIVE' AND l.epoch_id = d.epoch_id) "
+            "GROUP BY d.scenario_id, d.conclusion_type",
+            (epoch_id.strip(),)).fetchall()
+        return {(row["scenario_id"], row["conclusion_type"]): int(row["n"])
+                for row in rows}
+
+    def append_s9_run(self, *, ran_at: float, window_start: float,
+                      window_end: float, outcome: str, report: dict,
+                      connection=None) -> None:
+        """One S9 cycle's record — the persisted heartbeat (F-01) and the
+        AP4 answer to 'what did the calibrator actually do that day'."""
+        with self._maybe_transaction(connection) as conn:
+            conn.execute(
+                "INSERT INTO calibration_run "
+                "(ran_at, window_start, window_end, outcome, report_json) "
+                "VALUES (?,?,?,?,?)",
+                (float(ran_at), float(window_start), float(window_end),
+                 outcome, json.dumps(report, ensure_ascii=False)))
+
+    def latest_s9_run_at(self) -> Optional[float]:
+        row = self._read_connection().execute(
+            "SELECT MAX(ran_at) AS newest FROM calibration_run").fetchone()
+        value = row["newest"] if row else None
+        return None if value is None else float(value)
+
     def labels_for_conclusion(self, conclusion_id: str) -> list:
         """Every label ever written on one conclusion, oldest first.
 

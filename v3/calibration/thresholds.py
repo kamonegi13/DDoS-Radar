@@ -158,6 +158,30 @@ _PINNED: dict[str, Threshold] = {
         3.0, unit="count",
         provenance_ref="S1-CALIB-018; the 3 in round(current*factor, 3)"),
 
+    # ── S9 runner + Tier 1 convergence (WP-0.4 v2 / ADR-V3-012) ────────
+    "S9_RUN_INTERVAL_H": Threshold.pinned(
+        24.0, unit="h",
+        provenance_ref="P4 S9 / v3/calibration/runner.py maybe_run: "
+                       "前向きの流れとは別の遅い周期（日次〜週次）. Daily, "
+                       "the fast end of that range — NP1 prefers labels "
+                       "arriving a day early to a week late"),
+    "S9_POSITION_LOOKBACK_D": Threshold.pinned(
+        9.0, unit="d",
+        provenance_ref="WP-0.4 v2, v3/calibration/runner.py s9_cycle: "
+                       "GT_FP_TN_HORIZON_D (7d) + one daily cadence + one "
+                       "day of slack. Positions younger than the horizon "
+                       "classify to None and are re-visited on later runs; "
+                       "the idempotent label/draft ids make the re-scan "
+                       "converge instead of double-counting",),
+    "S9_TIER1_MIN_DISTINCT_SOURCES": Threshold.pinned(
+        2.0, unit="count",
+        provenance_ref="WP-0.4 v2 Tier 1, v3/calibration/etl.py "
+                       "tier1_decision (NP2: 単一ソース依存禁止): an FN "
+                       "auto-confirms only when >=2 distinct non-circular "
+                       "sources converge; a single-source candidate waits "
+                       "as a pending draft and widens the recall interval "
+                       "instead of entering the denominator unaudited"),
+
     # ── auto-tune governor (S1-CALIB-062/063) ──────────────────────────
     "AUTOTUNE_MIN_SAMPLE_N": Threshold.pinned(
         30.0, unit="count",
@@ -319,6 +343,13 @@ CALIBRATOR_TIGHTEN_RECALL_FLOOR = _pinned_number("TL_CALIB_TIGHTEN_RECALL_FLOOR"
 CALIBRATOR_LOOSER_FACTOR = _pinned_number("TL_CALIB_LOOSER_FACTOR")
 CALIBRATOR_TIGHTER_FACTOR = _pinned_number("TL_CALIB_TIGHTER_FACTOR")
 CALIBRATOR_ROUND_DIGITS = int(_pinned_number("TL_CALIB_ROUND_DIGITS"))
+
+S9_RUN_INTERVAL_H = _pinned_number("S9_RUN_INTERVAL_H")
+S9_RUN_INTERVAL_SEC = S9_RUN_INTERVAL_H * 3600.0
+S9_POSITION_LOOKBACK_D = _pinned_number("S9_POSITION_LOOKBACK_D")
+S9_POSITION_LOOKBACK_SEC = S9_POSITION_LOOKBACK_D * 86400.0
+S9_TIER1_MIN_DISTINCT_SOURCES = int(_pinned_number(
+    "S9_TIER1_MIN_DISTINCT_SOURCES"))
 
 AUTOTUNE_MIN_SAMPLE_N = int(_pinned_number("AUTOTUNE_MIN_SAMPLE_N"))
 AUTOTUNE_COOLDOWN_H = _pinned_number("AUTOTUNE_COOLDOWN_H")

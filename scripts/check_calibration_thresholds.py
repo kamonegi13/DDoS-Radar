@@ -152,6 +152,15 @@ EXPECTED_DIFFS: dict = {}
 # "26 checked, 0 differences" while saying nothing about the rest reads as
 # coverage it does not have.
 STRUCTURALLY_UNMAPPABLE: dict = {
+    "S9_RUN_INTERVAL_H":
+        "WP-0.4 v2 (ADR-V3-012) — new to v3; production has no S9 "
+        "runner, so there is no v1 value to read",
+    "S9_POSITION_LOOKBACK_D":
+        "WP-0.4 v2 — new to v3; derived from GT_FP_TN_HORIZON_D + daily "
+        "cadence + slack, not ported from production",
+    "S9_TIER1_MIN_DISTINCT_SOURCES":
+        "WP-0.4 v2 — new to v3; production confirmed FN labels by "
+        "analyst hand, so no convergence floor exists to map",
     "GT_KINETIC_CONFIDENCE_FLOOR":
         "ground_truth_etl.py — inline `confidence >= 0.60` inside "
         "_expected_severity_floor; no module constant",

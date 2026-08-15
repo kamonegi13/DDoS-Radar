@@ -31,15 +31,18 @@ for its whole run with every tick failing. It is served from here AND from
 probe with its own private notion of liveness is a second answer to the
 question this block exists to answer.
 
-Recall is `None` here today with a stated reason: the ground-truth label
-ledger lands with WP-3.3, and pooling zero cells is not a measurement.
-The aggregation path is L4's (`v3.calibration.status.self_evaluate`), not
+Recall reads REAL cells since WP-0.4 v2: the S9 runner accumulates the
+label ledger daily, and this handler publishes the interval — the point
+estimate beside the pending-adjusted lower bound (ADR-V3-012). The
+aggregation path is L4's (`v3.calibration.status.self_evaluate`), not
 a second one written here — S1-CONC-038 requires the chip and the CI gate
 to be the same arithmetic, which is only checkable if there is one.
 """
 from __future__ import annotations
 
 from v3.api.envelope import ApiResponse, tool_response
+from v3.calibration import labels as L
+from v3.calibration import recall as R
 from v3.calibration import status as S
 from v3.calibration.epoch import CURRENT_EPOCH, EpochStamp
 from v3.calibration.thresholds import CALIBRATION_WINDOW_SEC
@@ -151,16 +154,59 @@ def _ops_health_block(context) -> dict:
                                   now=context.now)
 
 
+def _calibration_block(context) -> dict:
+    """WP-0.4 v2 (0.4f): the recall interval, on real cells.
+
+    Two series, per C-12 and ADR-V3-012: the all-labels series (Tier 1
+    auto-confirms included — the one C-15's valid cells are counted on)
+    and the human-only series beside it. Each cell carries `recall` AND
+    `recall_lower_bound` = tp/(tp+fn+pending): Tier 3 is asynchronous,
+    and an unadjudicated FN queue must widen the published interval
+    rather than silently flatter the point estimate.
+    """
+    stamp_all = _stamp(context.now)
+    stamp_human = EpochStamp(
+        epoch_id=stamp_all.epoch_id, since=stamp_all.since,
+        until=stamp_all.until, exclude_auto=True)
+    cells_all = L.cells_for(context.ledger, stamp=stamp_all)
+    cells_human = L.cells_for(context.ledger, stamp=stamp_human)
+    pending = context.ledger.pending_fn_draft_counts(
+        epoch_id=stamp_all.epoch_id)
+    interval = []
+    for cell in cells_all:
+        waiting = pending.get((cell.scenario_id, cell.conclusion_type), 0)
+        interval.append({
+            "scenario_id": cell.scenario_id,
+            "conclusion_type": cell.conclusion_type,
+            "recall": R.recall(tp=cell.tp, fn=cell.fn),
+            "recall_lower_bound": R.recall_lower_bound(
+                tp=cell.tp, fn=cell.fn, pending=waiting),
+            "pending_fn_drafts": waiting,
+            "tp": cell.tp, "fn": cell.fn,
+        })
+    return {
+        "calibration": S.self_evaluate(cells_all,
+                                       stamp=stamp_all).as_dict(),
+        "calibration_human_only": S.self_evaluate(
+            cells_human, stamp=stamp_human).as_dict(),
+        "recall_interval": interval,
+        "pending_fn_drafts_total": sum(pending.values()),
+        "s9_last_run_at": context.ledger.latest_s9_run_at(),
+        "calibration_note": (
+            "recall は区間で公表します: recall = 確定分 tp/(tp+fn)、"
+            "recall_lower_bound = 未裁定 FN 草稿が全て真の場合の "
+            "tp/(tp+fn+pending)。attack_mode は recall 測定の対象外です"
+            "（ADR-V3-012 — FN の一次ソースが攻撃様態の ground truth を"
+            "与えないため。未測定であり、良好の意味ではありません）。"),
+    }
+
+
 def read_self_eval(context) -> ApiResponse:
     """R7 — the composite reliability read (O-11)."""
-    evaluation = S.self_evaluate((), stamp=_stamp(context.now))
     return tool_response(
         observed_at=context.now,
         self_eval={
-            "calibration": evaluation.as_dict(),
-            "calibration_note": (
-                "recall は ground truth ラベル台帳（WP-3.3）が着地するまで "
-                "measurable になりません。0.0 ではなく None を返します。"),
+            **_calibration_block(context),
             "null_zone": _null_zone_block(context),
             "data": _freshness_block(context),
             "ops_health": _ops_health_block(context),

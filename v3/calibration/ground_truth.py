@@ -243,7 +243,14 @@ def in_forward_window(*, observed_at: float, event_at: float) -> bool:
 _IDENTITY_LADDER: tuple = (
     (frozenset({"acled", "gdelt"}), "auto:both"),
     (frozenset({"acled"}), "auto:acled"),
+    # WP-0.4 v2 (ADR-V3-012): with ACLED permanently rejected, the FN
+    # sources ARE rss-graded + GDELT — the ladder must name them or the
+    # severity-floor rule raises on the very evidence the pipeline is
+    # built on. Pairs precede singles: the first `required <= present`
+    # match wins, and {"gdelt"} is a subset of {"rss", "gdelt"}.
+    (frozenset({"rss", "gdelt"}), "auto:rss_gdelt"),
     (frozenset({"gdelt"}), "auto:gdelt"),
+    (frozenset({"rss"}), "auto:rss"),
     (frozenset({"llm_intel", "sequence_events"}), "auto:mixed"),
     (frozenset({"llm_intel"}), "auto:llm_intel"),
     (frozenset({"sequence_events"}), "auto:sequence"),

@@ -50,6 +50,7 @@ from v3.fetch import llm as LLM
 from v3.fetch.client import HttpClient
 from v3.kernel.errors import DomainError
 from v3.ledger.store import LedgerStore
+from v3.calibration import runner as S9_RUNNER
 from v3.runtime import auth as AUTH
 from v3.runtime import chain as CHAIN
 from v3.runtime import config as CONFIG
@@ -146,6 +147,11 @@ class Deployment:
         self.resolver = config_chain
         self.auth_provider = auth_provider
         self.runtime = runtime
+        #: The S9 calibration loop (WP-0.4 v2) — a SECOND Runtime on its
+        #: own slow cadence, per P4 §S9. Deliberately not part of
+        #: `self.tick`: the C-16 clock counts tick-path changes, and the
+        #: calibrator is designed never to be one.
+        self.s9_runtime = None
         self.scenario_ids = tuple(scenario_ids)
         #: Which scenario the per-country sensors sweep while nobody has
         #: focused one. Validated by `_default_focus` before we get here,
@@ -420,6 +426,8 @@ class Deployment:
             return
         self._closed = True
         try:
+            if self.s9_runtime is not None:
+                self.s9_runtime.stop(timeout_sec=30)
             self.runtime.stop(timeout_sec=30)
         finally:
             handles = [self.client, self.store]
@@ -593,6 +601,14 @@ def compose(settings=None, *, environment: Optional[Mapping[str, str]] = None,
         deployment.runtime = Runtime(
             tick=deployment.tick, interval_sec=config.interval_sec,
             clock=clock, on_error=_log_tick_failure)
+        # WP-0.4 v2: the S9 calibration loop. Hourly WAKE, daily WORK —
+        # `maybe_run` consults the persisted last-run instant, so a
+        # restart neither skips a day nor doubles one (F-01). The tick
+        # path above is untouched: this callable never runs inside it.
+        deployment.s9_runtime = Runtime(
+            tick=lambda at: S9_RUNNER.maybe_run(
+                store, now=at, scenarios=deployment.scenario_refs()),
+            interval_sec=3600.0, clock=clock, on_error=_log_s9_failure)
         return deployment
     except BaseException:
         for resource in reversed(opened):
@@ -615,6 +631,14 @@ def _log_tick_failure(failure: BaseException) -> None:
     """
     import logging
     logging.getLogger("v3.server").error("tick failed: %s: %s",
+                                         type(failure).__name__, failure)
+
+
+def _log_s9_failure(failure: BaseException) -> None:
+    """Same contract as `_log_tick_failure`, for the calibration loop —
+    a calibrator that dies silently is how three incidents started."""
+    import logging
+    logging.getLogger("v3.server").error("s9 cycle failed: %s: %s",
                                          type(failure).__name__, failure)
 
 

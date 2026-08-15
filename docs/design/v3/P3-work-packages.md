@@ -187,7 +187,21 @@ C-15 の暦は初日から進む）。
 **固有の automated actor + 固有系列**として容れ、human-only 系列とは混ぜない）は ADR として
 記録してから実装する。
 
-**未決（オーナー裁定待ち）**: 0.4g の方向（attack_mode / 全件系列算入）。draft 確認面の
+**実装記録（2026-08-15 — 0.4a/b/c/f 着地）**: `v3/calibration/etl.py`（行→分類器入力の
+翻訳層 + Tier 1 ゲート + FnDraft）、`v3/calibration/runner.py`（S9Report / s9_cycle /
+maybe_run — 日次判定は `calibration_run` の永続 last-run で F-01 準拠）、migration v8
+（`calibration_fn_draft` / `calibration_run`、追記専用トリガー付き）、identity 梯子に
+`auto:rss` / `auto:rss_gdelt` を追加（ACLED 不採用後の FN ソースを梯子が名指せなかった）、
+`recall.recall_lower_bound`（唯一の算術サイト規律内）、R7 `self_eval` に区間開示
+（全件系列+human-only 系列の 2 評価・cell 別 recall/下限/pending・attack_mode 未測定注記・
+s9_last_run_at）。composition に**第二 Runtime**（wake 3600s・tick 経路無変更 — C-16 無傷）。
+**authority の緩和は不要と判明**: `Actor.automated()` は設計当初から自動書込者の正規経路
+（ADR-V3-012 の該当段落は「緩和」ではなく「既存経路の使用開始」と読み替える）。
+発見: `ground_truth.classify` は WP-3.2 以来完成・全面テスト済みで**呼び手ゼロ**だった —
+本 WP はその初めての配線である。**暦起点（0.4h）はシャドウ反映後の初回 S9 実行日で確定**。
+残: 0.4d（LLM 第二読者 — shadow 測定から）/ 0.4e（confirm/reject コマンド+標本監査+系列凍結）。
+
+**未決（オーナー裁定待ち）**: draft 確認面の
 置き場（v3 UI に確認キューを建てるか、当面 API のみか — UI なら P9 実見サイクルに乗る）。
 Tier 2 のモデル選定 — **制約（オーナー裁定 2026-08-15）: 中華系モデル（qwen / deepseek /
 yi / glm 等）は不採用**（ACLED 恒久不採用と同種の信頼・OPSEC 裁定。本ツールの警戒シナリオが

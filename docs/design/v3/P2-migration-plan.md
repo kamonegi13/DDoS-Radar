@@ -279,9 +279,13 @@ S5 CUT-07（非退化 cell 数 ≥ 4）は **2026-08-07 時点で不合格**（3
 >    根拠: 独立性の担保は「全件人手確認」ではなく「監査された誤り率」で行う（Tier 3 完全
 >    非同期の裁定 2026-08-15 と同根 — 人間はシーケンスの必須項目ではない）。
 >
-> 付随して `v3/calibration/authority.py` の自動書込者拒否を**系列分離を前提に**緩和する:
-> 規則エンジン（Tier 1）と LLM 第二読者（Tier 2）は**固有の automated actor id + 固有系列**で
-> ラベルを書き、human-only 系列には決して書けない。緩和は本 ADR をもって記録とする。
+> 付随する authority の扱い（実装時訂正 2026-08-15）: 当初この ADR は「自動書込者拒否の
+> 緩和」と書いたが、実装調査で**緩和は不要**と判明 — `Actor.automated(generator_id, version)`
+> は設計当初から自動書込者の正規経路であり（actor_id は `auto:` 導出で人間と構造的に区別、
+> `labels.record` が actor と provenance の生成器一致まで検査）、`EpochStamp.exclude_auto`
+> が human-only / 全件の 2 系列を既に表現している。本 ADR が記録するのは緩和ではなく
+> **この既存経路の使用開始**（Tier 1 規則エンジン、将来の Tier 2 LLM とも固有 generator id で
+> 書き、human-only 系列には構造的に入らない）。
 
 ### B. 健全性
 

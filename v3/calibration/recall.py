@@ -104,5 +104,25 @@ def miss_rate(*, tp: int, fn: int) -> Optional[float]:
     return None if value is None else 1.0 - value
 
 
+def recall_lower_bound(*, tp: int, fn: int,
+                       pending: int) -> Optional[float]:
+    """tp / (tp + fn + pending) — recall if every pending FN draft is real.
+
+    WP-0.4 v2 (ADR-V3-012): Tier 3 is asynchronous, so unadjudicated FN
+    candidates exist by design — and a candidate not counted anywhere
+    would make recall look BETTER the longer nobody looks at the queue.
+    This bound is the honesty mechanism that replaces the human gate:
+    published beside `recall`, it turns an unattended queue into visible
+    interval width instead of silent overstatement. `None` follows the
+    same contract as `recall` — an empty denominator is unmeasured.
+    """
+    numerator = _count(tp, name="tp")
+    denominator = (numerator + _count(fn, name="fn")
+                   + _count(pending, name="pending"))
+    if denominator == 0:
+        return None
+    return numerator / denominator
+
+
 __all__ = ["recall", "recall_exact", "precision", "miss_rate",
-           "drop_exceeds"]
+           "drop_exceeds", "recall_lower_bound"]

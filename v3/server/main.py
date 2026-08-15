@@ -92,6 +92,8 @@ def build_wsgi():
     deployment = build()
     application = create_app(deployment)
     deployment.runtime.start()
+    if deployment.s9_runtime is not None:
+        deployment.s9_runtime.start()
     atexit.register(deployment.close)
     _announce(deployment, application)
     return application
@@ -169,6 +171,8 @@ def _serve(deployment) -> int:
     """
     application = create_app(deployment)
     deployment.runtime.start()
+    if deployment.s9_runtime is not None:
+        deployment.s9_runtime.start()
     _announce(deployment, application)
 
     def _stop(signum, frame):        # pragma: no cover - signal path

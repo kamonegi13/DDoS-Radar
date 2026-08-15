@@ -329,7 +329,12 @@ def _records(store, *, snapshot_id="attn-1", computed_at=NOW, count=3):
 
 class TestTheSnapshotIsWrittenWholeOrNotAtAll:
     def test_the_schema_version_carries_the_table(self, store):
-        assert store.schema_version() == 7
+        # v7 brought attention_rank; the exact-version pin follows the
+        # schema forward (v8 = WP-0.4 v2's calibration_fn_draft +
+        # calibration_run) so this test keeps failing loudly whenever a
+        # migration lands without its version bump.
+        from v3.ledger.schema import SCHEMA_VERSION
+        assert store.schema_version() == SCHEMA_VERSION >= 7
         assert store.count_attention_ranks() == 0
 
     def test_a_snapshot_round_trips_with_its_components(self, store):

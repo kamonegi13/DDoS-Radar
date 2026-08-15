@@ -490,8 +490,98 @@ _MIGRATION_7 = Migration(
     ))
 
 
+_MIGRATION_8 = Migration(
+    version=8,
+    rationale="WP-0.4 v2 (ADR-V3-012): the FN draft ledger and the S9 run "
+              "record. A single-source FALSE_NEGATIVE candidate is not yet "
+              "a label — Tier 1 confirms only multi-source convergence, and "
+              "the remainder must wait for the LLM second reader or a human "
+              "WITHOUT blocking the pipeline. The draft table is where they "
+              "wait in the open: every pending row widens the published "
+              "recall interval, so an unattended queue degrades the stated "
+              "precision instead of silently overstating recall. The run "
+              "table is S9's own heartbeat — a persisted last-run instant "
+              "(the F-01 lesson: never a process counter) and the AP4 "
+              "record of what each cycle did.",
+    statements=(
+        """
+        CREATE TABLE IF NOT EXISTS calibration_fn_draft (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            draft_id             TEXT NOT NULL UNIQUE,
+            created_at           REAL NOT NULL,
+            scenario_id          TEXT NOT NULL,
+            conclusion_type      TEXT NOT NULL,
+            conclusion_id        TEXT NOT NULL,
+            label                TEXT NOT NULL,
+            reason               TEXT NOT NULL,
+            proposed_analyst_id  TEXT NOT NULL,
+            generator_id         TEXT NOT NULL,
+            generator_version    TEXT NOT NULL,
+            rule_id              TEXT NOT NULL,
+            epoch_id             TEXT NOT NULL,
+            observed_at          REAL NOT NULL,
+            labelled_at          REAL NOT NULL,
+            sources_json         TEXT NOT NULL,
+            evidence_url         TEXT,
+            CHECK (label = 'FALSE_NEGATIVE'),
+            CHECK (length(trim(draft_id)) > 0),
+            CHECK (length(trim(scenario_id)) > 0),
+            CHECK (length(trim(conclusion_type)) > 0),
+            CHECK (length(trim(conclusion_id)) > 0),
+            CHECK (length(trim(epoch_id)) > 0),
+            CHECK (length(trim(generator_id)) > 0),
+            CHECK (length(trim(generator_version)) > 0),
+            CHECK (length(trim(rule_id)) > 0)
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_calibration_fn_draft_cell "
+        "ON calibration_fn_draft (epoch_id, scenario_id, conclusion_type)",
+        "CREATE INDEX IF NOT EXISTS idx_calibration_fn_draft_subject "
+        "ON calibration_fn_draft (conclusion_id)",
+        """
+        CREATE TRIGGER IF NOT EXISTS calibration_fn_draft_no_update
+        BEFORE UPDATE ON calibration_fn_draft
+        BEGIN
+            SELECT RAISE(ABORT,
+                'calibration_fn_draft is append-only: adjudication is a command fold, never an edit of the candidate');
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS calibration_fn_draft_no_delete
+        BEFORE DELETE ON calibration_fn_draft
+        BEGIN
+            SELECT RAISE(ABORT,
+                'a draft is never deleted: dropping an unadjudicated FN candidate is how a recall number silently inflates (NP1)');
+        END
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS calibration_run (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            ran_at       REAL NOT NULL,
+            window_start REAL NOT NULL,
+            window_end   REAL NOT NULL,
+            outcome      TEXT NOT NULL,
+            report_json  TEXT NOT NULL,
+            CHECK (length(trim(outcome)) > 0),
+            CHECK (window_start <= window_end)
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_calibration_run_ran_at "
+        "ON calibration_run (ran_at DESC)",
+        """
+        CREATE TRIGGER IF NOT EXISTS calibration_run_no_update
+        BEFORE UPDATE ON calibration_run
+        BEGIN
+            SELECT RAISE(ABORT,
+                'calibration_run is append-only: it is the AP4 record of what S9 actually did');
+        END
+        """,
+    ))
+
+
 MIGRATIONS: tuple[Migration, ...] = (_MIGRATION_2, _MIGRATION_3, _MIGRATION_4,
-                                     _MIGRATION_5, _MIGRATION_6, _MIGRATION_7)
+                                     _MIGRATION_5, _MIGRATION_6, _MIGRATION_7,
+                                     _MIGRATION_8)
 
 #: The version a store reaches by applying every migration above.
 #: `schema.py` asserts `SCHEMA_VERSION` equals this at import, so a
