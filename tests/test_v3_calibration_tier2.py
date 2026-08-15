@@ -106,8 +106,7 @@ class TestThePromptIsReproducible:
         assert "実行主体国とは限りません" in LLM.SYSTEM_PROMPT
 
     def test_the_request_is_deterministic_and_schema_bound(self):
-        request = LLM.request_for(DRAFT, participants=ROSTER,
-                                  model_id="gpt-oss:20b")
+        request = LLM.request_for(DRAFT, participants=ROSTER)
         assert isinstance(request, LlmRequest)
         assert request.temperature == 0.0
         assert request.response_format is LLM.VERDICT_SCHEMA
@@ -116,6 +115,38 @@ class TestThePromptIsReproducible:
             list(LLM.VERDICTS)
         assert body["think"] == T.S9_TIER2_THINK
         assert body["options"]["num_predict"] == T.S9_TIER2_MAX_TOKENS
+
+
+class TestTheSecondReaderIsNotTheFirstOne:
+    def test_the_tier2_model_is_pinned_apart_from_the_deployment(self):
+        # A second opinion from the weights the detection stages run is
+        # the first opinion again — the correlated failure this rung
+        # exists to break.
+        assert LLM.TIER2_MODEL_ID == "gpt-oss:20b"
+        request = LLM.request_for(DRAFT, participants=ROSTER)
+        assert request.model_id == LLM.TIER2_MODEL_ID
+
+    def test_the_pass_does_not_inherit_the_egress_model(self, tmp_path,
+                                                        monkeypatch):
+        from v3.ledger import LedgerStore
+        store = LedgerStore(str(tmp_path / "t2model.db"))
+        monkeypatch.setattr(RUNNER.HUMAN, "pending_drafts",
+                            lambda *a, **k: (DRAFT,))
+        seen = {}
+        import v3.fetch.llm as llm_module
+
+        def _capture(request, **kwargs):
+            seen["model_id"] = request.model_id
+            return LlmResult(ok=True, response_text="{}",
+                             data={"verdict": "route_to_human",
+                                   "reason": "r"})
+
+        monkeypatch.setattr(llm_module, "submit", _capture)
+        RUNNER.tier2_pass(store, now=10.0, scenarios=(),
+                          egress=_Egress(model_id="gemma4:26b"))
+        assert seen["model_id"] == LLM.TIER2_MODEL_ID
+        assert store.llm_verdicts()[0]["model_id"] == LLM.TIER2_MODEL_ID
+        store.close()
 
 
 class TestTheRequestBodyKeepsProductionShape:

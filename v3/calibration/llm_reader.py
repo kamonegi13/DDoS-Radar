@@ -44,6 +44,21 @@ from v3.kernel.errors import DomainError
 #: is a constant rather than a config key on purpose.
 TIER2_EFFECT_ENABLED = False
 
+#: The second reader's model, and it is deliberately NOT the deployment's
+#: `LLM_MODEL`. The shadow runs gemma4 for its detection stages, and a
+#: second reader on the same weights would share the first reader's blind
+#: spots exactly — the correlated failure this rung exists to break, and
+#: the thing that makes "a second opinion" worth its latency. gpt-oss is
+#: a third family (neither gemma4 nor mistral-small, both of which the
+#: detection loop uses), open-weights, and outside the origin the owner
+#: excluded on 2026-08-15. Pinned here rather than configured, for the
+#: same reason as the flag above: the model IS the measurement's subject,
+#: so a deployment that could swap it would invalidate the agreement rate
+#: without changing a line of code.
+#: The endpoint and the HTTP client still come from the deployment's
+#: egress — one exit, one timeout policy (§1-4).
+TIER2_MODEL_ID = "gpt-oss:20b"
+
 AGREE_CONFIRM = "agree_confirm"
 ROUTE_TO_HUMAN = "route_to_human"
 VERDICTS: tuple[str, ...] = (AGREE_CONFIRM, ROUTE_TO_HUMAN)
@@ -181,12 +196,18 @@ def parse_verdict(data: Mapping, *, draft_id: str, model_id: str,
         effective=TIER2_EFFECT_ENABLED)
 
 
-def request_for(draft: Mapping, *, participants: Mapping, model_id: str):
-    """The `LlmRequest` for one draft. Deterministic settings, pinned."""
+def request_for(draft: Mapping, *, participants: Mapping,
+                model_id: Optional[str] = None):
+    """The `LlmRequest` for one draft. Deterministic settings, pinned.
+
+    `model_id` defaults to `TIER2_MODEL_ID` rather than to the
+    deployment's model: see that constant on why the second reader must
+    not be the detection loop's own weights.
+    """
     from v3.fetch.llm import LlmRequest
     return LlmRequest(
         prompt=prompt_for(draft, participants=participants),
-        system=SYSTEM_PROMPT, model_id=model_id,
+        system=SYSTEM_PROMPT, model_id=model_id or TIER2_MODEL_ID,
         temperature=0.0, max_tokens=T.S9_TIER2_MAX_TOKENS,
         response_format=VERDICT_SCHEMA, think=T.S9_TIER2_THINK)
 

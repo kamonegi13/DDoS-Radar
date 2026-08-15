@@ -255,13 +255,15 @@ def tier2_pass(store, *, now: float, scenarios: Sequence, egress=None,
     for draft in batch:
         # Already read by this model under this prompt: the same
         # question, not a second measurement.
-        if any(row["model_id"] == egress.model_id
+        # The second reader's OWN model, not the deployment's: a second
+        # opinion from the same weights the detection stages run is the
+        # first opinion again (see llm_reader.TIER2_MODEL_ID).
+        if any(row["model_id"] == LLM.TIER2_MODEL_ID
                and row["prompt_ref"] == LLM.PROMPT_REF
                for row in store.llm_verdicts(draft_id=draft["draft_id"])):
             continue
         request = LLM.request_for(
-            draft, participants=roles.get(draft["scenario_id"], {}),
-            model_id=egress.model_id)
+            draft, participants=roles.get(draft["scenario_id"], {}))
         report["asked"] += 1
         result = llm_module.submit(
             request, client=egress.client, store=store,
@@ -275,7 +277,7 @@ def tier2_pass(store, *, now: float, scenarios: Sequence, egress=None,
         try:
             verdict = LLM.parse_verdict(
                 result.data, draft_id=draft["draft_id"],
-                model_id=egress.model_id,
+                model_id=LLM.TIER2_MODEL_ID,
                 response_text=result.response_text)
         except DomainError:
             # An unusable answer leaves the draft pending, which is the
