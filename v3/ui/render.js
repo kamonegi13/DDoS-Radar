@@ -391,6 +391,69 @@
      * on the chip that IS the rank.
      */
     /**
+     * The lane item's DRAWER face (P9 §1.12 D-27). The rail's grid row
+     * squeezed into the drawer left nine tenths of the pane empty; this
+     * layout is built FOR the width: the sentence at full measure, the
+     * ranking basis as a visible fact grid (AP1's numbers finally get
+     * room instead of a tooltip), and the four verbs as a proper row.
+     */
+    function drawerLaneHtml(row, lane, names) {
+        var basis = Lane.rankBasis(row, lane);
+        var label = row.scenarioId
+            ? ((names && typeof names[row.scenarioId] === 'string'
+                && names[row.scenarioId])
+                ? names[row.scenarioId] : row.scenarioId)
+            : Fmt.ABSENT;
+        var facts = [
+            { term: _t('ui.drawer.fact.score'),
+              value: Fmt.num(basis.score, 4) },
+            { term: 'novelty', value: Fmt.num(basis.factors.novelty, 3) },
+            { term: 'confidence_delta',
+              value: Fmt.num(basis.factors.confidence_delta, 3) },
+            { term: 'analyst_blindness',
+              value: Fmt.num(basis.factors.analyst_blindness, 3) },
+            { term: _t('ui.drawer.fact.formula'),
+              value: basis.formulaRef || Fmt.ABSENT },
+            { term: _t('ui.drawer.fact.snapshot'),
+              value: basis.snapshotId || Fmt.ABSENT },
+            { term: _t('ui.drawer.fact.state'),
+              value: _t(row.analystStateKey) },
+        ].map(function (fact) {
+            return '<div class="dl-fact"><dt>' + esc(fact.term)
+                + '</dt><dd>' + esc(String(fact.value)) + '</dd></div>';
+        }).join('');
+        return '<div class="dl" data-item="' + esc(row.itemId) + '">'
+            + '<p class="dl-head">'
+            + '<span class="lane-rank-chip">'
+            + esc(row.rankPosition === null
+                ? Fmt.ABSENT : String(row.rankPosition)) + '</span>'
+            + '<strong class="dl-scenario">' + esc(label) + '</strong>'
+            + (row.rankFallback
+                ? '<em class="lane-rank-fallback">'
+                  + esc(_t('ui.lane.rank_fallback')) + '</em>' : '')
+            + '</p>'
+            + '<p class="dl-narrative">'
+            + esc(row.narrative === null
+                ? _t(row.narrativeMissingKey) : row.narrative) + '</p>'
+            + '<dl class="dl-facts">' + facts + '</dl>'
+            + '<div class="dl-actions">'
+            + (row.scenarioId
+                ? '<button type="button" data-open-scenario="'
+                  + esc(row.scenarioId) + '" data-item-open="'
+                  + esc(row.itemId) + '">' + esc(_t('ui.lane.open'))
+                  + '</button>'
+                : '<span class="lane-open-absent">'
+                  + esc(_t('ui.lane.open_absent')) + '</span>')
+            + '<button type="button" data-ack="' + esc(row.itemId) + '">'
+            + esc(_t('ui.lane.ack')) + '</button>'
+            + '<button type="button" data-snooze="' + esc(row.itemId) + '">'
+            + esc(_t('ui.lane.snooze')) + '</button>'
+            + '<button type="button" data-dismiss="' + esc(row.itemId) + '">'
+            + esc(_t('ui.lane.dismiss')) + '</button>'
+            + '</div></div>';
+    }
+
+    /**
      * One scenario INDEX row for the rail (P9 §1.11 R-J): threat level,
      * name, movement — one line, no wrapping. Everything else lives in
      * the drawer this row opens. `data-scenario` stays for the map-hover
@@ -1128,6 +1191,7 @@
         cardHtml: cardHtml,
         cardRowHtml: cardRowHtml,
         laneLineHtml: laneLineHtml,
+        drawerLaneHtml: drawerLaneHtml,
         laneRowHtml: laneRowHtml,
         calibrationHtml: calibrationHtml,
         unavailableHtml: unavailableHtml,

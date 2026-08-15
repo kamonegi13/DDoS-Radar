@@ -168,6 +168,10 @@
         'ui.board_map.membership_null': '{name} — TL 未算出',
         'ui.board_map.adversary_suffix': '（敵対側）',
         'ui.drawer.close': '閉じる',
+        'ui.drawer.fact.score': 'スコア',
+        'ui.drawer.fact.formula': '式',
+        'ui.drawer.fact.snapshot': 'スナップショット',
+        'ui.drawer.fact.state': '対応状態',
         'ui.drawer.lane_title': '注目事象の詳細',
         'ui.board_map.unplaced_on_real': '地図に置けない国: {list}（座標資産の未登録 — 観測は落としていません）',
         // ── 観測レイヤ（P8 §9 / NP9） ────────────────────────────────────

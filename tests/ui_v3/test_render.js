@@ -526,6 +526,25 @@ test('a row with no scenario says why it cannot be opened', () => {
         'a silently missing button is indistinguishable from a broken one');
 });
 
+// ── the drawer's lane face (P9 §1.12 D-27) ──────────────────────────────
+
+test('the drawer lane face shows the basis as visible facts, not a tooltip', () => {
+    const html = R.drawerLaneHtml(laneRow(), LANE,
+                                  { taiwan_contingency: '台湾正面' });
+    assert.ok(/dl-facts/.test(html), html);
+    assert.ok(/novelty/.test(html) && /confidence_delta/.test(html));
+    assert.ok(/attention\.score@1/.test(html), 'the formula stays traceable');
+    assert.ok(/台湾正面/.test(html));
+    assert.ok(/data-ack="c-1"/.test(html) && /data-dismiss="c-1"/.test(html),
+        'the four verbs ride the face');
+});
+
+test('a hostile narrative cannot break out of the drawer face', () => {
+    const html = R.drawerLaneHtml(laneRow({ narrative: XSS }), LANE, {});
+    assert.ok(!/<script>/.test(html), html);
+});
+
+
 // ── conclusion row ───────────────────────────────────────────────────────
 
 function conclusionRow(overrides) {

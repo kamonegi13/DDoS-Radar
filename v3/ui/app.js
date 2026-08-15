@@ -187,7 +187,7 @@
             });
             if (row) {
                 title = _t('ui.drawer.lane_title');
-                body = laneRowHtml(row, state.lane, state.names);
+                body = Render.drawerLaneHtml(row, state.lane, state.names);
             }
         }
         if (!body) {

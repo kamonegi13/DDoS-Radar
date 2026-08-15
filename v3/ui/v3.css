@@ -1229,3 +1229,25 @@ tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust);
 @media (prefers-reduced-motion: reduce) {
     .drawer { animation: none; }
 }
+
+
+/* ── drawer faces use the pane (P9 §1.12 D-27) ─────────────────────────
+ * The card sheds its own frame inside the drawer — the drawer IS the
+ * frame — and the lane face lays out for 460px instead of importing the
+ * rail's squeeze. */
+.drawer-body .card { border: none; padding: 0; background: none; }
+.dl-head { margin: 0 0 var(--space-2); display: flex; align-items: center;
+           gap: var(--space-2); font-size: var(--text-lead); }
+.dl-narrative { margin: 0 0 var(--space-3); font-size: var(--text-lead);
+                line-height: 1.7; }
+.dl-facts { margin: 0 0 var(--space-3); padding: var(--space-2);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-sm);
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: var(--space-1) var(--space-3); }
+.dl-fact { display: flex; justify-content: space-between;
+           gap: var(--space-2); }
+.dl-fact dt { color: var(--color-text-dim); font-size: var(--text-meta); }
+.dl-fact dd { margin: 0; font-weight: 600; }
+.dl-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.dl-actions button { flex: 1; min-width: 90px; padding: var(--space-2); }
