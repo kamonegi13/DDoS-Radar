@@ -74,12 +74,19 @@ SKIP_UNPARSEABLE = "llm_answer_unusable"
 #: The prompt's identity, versioned like every narrative template so a
 #: replay can say WHICH words produced a stored verdict (AP2/AP4).
 PROMPT_ID = "calibration.fn_second_reader"
-#: Bumped to 2 the same day: version 1 sent no evidence text, so the
-#: reader had nothing to judge (a) with and routed everything. An
-#: agreement rate measured under v1 would be a measurement of the empty
-#: prompt, and the verdict table is keyed by ref so the two populations
-#: cannot pool.
-PROMPT_VERSION = "2"
+#: Bumped twice on 2026-08-15, both times because a live reading showed
+#: the prompt asking for a judgement it had not supplied the material
+#: for. v1 sent no evidence text, so (a) was unanswerable and everything
+#: routed. v2 supplied the text but still asked whether "country" was
+#: consistent while sending no country — a draft is scenario-level and
+#: has no country field — and the model correctly answered that it could
+#: not check. v3 asks the question the classifier actually decides
+#: (does this evidence belong to THIS scenario, by the roster's roles)
+#: and puts the attributed country on each evidence line. An agreement
+#: rate measured under an earlier ref would be a measurement of the
+#: missing material; the verdict table is keyed by ref so the
+#: populations cannot pool.
+PROMPT_VERSION = "3"
 PROMPT_REF = f"{PROMPT_ID}@{PROMPT_VERSION}"
 
 #: Measured into existence on 2026-08-15. Both clauses are bench
@@ -91,15 +98,15 @@ PROMPT_REF = f"{PROMPT_ID}@{PROMPT_VERSION}"
 SYSTEM_PROMPT = (
     "あなたは OSINT 警戒システムの較正ラベル第二読者です。FN（検知漏れ）"
     "候補の草稿を審査します。審査対象は 2 点のみです: "
-    "(a) 証拠は指定シナリオに関連する実在の軍事・安全保障イベントを示して"
-    "いるか。(b) 国の帰属（country）は証拠と整合しているか。"
+    "(a) 証拠は実在の軍事・安全保障イベントを示しているか。"
+    "(b) その事象は指定シナリオに帰属しうるか（参加国名簿の役割から見て）。"
     "ツールが実際に検知したか否かの確認はあなたの仕事ではありません"
     "（結論台帳との照合は別の機械的検証層が行います）。"
-    "country はシナリオ参加国のうち観測が帰属される国であり、イベントの"
-    "実行主体国とは限りません（例: 中国が台湾周辺で演習 → "
+    "各証拠行の先頭にある国コードは、その観測が帰属された参加国であり、"
+    "イベントの実行主体国とは限りません（例: 中国が台湾周辺で演習 → "
     "taiwan_contingency では標的国 TW への観測として帰属され得ます）。"
-    "不整合とは、証拠の示す事象が指定 country への帰属として参加国名簿の"
-    "役割上説明できない場合を指します。"
+    "(b) が不成立とは、証拠の示す事象を参加国名簿の役割から見て当該"
+    "シナリオの事象として説明できない場合を指します。"
     "あなたの権限は 2 つだけです: "
     "(1) agree_confirm — (a)(b) の両方が成立する。"
     "(2) route_to_human — (a) または (b) に疑義・不整合・証拠不足がある。"

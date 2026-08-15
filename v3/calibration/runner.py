@@ -163,7 +163,11 @@ def s9_cycle(store, *, now: float, scenarios: Sequence,
                     events.append(event)
                     note = ETL.evidence_note_of(row)
                     if note:
-                        notes[(event.source, event.observed_at)] = note
+                        # The country the ETL attributed the row to: the
+                        # attribution question is unanswerable without
+                        # it, and the reader said so (2026-08-15).
+                        notes[(event.source, event.observed_at)] = (
+                            f"{country}: {note}")
         events = tuple(events)
 
         rows = store.conclusions_between(

@@ -57,8 +57,11 @@ def _conclusion(store, *, observed_at, state="TL5", confidence=0.5):
 
 
 def _signal(store, *, at, source="bg_observer_rss", country="TW",
-            fatalities=12):
-    flags = ({"fatalities": fatalities, "extractor_confidence": 0.9}
+            fatalities=12, summary="missile launch reported"):
+    # Real bg_observer_rss rows carry the extractor's summary; the draft
+    # copies it so Tier 2 has something to read (0.4d).
+    flags = ({"fatalities": fatalities, "extractor_confidence": 0.9,
+              "summary": summary}
              if source == "bg_observer_rss" else {})
     store.append_signal(SignalObservation(
         tick_id=f"tick-{at:.0f}-{source}-{country}", sensor=source,
@@ -218,6 +221,19 @@ class TestMaybeRunIsAPersistedSchedule:
         with pytest.raises(sqlite3.DatabaseError):
             with store.transaction() as conn:
                 conn.execute("UPDATE calibration_run SET outcome='edited'")
+
+
+class TestTheEvidenceNoteNamesItsCountry:
+    def test_a_draft_note_carries_the_attributed_country(self, store):
+        _conclusion(store, observed_at=NOW - 2 * HOUR, state="TL5")
+        _signal(store, at=NOW - HOUR, source="bg_observer_rss",
+                country="TW")
+        RUNNER.s9_cycle(store, now=NOW, scenarios=REFS)
+        drafts = store.fn_drafts(epoch_id=EPOCH)
+        assert len(drafts) == 1
+        # The attribution question is unanswerable without it — the live
+        # reader said exactly that on 2026-08-15.
+        assert drafts[0]["evidence_note"].startswith("[rss] TW:")
 
 
 class TestTheMigrationPathReplays:

@@ -99,11 +99,21 @@ class TestThePromptIsReproducible:
     def test_the_prompt_carries_a_versioned_ref(self):
         assert LLM.PROMPT_REF == f"{LLM.PROMPT_ID}@{LLM.PROMPT_VERSION}"
 
-    def test_the_system_prompt_carries_both_bench_findings(self):
-        # Measured 2026-08-15: without these two clauses the model
-        # routed candidates it should have confirmed.
+    def test_the_system_prompt_carries_the_bench_findings(self):
+        # Measured 2026-08-15 across three live readings: without these
+        # the model routed candidates it should have confirmed.
         assert "あなたの仕事ではありません" in LLM.SYSTEM_PROMPT
         assert "実行主体国とは限りません" in LLM.SYSTEM_PROMPT
+
+    def test_the_prompt_asks_only_what_it_supplies_the_material_for(self):
+        # v2 asked whether `country` was consistent while sending no
+        # country — a draft is scenario-level and has no country field —
+        # and the reader correctly answered that it could not check.
+        # The question is now scenario attribution, which the roster
+        # and the per-line country codes DO answer.
+        assert "指定シナリオに帰属しうるか" in LLM.SYSTEM_PROMPT
+        assert "国の帰属（country）は証拠と整合" not in LLM.SYSTEM_PROMPT
+        assert LLM.PROMPT_VERSION == "3"
 
     def test_the_request_is_deterministic_and_schema_bound(self):
         request = LLM.request_for(DRAFT, participants=ROSTER)
