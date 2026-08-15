@@ -35,6 +35,7 @@ from v3.calibration import etl as ETL
 from v3.calibration import ground_truth as GT
 from v3.calibration import human as HUMAN
 from v3.calibration import labels as L
+from v3.calibration import llm_reader as LLM
 from v3.calibration import thresholds as T
 from v3.kernel.errors import DomainError
 
@@ -61,6 +62,9 @@ class S9Report:
     #: (0.4e). Counted separately from `labels_new` because the two
     #: populate different series — the human-only one is made of these.
     human_labels_new: int = 0
+    #: Tier 2's pass (0.4d): asked / recorded / verdicts / skipped, with
+    #: every way of doing nothing named.
+    tier2: dict = field(default_factory=dict)
     pending_total: int = 0
     unlabelled: dict = field(default_factory=dict)
 
@@ -73,6 +77,7 @@ class S9Report:
                 "drafts_new": self.drafts_new,
                 "drafts_existing": self.drafts_existing,
                 "human_labels_new": self.human_labels_new,
+                "tier2": dict(self.tier2),
                 "pending_total": self.pending_total,
                 "unlabelled": dict(self.unlabelled)}
 
@@ -104,7 +109,8 @@ def _labelled_at_for(verdict: GT.LabelVerdict, position: GT.ToolPosition,
     return position.observed_at + T.GT_FP_TN_HORIZON_SEC
 
 
-def s9_cycle(store, *, now: float, scenarios: Sequence) -> S9Report:
+def s9_cycle(store, *, now: float, scenarios: Sequence,
+             egress=None) -> S9Report:
     """One full calibration pass. Pure orchestration over the store."""
     window_start = float(now) - T.S9_POSITION_LOOKBACK_SEC
     labels_new: dict = {}
@@ -186,6 +192,13 @@ def s9_cycle(store, *, now: float, scenarios: Sequence) -> S9Report:
     humans_new = HUMAN.materialise_feedback(store, now=float(now))
     humans_new += HUMAN.materialise_confirmed_drafts(store, now=float(now))
 
+    # 0.4d: Tier 2 reads what Tier 1 could not release. Recorded only —
+    # `TIER2_EFFECT_ENABLED` is False until the agreement rate against
+    # human adjudication has been measured, which is the whole reason
+    # the verdicts are stored while they change nothing.
+    tier2 = tier2_pass(store, now=float(now), scenarios=scenarios,
+                       egress=egress)
+
     pending = HUMAN.pending_draft_counts(store, now=float(now))
     return S9Report(
         ran_at=float(now), window_start=window_start,
@@ -193,7 +206,8 @@ def s9_cycle(store, *, now: float, scenarios: Sequence) -> S9Report:
         positions=positions_seen, labels_new=labels_new,
         labels_existing=labels_existing, drafts_new=drafts_new,
         drafts_existing=drafts_existing, human_labels_new=humans_new,
-        pending_total=sum(pending.values()), unlabelled=unlabelled)
+        tier2=tier2, pending_total=sum(pending.values()),
+        unlabelled=unlabelled)
 
 
 def _current_epoch_id() -> str:
@@ -201,7 +215,82 @@ def _current_epoch_id() -> str:
     return CURRENT_EPOCH.epoch_id
 
 
-def maybe_run(store, *, now: float, scenarios: Sequence,
+def tier2_pass(store, *, now: float, scenarios: Sequence, egress=None,
+               limit: Optional[int] = None) -> dict:
+    """Tier 2 reads the pending queue. Records; changes nothing yet.
+
+    Runs inside the S9 cycle, which is off-tick, so a slow model costs
+    the scoring loop nothing. Every way of doing nothing is counted
+    rather than returning a bare zero (G-17): "no model configured",
+    "model down", "answer unusable" and "nothing pending" are four
+    different facts pointing at four different repairs.
+
+    The cap is a BOUND, not a filter — the remainder is read on the next
+    cycle and the report says how many were left, because a silent cap
+    reads as "the model saw everything".
+    """
+    from v3.fetch import llm as llm_module
+
+    report = {"asked": 0, "recorded": 0, "verdicts": {}, "skipped": {},
+              "deferred": 0, "effect_enabled": LLM.TIER2_EFFECT_ENABLED,
+              "prompt_ref": LLM.PROMPT_REF}
+    pending = HUMAN.pending_drafts(store, now=float(now))
+    if not pending:
+        return report
+    if egress is None:
+        report["skipped"][LLM.SKIP_NO_EGRESS] = len(pending)
+        return report
+    if not getattr(egress, "enabled", False):
+        report["skipped"][LLM.SKIP_DISABLED] = len(pending)
+        return report
+
+    roles = {}
+    for ref in scenarios:
+        roles[getattr(ref, "scenario_id", None)] = \
+            dict(getattr(ref, "roles", None) or {})
+    cap = T.S9_TIER2_DRAFTS_PER_CYCLE if limit is None else int(limit)
+    batch = pending[:max(0, cap)]
+    report["deferred"] = len(pending) - len(batch)
+
+    for draft in batch:
+        # Already read by this model under this prompt: the same
+        # question, not a second measurement.
+        if any(row["model_id"] == egress.model_id
+               and row["prompt_ref"] == LLM.PROMPT_REF
+               for row in store.llm_verdicts(draft_id=draft["draft_id"])):
+            continue
+        request = LLM.request_for(
+            draft, participants=roles.get(draft["scenario_id"], {}),
+            model_id=egress.model_id)
+        report["asked"] += 1
+        result = llm_module.submit(
+            request, client=egress.client, store=store,
+            adapter_id="calibration_tier2", now=float(now),
+            endpoint=egress.endpoint,
+            replay_only=getattr(egress, "replay_only", False))
+        if not result.ok:
+            reason = result.error or LLM.SKIP_CALL_FAILED
+            report["skipped"][reason] = report["skipped"].get(reason, 0) + 1
+            continue
+        try:
+            verdict = LLM.parse_verdict(
+                result.data, draft_id=draft["draft_id"],
+                model_id=egress.model_id,
+                response_text=result.response_text)
+        except DomainError:
+            # An unusable answer leaves the draft pending, which is the
+            # safe direction: silence must never read as agreement.
+            report["skipped"][LLM.SKIP_UNPARSEABLE] = \
+                report["skipped"].get(LLM.SKIP_UNPARSEABLE, 0) + 1
+            continue
+        if store.append_llm_verdict(verdict, asked_at=float(now)):
+            report["recorded"] += 1
+        report["verdicts"][verdict.verdict] = \
+            report["verdicts"].get(verdict.verdict, 0) + 1
+    return report
+
+
+def maybe_run(store, *, now: float, scenarios: Sequence, egress=None,
               interval_sec: Optional[float] = None) -> Optional[S9Report]:
     """Run the daily cycle if it is due, else do nothing. The Runtime tick.
 
@@ -218,7 +307,7 @@ def maybe_run(store, *, now: float, scenarios: Sequence,
     last = store.latest_s9_run_at()
     if last is not None and float(now) - last < gap:
         return None
-    report = s9_cycle(store, now=now, scenarios=scenarios)
+    report = s9_cycle(store, now=now, scenarios=scenarios, egress=egress)
     store.append_s9_run(
         ran_at=report.ran_at, window_start=report.window_start,
         window_end=report.window_end, outcome="completed",
@@ -226,4 +315,4 @@ def maybe_run(store, *, now: float, scenarios: Sequence,
     return report
 
 
-__all__ = ["S9Report", "s9_cycle", "maybe_run"]
+__all__ = ["S9Report", "s9_cycle", "tier2_pass", "maybe_run"]

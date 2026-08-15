@@ -17,7 +17,7 @@ from typing import Optional
 
 from v3.ledger.migrations import LATEST_VERSION, MIGRATIONS, Migration
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 # ADR-V3-005 / P1 §5: the signal horizon is derived from the parity
 # requirement (30-day replay window x 2), not chosen for convenience.

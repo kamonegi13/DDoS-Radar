@@ -212,6 +212,53 @@ class CalibrationLedgerMixin:
             found.append(record)
         return found
 
+    def append_llm_verdict(self, verdict, *, asked_at: float,
+                           connection=None) -> bool:
+        """Record one Tier 2 reading. True if stored, False if present.
+
+        Idempotent on (draft, model, prompt): the daily cycle re-reads
+        the pending queue, and asking the same model the same words
+        about the same draft is the same measurement, not a second one.
+        A CHANGED prompt is a different row by construction, which is
+        what makes an agreement rate attributable to a prompt version.
+        """
+        with self._maybe_transaction(connection) as conn:
+            cursor = conn.execute(
+                "INSERT OR IGNORE INTO calibration_llm_verdict "
+                "(draft_id, asked_at, verdict, reason, model_id, "
+                " prompt_ref, response_text, event_real, "
+                " attribution_holds, effective) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (verdict.draft_id, float(asked_at), verdict.verdict,
+                 verdict.reason, verdict.model_id, verdict.prompt_ref,
+                 verdict.response_text,
+                 None if verdict.event_real is None
+                 else int(bool(verdict.event_real)),
+                 None if verdict.attribution_holds is None
+                 else int(bool(verdict.attribution_holds)),
+                 1 if verdict.effective else 0))
+            return cursor.rowcount > 0
+
+    def llm_verdicts(self, *, draft_id: Optional[str] = None) -> list:
+        """Stored Tier 2 verdicts, oldest first."""
+        query = ["SELECT * FROM calibration_llm_verdict WHERE 1 = 1"]
+        params: list = []
+        if draft_id is not None:
+            query.append(" AND draft_id = ?")
+            params.append(str(draft_id))
+        query.append(" ORDER BY asked_at ASC, id ASC")
+        rows = self._read_connection().execute("".join(query),
+                                               params).fetchall()
+        found = []
+        for row in rows:
+            record = dict(row)
+            record["effective"] = bool(record["effective"])
+            for key in ("event_real", "attribution_holds"):
+                if record[key] is not None:
+                    record[key] = bool(record[key])
+            found.append(record)
+        return found
+
     def append_s9_run(self, *, ran_at: float, window_start: float,
                       window_end: float, outcome: str, report: dict,
                       connection=None) -> None:

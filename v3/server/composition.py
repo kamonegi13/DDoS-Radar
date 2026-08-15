@@ -607,7 +607,12 @@ def compose(settings=None, *, environment: Optional[Mapping[str, str]] = None,
         # path above is untouched: this callable never runs inside it.
         deployment.s9_runtime = Runtime(
             tick=lambda at: S9_RUNNER.maybe_run(
-                store, now=at, scenarios=deployment.scenario_refs()),
+                store, now=at, scenarios=deployment.scenario_refs(),
+                # The SAME egress the tick's LLM stage uses. Tier 2 is a
+                # different question to the same model, not a second
+                # exit — a private client here would be a second timeout
+                # policy and a second thing to forget to close.
+                egress=deployment.llm),
             interval_sec=3600.0, clock=clock, on_error=_log_s9_failure)
         return deployment
     except BaseException:

@@ -99,11 +99,33 @@ class LlmRequest:
     model_id: str = ""
     temperature: float = DEFAULT_TEMPERATURE
     max_tokens: int = DEFAULT_MAX_TOKENS
-    response_format: str = "json"
+    #: `"json"` (production's value, free-form JSON) or a JSON SCHEMA as a
+    #: mapping. WP-0.4 v2 needs the second: Tier 2's verdict is a closed
+    #: vocabulary, and a schema makes an out-of-vocabulary answer
+    #: impossible at the transport rather than a parse to validate after
+    #: the fact. Ollama reads both under the same `format` key, so this is
+    #: one field with two admissible shapes rather than a second request
+    #: type (measured against Ollama 0.32.8 before landing).
+    response_format: Any = "json"
+    #: Reasoning-effort control for models that have one (`"low"` /
+    #: `"medium"` / `"high"`, or a bool). Absent from the body when None,
+    #: because an absent key and an explicit default are different
+    #: requests to a model that has no thinking mode at all. Bench note
+    #: (2026-08-15): gpt-oss:20b at thinking-high spends the token budget
+    #: on reasoning and returns no JSON — the same failure mode
+    #: `_CONCLUSION_GEMMA31` records for v1's routing.
+    think: Optional[Any] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.prompt, str) or not self.prompt.strip():
             raise DomainError("llm prompt must be a non-empty string")
+        if self.response_format is not None and \
+                not isinstance(self.response_format, (str, Mapping)):
+            raise DomainError(
+                f"response_format is 'json' or a JSON schema mapping, got "
+                f"{type(self.response_format).__name__}: a format the "
+                f"server does not read is a constraint that silently is "
+                f"not applied (the WP-2.6 sweep's recurring shape)")
         if not isinstance(self.model_id, str) or not self.model_id.strip():
             raise DomainError(
                 "llm model_id is required: S5-VERIF-022 replays by prompt "
@@ -131,9 +153,13 @@ class LlmRequest:
                         MAX_TOKENS_KEY: int(self.max_tokens)},
         }
         if self.response_format:
-            payload["format"] = self.response_format
+            payload["format"] = (dict(self.response_format)
+                                 if isinstance(self.response_format, Mapping)
+                                 else self.response_format)
         if self.system:
             payload["system"] = self.system
+        if self.think is not None:
+            payload["think"] = self.think
         return MappingProxyType(payload)
 
     def spec(self, *, endpoint: str) -> RequestSpec:

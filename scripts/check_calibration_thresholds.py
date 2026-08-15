@@ -161,6 +161,11 @@ STRUCTURALLY_UNMAPPABLE: dict = {
     "S9_TIER1_MIN_DISTINCT_SOURCES":
         "WP-0.4 v2 — new to v3; production confirmed FN labels by "
         "analyst hand, so no convergence floor exists to map",
+    "S9_TIER2_MAX_TOKENS":
+        "WP-0.4 v2 Tier 2 — new to v3; production has no LLM second "
+        "reader for calibration labels, so there is no value to read",
+    "S9_TIER2_DRAFTS_PER_CYCLE":
+        "WP-0.4 v2 Tier 2 — new to v3; same reason as the token bound",
     "GT_KINETIC_CONFIDENCE_FLOOR":
         "ground_truth_etl.py — inline `confidence >= 0.60` inside "
         "_expected_severity_floor; no module constant",

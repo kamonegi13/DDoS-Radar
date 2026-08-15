@@ -66,15 +66,16 @@ STORE_CLASS = "LedgerStore"
 #: The same change moved the handle methods to `store_connections.py` —
 #: a SIXTH module on the chain — and the count is unchanged by that,
 #: which is the property this floor exists to prove.
-#: Raised 69 -> 74 on 2026-08-15 for WP-0.4 v2: the five calibration
-#: methods the S9 runner needs (`append_fn_draft`, `fn_drafts`,
-#: `pending_fn_draft_counts`, `append_s9_run`, `latest_s9_run_at`), all
+#: Raised 69 -> 74 on 2026-08-15 for WP-0.4 v2's S9 runner
+#: (`append_fn_draft`, `unlabelled_fn_drafts`, `fn_drafts`,
+#: `append_s9_run`, `latest_s9_run_at`), then 74 -> 76 the same day for
+#: Tier 2's verdict ledger (`append_llm_verdict`, `llm_verdicts`). All
 #: public, all classified in the two seams.
-METHOD_FLOOR = 74
+METHOD_FLOOR = 76
 #: The public half of the same count. Named separately because the two
 #: seams partition PUBLIC methods (`READ_METHODS` / `WRITE_METHODS`), and
 #: a public method that stopped being seen is the one an analyst notices.
-PUBLIC_METHOD_FLOOR = 63
+PUBLIC_METHOD_FLOOR = 65
 
 
 def _bindings(tree: ast.Module) -> dict:

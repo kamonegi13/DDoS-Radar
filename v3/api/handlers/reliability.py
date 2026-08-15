@@ -43,10 +43,13 @@ from __future__ import annotations
 from v3.api.envelope import ApiResponse, tool_response
 from v3.calibration import human as HUMAN
 from v3.calibration import labels as L
+from v3.calibration import llm_reader as LLM
 from v3.calibration import recall as R
 from v3.calibration import status as S
 from v3.calibration.epoch import CURRENT_EPOCH, EpochStamp
 from v3.calibration.thresholds import CALIBRATION_WINDOW_SEC
+from v3.commands import calibration as C
+from v3.kernel.errors import DomainError
 from v3.ledger import views
 from v3.runtime import ops_health as OPS
 
@@ -155,6 +158,42 @@ def _ops_health_block(context) -> dict:
                                   now=context.now)
 
 
+def _tier2_block(context) -> dict:
+    """AP3 for the second reader (0.4d): how well it agrees, and whether
+    it is allowed to act on that yet.
+
+    Published even while `effect_enabled` is false — especially then. The
+    rung's whole justification is a measured agreement rate, and a rate
+    that lives only in a developer's notebook is not one an analyst can
+    weigh when deciding how far to trust the tool.
+    """
+    verdicts = []
+    for row in context.ledger.llm_verdicts():
+        try:
+            verdicts.append(LLM.Tier2Verdict(
+                draft_id=str(row["draft_id"]), verdict=str(row["verdict"]),
+                reason=str(row["reason"] or ""),
+                model_id=str(row["model_id"]),
+                prompt_ref=str(row["prompt_ref"]),
+                response_text=str(row["response_text"] or ""),
+                effective=bool(row["effective"])))
+        except DomainError:      # pragma: no cover - defensive
+            continue
+    states = {draft_id: C.state_name(C.draft_state(context.ledger, draft_id,
+                                                   until=context.now))
+              for draft_id in {v.draft_id for v in verdicts}}
+    report = LLM.agreement(verdicts, states)
+    report["verdicts_recorded"] = len(verdicts)
+    report["models"] = sorted({v.model_id for v in verdicts})
+    report["note"] = (
+        "Tier 2（ローカル LLM 第二読者）の判定は記録のみで、現在ラベルを"
+        "解放しません（effect_enabled=false）。権限を与える条件は、人間の"
+        "裁定との一致率が実測されることです。判定は agree_confirm と "
+        "route_to_human の 2 つのみで、棄却権はありません（見逃しの取り"
+        "こぼしは recall を水増しする危険側のため）。")
+    return report
+
+
 def _calibration_block(context) -> dict:
     """WP-0.4 v2 (0.4f): the recall interval, on real cells.
 
@@ -186,6 +225,7 @@ def _calibration_block(context) -> dict:
             "tp": cell.tp, "fn": cell.fn,
         })
     return {
+        "tier2": _tier2_block(context),
         "calibration": S.self_evaluate(cells_all,
                                        stamp=stamp_all).as_dict(),
         "calibration_human_only": S.self_evaluate(

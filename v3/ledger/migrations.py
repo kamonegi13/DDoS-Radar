@@ -579,9 +579,56 @@ _MIGRATION_8 = Migration(
     ))
 
 
+_MIGRATION_9 = Migration(
+    version=9,
+    rationale="WP-0.4 v2 Tier 2 (0.4d): the second reader's verdicts. "
+              "Stored even while they change nothing, because the whole "
+              "justification for ever granting this rung effect is a "
+              "MEASURED agreement rate against human adjudication — and "
+              "a rate cannot be measured from calls nobody kept. The "
+              "model id, the prompt ref and the raw response ride every "
+              "row: P7 §4 retired LLM narration because a model asked "
+              "twice answered twice differently, and the answer to that "
+              "here is that AP4 replays the stored verdict rather than "
+              "re-executing the model.",
+    statements=(
+        """
+        CREATE TABLE IF NOT EXISTS calibration_llm_verdict (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            draft_id           TEXT NOT NULL,
+            asked_at           REAL NOT NULL,
+            verdict            TEXT NOT NULL,
+            reason             TEXT NOT NULL,
+            model_id           TEXT NOT NULL,
+            prompt_ref         TEXT NOT NULL,
+            response_text      TEXT NOT NULL,
+            event_real         INTEGER,
+            attribution_holds  INTEGER,
+            effective          INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (draft_id, model_id, prompt_ref),
+            CHECK (verdict IN ('agree_confirm', 'route_to_human')),
+            CHECK (length(trim(draft_id)) > 0),
+            CHECK (length(trim(model_id)) > 0),
+            CHECK (length(trim(prompt_ref)) > 0),
+            CHECK (effective IN (0, 1))
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_calibration_llm_verdict_draft "
+        "ON calibration_llm_verdict (draft_id, asked_at DESC)",
+        """
+        CREATE TRIGGER IF NOT EXISTS calibration_llm_verdict_no_update
+        BEFORE UPDATE ON calibration_llm_verdict
+        BEGIN
+            SELECT RAISE(ABORT,
+                'calibration_llm_verdict is append-only: a verdict edited after the fact is a measurement of the editor, not of the model');
+        END
+        """,
+    ))
+
+
 MIGRATIONS: tuple[Migration, ...] = (_MIGRATION_2, _MIGRATION_3, _MIGRATION_4,
                                      _MIGRATION_5, _MIGRATION_6, _MIGRATION_7,
-                                     _MIGRATION_8)
+                                     _MIGRATION_8, _MIGRATION_9)
 
 #: The version a store reaches by applying every migration above.
 #: `schema.py` asserts `SCHEMA_VERSION` equals this at import, so a

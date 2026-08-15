@@ -182,6 +182,24 @@ _PINNED: dict[str, Threshold] = {
                        "as a pending draft and widens the recall interval "
                        "instead of entering the denominator unaudited"),
 
+    "S9_TIER2_MAX_TOKENS": Threshold.pinned(
+        400.0, unit="count",
+        provenance_ref="WP-0.4 v2 Tier 2, v3/calibration/llm_reader.py "
+                       "request_for. Measured 2026-08-15: the verdict "
+                       "object plus a one-sentence reason fits well "
+                       "inside a 400-token budget at thinking-low; the "
+                       "failure this bounds is the one v1's routing "
+                       "records — reasoning eating the budget and no "
+                       "JSON coming back"),
+    "S9_TIER2_DRAFTS_PER_CYCLE": Threshold.pinned(
+        20.0, unit="count",
+        provenance_ref="WP-0.4 v2 Tier 2, v3/calibration/runner.py "
+                       "tier2_pass: how many pending drafts one "
+                       "S9 cycle may ask about. A bound, not a filter — "
+                       "the rest are read on the next cycle and the "
+                       "report says how many were left, because a silent "
+                       "cap reads as 'the model saw everything' (G-17)"),
+
     # ── auto-tune governor (S1-CALIB-062/063) ──────────────────────────
     "AUTOTUNE_MIN_SAMPLE_N": Threshold.pinned(
         30.0, unit="count",
@@ -350,6 +368,14 @@ S9_POSITION_LOOKBACK_D = _pinned_number("S9_POSITION_LOOKBACK_D")
 S9_POSITION_LOOKBACK_SEC = S9_POSITION_LOOKBACK_D * 86400.0
 S9_TIER1_MIN_DISTINCT_SOURCES = int(_pinned_number(
     "S9_TIER1_MIN_DISTINCT_SOURCES"))
+S9_TIER2_MAX_TOKENS = int(_pinned_number("S9_TIER2_MAX_TOKENS"))
+S9_TIER2_DRAFTS_PER_CYCLE = int(_pinned_number(
+    "S9_TIER2_DRAFTS_PER_CYCLE"))
+#: Not a number, so not in `_PINNED`: the reasoning-effort token is a
+#: transport value with no scale. `"low"` for the reason the bench
+#: measured — higher efforts spend the token budget on reasoning and
+#: return no JSON.
+S9_TIER2_THINK = "low"
 
 AUTOTUNE_MIN_SAMPLE_N = int(_pinned_number("AUTOTUNE_MIN_SAMPLE_N"))
 AUTOTUNE_COOLDOWN_H = _pinned_number("AUTOTUNE_COOLDOWN_H")
