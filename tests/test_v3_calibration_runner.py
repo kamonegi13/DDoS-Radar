@@ -220,6 +220,42 @@ class TestMaybeRunIsAPersistedSchedule:
                 conn.execute("UPDATE calibration_run SET outcome='edited'")
 
 
+class TestTheMigrationPathReplays:
+    """v10 was the first ALTER-TABLE migration here and it broke the
+    replay the suite performs (a version rewind re-runs the whole list;
+    `CREATE TABLE IF NOT EXISTS` survives that, `ADD COLUMN` does not).
+    Rebuilt as an idempotent table copy — pinned, because the next
+    column will be tempted down the same path."""
+
+    def test_replaying_every_migration_preserves_the_drafts(self, store,
+                                                            tmp_path):
+        import sqlite3
+        from v3.ledger.schema import SCHEMA_VERSION
+        _conclusion(store, observed_at=NOW - 2 * HOUR, state="TL5")
+        _signal(store, at=NOW - HOUR, source="bg_observer_rss")
+        RUNNER.s9_cycle(store, now=NOW, scenarios=REFS)
+        assert len(store.fn_drafts(epoch_id=EPOCH)) == 1
+        path = store._path if hasattr(store, "_path") else None
+        store.close()
+        assert path, "the fixture's store must know its own path"
+
+        # Rewind and re-run the whole list, exactly as the ledger suite
+        # does for the entity tables.
+        conn = sqlite3.connect(path)
+        conn.execute("UPDATE schema_meta SET value = '7' WHERE key = 'version'")
+        conn.commit()
+        conn.close()
+
+        again = LedgerStore(path)
+        try:
+            assert again.schema_version() == SCHEMA_VERSION
+            drafts = again.fn_drafts(epoch_id=EPOCH)
+            assert len(drafts) == 1, "the replay must not lose a draft"
+            assert "evidence_note" in drafts[0]
+        finally:
+            again.close()
+
+
 class TestTheDraftLedgerIsAppendOnly:
     def test_an_update_is_refused(self, store):
         import sqlite3

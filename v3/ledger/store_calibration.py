@@ -155,15 +155,17 @@ class CalibrationLedgerMixin:
                 "(draft_id, created_at, scenario_id, conclusion_type, "
                 " conclusion_id, label, reason, proposed_analyst_id, "
                 " generator_id, generator_version, rule_id, epoch_id, "
-                " observed_at, labelled_at, sources_json, evidence_url) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " observed_at, labelled_at, sources_json, evidence_url, "
+                " evidence_note) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (draft.draft_id, stamped, draft.scenario_id,
                  draft.conclusion_type, draft.conclusion_id, draft.label,
                  draft.reason, draft.proposed_analyst_id,
                  draft.generator_id, draft.generator_version,
                  draft.rule_id, draft.epoch_id, draft.observed_at,
                  draft.labelled_at,
-                 json.dumps(list(draft.sources)), draft.evidence_url))
+                 json.dumps(list(draft.sources)), draft.evidence_url,
+                 getattr(draft, "evidence_note", "") or ""))
             return cursor.rowcount > 0
 
     def fn_drafts(self, *, epoch_id: str,

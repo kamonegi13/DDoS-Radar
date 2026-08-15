@@ -74,7 +74,12 @@ SKIP_UNPARSEABLE = "llm_answer_unusable"
 #: The prompt's identity, versioned like every narrative template so a
 #: replay can say WHICH words produced a stored verdict (AP2/AP4).
 PROMPT_ID = "calibration.fn_second_reader"
-PROMPT_VERSION = "1"
+#: Bumped to 2 the same day: version 1 sent no evidence text, so the
+#: reader had nothing to judge (a) with and routed everything. An
+#: agreement rate measured under v1 would be a measurement of the empty
+#: prompt, and the verdict table is keyed by ref so the two populations
+#: cannot pool.
+PROMPT_VERSION = "2"
 PROMPT_REF = f"{PROMPT_ID}@{PROMPT_VERSION}"
 
 #: Measured into existence on 2026-08-15. Both clauses are bench
@@ -124,11 +129,17 @@ def prompt_for(draft: Mapping, *, participants: Mapping) -> str:
     """
     payload = {
         "scenario": draft.get("scenario_id"),
+        # The observation's own words. Without it the reader cannot
+        # assess (a) at all — it has no network to follow the URL with —
+        # and routes every candidate to a human, which is the safe
+        # direction but an inert rung (measured 2026-08-15).
+        "evidence_text": draft.get("evidence_note") or "",
         "participants": {str(code): str(role)
                          for code, role in sorted(dict(participants).items())},
         "conclusion_type": draft.get("conclusion_type"),
         "draft_claim": draft.get("reason"),
         "detected_sources": list(draft.get("sources") or []),
+        "evidence_text_present": bool(draft.get("evidence_note")),
         "evidence_url": draft.get("evidence_url"),
         "proposed_by": draft.get("proposed_analyst_id"),
     }

@@ -243,15 +243,26 @@ AP3 ブロック（一致率・比較件数・effect_enabled・prompt_ref）。
    「提出実装は 1 本」を破る。規律は「Ollama 要求を組むモジュールが 1 本」であって
    「Ollama の経路が 1 本」ではない）。ライブ再検証: 2 件問い合わせ→2 件記録・
    `route_to_human`・`model=gpt-oss:20b`・`effective=False`。
-2. **【未修正・次スライス】プロンプトに証拠本文が載っていない**。草稿が運ぶのは分類器の
+2. **プロンプトに証拠本文が載っていなかった**（同日修正）。草稿が運ぶのは分類器の
    規則文（"external evidence outranks the call"）・ソース名・URL のみで、**記事本文は
-   `signal_observation.flags["summary"]` に residing していて草稿には無い**。モデルは URL を
+   `signal_observation.flags["summary"]` にあって草稿には無かった**。モデルは URL を
    読めないので「イベントは実在するか」を判断できず、**全件 route_to_human に倒れる**
-   （安全側ではあるが、この段が実質的に不活性になる）。修正案: 草稿生成時に証拠要約を
-   `evidence_note` として持たせる（migration + `s9_cycle` で signal 行の summary を拾う）。
-   **Tier 2 の一致率測定はこの修正の後でなければ意味を持たない**。
+   （安全側ではあるが、この段が実質的に不活性）。修正: `etl.evidence_note_of`（RSS は
+   `flags["summary"]`、GDELT は `value`）→ 草稿の `evidence_note`（migration v10）→
+   プロンプトの `evidence_text`。窓内の証拠のみを新しい順に連結し 400 字で bound。
+   **本文が無い場合は空のまま**にし `evidence_text_present: false` を明示する（規則文で
+   埋めない — 「本文が保存されていない」は読み手が route の根拠にできる事実）。
+   プロンプトは **@2 に版上げ**（@1 は証拠なしで測っていたため、一致率の母集団が混ざらない
+   ように verdict 表は ref をキーに持つ）。
+   **副産物の規律**: v10 は本コードベース初の `ALTER TABLE` で、スイートの**バージョン
+   巻き戻し再生**（既存ストアに全 migration を再適用する検査）に耐えなかった
+   — `CREATE TABLE IF NOT EXISTS` は再生に耐えるが `ADD COLUMN` は 2 回目に
+   `duplicate column name` で落ちる。**データ保全つきの冪等なテーブル再構築**へ書き直し
+   （新表作成 → 列名を明示した `INSERT OR IGNORE` コピー → 旧表 drop → rename →
+   index/trigger 再作成）、再生しても草稿が失われないことをテストで固定した。
+   次に列を足す者が同じ道に誘われるため、この形を残す。
 
-残: 0.4d 続き（上記 2 = 証拠本文の供給）/ 0.4e 後半（標本監査+実測誤り率による系列凍結）。
+残: 0.4e 後半（標本監査+実測誤り率による系列凍結）。
 **Tier 2 の効力付与は shadow 一致率の実測後**（草稿が溜まり、人間裁定と突き合わせられる
 ようになってから）。
 

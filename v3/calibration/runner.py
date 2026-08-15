@@ -91,6 +91,27 @@ def _attributable_countries(ref) -> tuple:
                         if GT.may_attribute(role)))
 
 
+def _note_for(position, events: tuple, notes: dict) -> str:
+    """The evidence text of the events INSIDE the position's window.
+
+    Scoped to the window rather than to the scenario, so the note is
+    about the finding the draft is for. Joined newest-first and bounded
+    by `ETL.EVIDENCE_NOTE_LIMIT`; an empty result is left empty rather
+    than filled with the rule sentence, because "no text was stored" is
+    a fact a reader should be able to route on.
+    """
+    in_window = [event for event in events
+                 if GT.in_forward_window(observed_at=position.observed_at,
+                                         event_at=event.observed_at)]
+    in_window.sort(key=lambda event: event.observed_at, reverse=True)
+    parts = []
+    for event in in_window:
+        text = notes.get((event.source, event.observed_at))
+        if text and text not in parts:
+            parts.append(f"[{event.source}] {text}")
+    return " / ".join(parts)[:ETL.EVIDENCE_NOTE_LIMIT]
+
+
 def _labelled_at_for(verdict: GT.LabelVerdict, position: GT.ToolPosition,
                      events: tuple) -> float:
     """A DETERMINISTIC judgement instant, so a re-run converges on the
@@ -130,12 +151,19 @@ def s9_cycle(store, *, now: float, scenarios: Sequence,
                 unlabelled.get("no_conflict_party", 0) + 1
             continue
         events = []
+        # (event, note) pairs: the classifier reads the event, and a
+        # withheld draft carries the row's own words so Tier 2 can judge
+        # whether the thing happened (0.4d, found by deploying).
+        notes: dict = {}
         for country in countries:
             for row in store.signals_between(window_start, float(now),
                                              country=country):
                 event = ETL.event_from_signal(row)
                 if event is not None:
                     events.append(event)
+                    note = ETL.evidence_note_of(row)
+                    if note:
+                        notes[(event.source, event.observed_at)] = note
         events = tuple(events)
 
         rows = store.conclusions_between(
@@ -163,7 +191,8 @@ def s9_cycle(store, *, now: float, scenarios: Sequence,
                         verdict, scenario_id=str(scenario_id),
                         conclusion_id=conclusion_id,
                         observed_at=position.observed_at,
-                        labelled_at=labelled_at, sources=sources)
+                        labelled_at=labelled_at, sources=sources,
+                        evidence_note=_note_for(position, events, notes))
                     if store.append_fn_draft(draft, now=float(now)):
                         drafts_new += 1
                     else:

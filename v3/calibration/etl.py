@@ -94,6 +94,33 @@ def event_from_signal(row: Mapping) -> Optional[GT.ExternalEvent]:
         url=row.get("evidence_url") or None)
 
 
+#: How much of one observation's text a draft carries. The note exists
+#: so a second reader can judge whether the event is real; a whole feed
+#: item would push the prompt past what the verdict is worth.
+EVIDENCE_NOTE_LIMIT = 400
+
+
+def evidence_note_of(row: Mapping) -> str:
+    """The observation's own words, for a reader that cannot fetch a URL.
+
+    Found by deploying (2026-08-15): the draft carried the classifier's
+    RULE sentence, the source name and a link — and Tier 2 has no
+    network, so it could not assess "is this event real" and routed
+    every candidate to a human. The article text was in the ledger the
+    whole time, on the row the rule fired from.
+
+    RSS rows carry the extractor's summary in `flags`; GDELT carries a
+    rendered `value`. Both are already stored; nothing new is fetched.
+    """
+    flags = _flags_of(row)
+    for candidate in (flags.get("summary"), row.get("value"),
+                      flags.get("reason")):
+        text = str(candidate or "").strip()
+        if text:
+            return text[:EVIDENCE_NOTE_LIMIT]
+    return ""
+
+
 def tl_of_state(state) -> Optional[int]:
     """`"TL4"` -> 4, anything else -> None. The verbatim state stays the
     position's `state`; this is only the numeric reading `is_alert`
@@ -183,6 +210,11 @@ class FnDraft:
     labelled_at: float
     sources: tuple
     evidence_url: Optional[str] = None
+    #: The observation's own words (`evidence_note_of`). Empty when the
+    #: stored row carried none — an empty note is a fact about the
+    #: evidence, and a reader told "no text available" can route on that
+    #: rather than guess.
+    evidence_note: str = ""
 
     def __post_init__(self) -> None:
         if self.label != "FALSE_NEGATIVE":
@@ -203,7 +235,7 @@ class FnDraft:
 
 def draft_for(verdict: GT.LabelVerdict, *, scenario_id: str,
               conclusion_id: str, observed_at: float, labelled_at: float,
-              sources: tuple) -> FnDraft:
+              sources: tuple, evidence_note: str = "") -> FnDraft:
     """The pending row for one withheld FALSE_NEGATIVE verdict."""
     if verdict.label != "FALSE_NEGATIVE" or verdict.provenance is None:
         raise DomainError(
@@ -222,9 +254,11 @@ def draft_for(verdict: GT.LabelVerdict, *, scenario_id: str,
         generator_version=provenance.generator_version,
         rule_id=provenance.rule_id, epoch_id=provenance.epoch_id,
         observed_at=float(observed_at), labelled_at=float(labelled_at),
-        sources=tuple(sources), evidence_url=verdict.evidence_url)
+        sources=tuple(sources), evidence_url=verdict.evidence_url,
+        evidence_note=str(evidence_note or "")[:EVIDENCE_NOTE_LIMIT])
 
 
-__all__ = ["EVENT_SOURCE_BY_SIGNAL", "event_from_signal", "tl_of_state",
+__all__ = ["EVENT_SOURCE_BY_SIGNAL", "EVIDENCE_NOTE_LIMIT",
+           "evidence_note_of", "event_from_signal", "tl_of_state",
            "position_from_conclusion", "convergent_sources",
            "tier1_decision", "draft_id_for", "FnDraft", "draft_for"]

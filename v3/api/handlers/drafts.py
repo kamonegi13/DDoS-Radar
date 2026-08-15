@@ -39,6 +39,7 @@ def read_drafts(context, *, scenario_id=None) -> ApiResponse:
             "conclusion_id": draft["conclusion_id"],
             "label": draft["label"],
             "reason": draft["reason"],
+            "evidence_note": draft.get("evidence_note") or "",
             "sources": list(draft.get("sources") or []),
             "proposed_analyst_id": draft["proposed_analyst_id"],
             "rule_id": draft["rule_id"],

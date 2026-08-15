@@ -626,9 +626,108 @@ _MIGRATION_9 = Migration(
     ))
 
 
+_MIGRATION_10 = Migration(
+    version=10,
+    rationale="WP-0.4 v2 (0.4d, found by deploying): the draft carries "
+              "the observation's own words. The FN draft held the "
+              "classifier's RULE sentence, the source name and a link — "
+              "and the second reader has no network, so it could not "
+              "assess whether the event was real and routed every "
+              "candidate to a human. The rung looked wired and could not "
+              "speak. The article text was in `signal_observation` the "
+              "whole time; this column is where the draft keeps a copy "
+              "of it, so a verdict is reproducible from the draft row "
+              "alone rather than from a feed that has since rotated.",
+    statements=(
+        # A table REBUILD rather than `ALTER TABLE ADD COLUMN`, and the
+        # reason is the migration list's own contract: the suite replays
+        # the whole list over an existing store (a version rewind), and
+        # `CREATE TABLE IF NOT EXISTS` survives that while `ADD COLUMN`
+        # raises `duplicate column name` the second time. Every statement
+        # below is idempotent, so the upgrade path can be exercised as
+        # often as the tests want — which is the property that makes it
+        # trustworthy on the one store that actually needs it.
+        """
+        CREATE TABLE IF NOT EXISTS calibration_fn_draft_v10 (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            draft_id             TEXT NOT NULL UNIQUE,
+            created_at           REAL NOT NULL,
+            scenario_id          TEXT NOT NULL,
+            conclusion_type      TEXT NOT NULL,
+            conclusion_id        TEXT NOT NULL,
+            label                TEXT NOT NULL,
+            reason               TEXT NOT NULL,
+            proposed_analyst_id  TEXT NOT NULL,
+            generator_id         TEXT NOT NULL,
+            generator_version    TEXT NOT NULL,
+            rule_id              TEXT NOT NULL,
+            epoch_id             TEXT NOT NULL,
+            observed_at          REAL NOT NULL,
+            labelled_at          REAL NOT NULL,
+            sources_json         TEXT NOT NULL,
+            evidence_url         TEXT,
+            evidence_note        TEXT NOT NULL DEFAULT '',
+            CHECK (label = 'FALSE_NEGATIVE'),
+            CHECK (length(trim(draft_id)) > 0),
+            CHECK (length(trim(scenario_id)) > 0),
+            CHECK (length(trim(conclusion_type)) > 0),
+            CHECK (length(trim(conclusion_id)) > 0),
+            CHECK (length(trim(epoch_id)) > 0),
+            CHECK (length(trim(generator_id)) > 0),
+            CHECK (length(trim(generator_version)) > 0),
+            CHECK (length(trim(rule_id)) > 0)
+        )
+        """,
+        # Columns named explicitly, never `*`: the source table has one
+        # shape before this migration and another after a replay, and a
+        # positional copy would put the note in the url's column the
+        # second time round.
+        """
+        INSERT OR IGNORE INTO calibration_fn_draft_v10
+            (draft_id, created_at, scenario_id, conclusion_type,
+             conclusion_id, label, reason, proposed_analyst_id,
+             generator_id, generator_version, rule_id, epoch_id,
+             observed_at, labelled_at, sources_json, evidence_url)
+        SELECT draft_id, created_at, scenario_id, conclusion_type,
+               conclusion_id, label, reason, proposed_analyst_id,
+               generator_id, generator_version, rule_id, epoch_id,
+               observed_at, labelled_at, sources_json, evidence_url
+        FROM calibration_fn_draft
+        """,
+        # The old table's append-only triggers go with it; they are
+        # recreated below against the new one, so the guarantee is never
+        # absent outside this transaction.
+        "DROP TRIGGER IF EXISTS calibration_fn_draft_no_update",
+        "DROP TRIGGER IF EXISTS calibration_fn_draft_no_delete",
+        "DROP TABLE calibration_fn_draft",
+        "ALTER TABLE calibration_fn_draft_v10 RENAME TO calibration_fn_draft",
+        "CREATE INDEX IF NOT EXISTS idx_calibration_fn_draft_cell "
+        "ON calibration_fn_draft (epoch_id, scenario_id, conclusion_type)",
+        "CREATE INDEX IF NOT EXISTS idx_calibration_fn_draft_subject "
+        "ON calibration_fn_draft (conclusion_id)",
+        """
+        CREATE TRIGGER IF NOT EXISTS calibration_fn_draft_no_update
+        BEFORE UPDATE ON calibration_fn_draft
+        BEGIN
+            SELECT RAISE(ABORT,
+                'calibration_fn_draft is append-only: adjudication is a command fold, never an edit of the candidate');
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS calibration_fn_draft_no_delete
+        BEFORE DELETE ON calibration_fn_draft
+        BEGIN
+            SELECT RAISE(ABORT,
+                'a draft is never deleted: dropping an unadjudicated FN candidate is how a recall number silently inflates (NP1)');
+        END
+        """,
+    ))
+
+
 MIGRATIONS: tuple[Migration, ...] = (_MIGRATION_2, _MIGRATION_3, _MIGRATION_4,
                                      _MIGRATION_5, _MIGRATION_6, _MIGRATION_7,
-                                     _MIGRATION_8, _MIGRATION_9)
+                                     _MIGRATION_8, _MIGRATION_9,
+                                     _MIGRATION_10)
 
 #: The version a store reaches by applying every migration above.
 #: `schema.py` asserts `SCHEMA_VERSION` equals this at import, so a

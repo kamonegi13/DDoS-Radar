@@ -97,6 +97,55 @@ class TestEventFromSignal:
         assert event.fatalities == 0
 
 
+class TestTheEvidenceReachesTheDraft:
+    """0.4d, found by deploying: a draft that carries only the rule
+    sentence and a URL gives the second reader nothing to judge — it has
+    no network — so every candidate routed to a human and the rung was
+    inert. The article text was in the ledger the whole time."""
+
+    def test_the_rss_summary_is_the_note(self):
+        assert ETL.evidence_note_of(_signal_row()) == ""  # no summary flag
+        row = _signal_row(flags=json.dumps({
+            "summary": "North Korea fired two ballistic missiles.",
+            "fatalities": 0}))
+        assert ETL.evidence_note_of(row) == \
+            "North Korea fired two ballistic missiles."
+
+    def test_a_gdelt_row_falls_back_to_its_rendered_value(self):
+        row = _signal_row(signal_source="gdelt", flags="{}",
+                          value="tone z=-3.1 over 12 articles")
+        assert ETL.evidence_note_of(row) == "tone z=-3.1 over 12 articles"
+
+    def test_a_row_with_no_text_yields_an_empty_note_not_a_guess(self):
+        assert ETL.evidence_note_of(_signal_row(flags="{}")) == ""
+
+    def test_the_note_is_bounded(self):
+        row = _signal_row(flags=json.dumps({"summary": "x" * 900}))
+        assert len(ETL.evidence_note_of(row)) == ETL.EVIDENCE_NOTE_LIMIT
+
+    def test_a_draft_carries_the_note(self):
+        position = ETL.position_from_conclusion(
+            {"conclusion_type": "threat_level", "state": "TL5",
+             "observed_at": NOW - HOUR}, now=NOW)
+        verdict = GT.classify(position, (ETL.event_from_signal(_signal_row()),))
+        draft = ETL.draft_for(verdict, scenario_id="s", conclusion_id="c",
+                              observed_at=NOW - HOUR, labelled_at=NOW,
+                              sources=("rss",),
+                              evidence_note="missiles fired")
+        assert draft.evidence_note == "missiles fired"
+
+    def test_the_prompt_carries_the_note_and_says_when_it_is_absent(self):
+        from v3.calibration import llm_reader as LLM
+        with_text = LLM.prompt_for({"scenario_id": "s", "reason": "r",
+                                    "evidence_note": "missiles fired"},
+                                   participants={})
+        assert "missiles fired" in with_text
+        assert '"evidence_text_present": true' in with_text
+        without = LLM.prompt_for({"scenario_id": "s", "reason": "r"},
+                                 participants={})
+        assert '"evidence_text_present": false' in without
+
+
 class TestPositionFromConclusion:
     def test_a_threat_level_row_becomes_a_position(self):
         position = ETL.position_from_conclusion(
