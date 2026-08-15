@@ -209,7 +209,15 @@ def request_for(draft: Mapping, *, participants: Mapping,
         prompt=prompt_for(draft, participants=participants),
         system=SYSTEM_PROMPT, model_id=model_id or TIER2_MODEL_ID,
         temperature=0.0, max_tokens=T.S9_TIER2_MAX_TOKENS,
-        response_format=VERDICT_SCHEMA, think=T.S9_TIER2_THINK)
+        response_format=VERDICT_SCHEMA, think=T.S9_TIER2_THINK,
+        # Measured 2026-08-15 against the shadow's own daemon: gpt-oss
+        # answers with an EMPTY `response` on the generate transport
+        # (done_reason stop, 82 tokens evaluated, nothing in the field)
+        # and correctly on the chat one. Its harmony format puts the
+        # answer on a channel the generate envelope does not carry; the
+        # two transports are declared in `v3/fetch/llm.py`, which is the
+        # only module licensed to build an Ollama request.
+        transport="chat")
 
 
 def agreement(verdicts: Sequence, human_states: Mapping) -> dict:

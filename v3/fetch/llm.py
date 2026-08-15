@@ -47,6 +47,16 @@ from v3.adapters.types import RequestSpec
 #: The Ollama generate path. Pinned from radar/llm_client.py:30
 #: (`_GENERATE_URL = f"{LLM_HOST}/api/generate"`).
 GENERATE_PATH = "/api/generate"
+#: The chat endpoint. Added by WP-0.4 v2 (0.4d) and measured into
+#: existence: gpt-oss returns an EMPTY `response` on /api/generate —
+#: `done_reason: stop`, 82 tokens evaluated, nothing in the field — while
+#: the same prompt on /api/chat answers correctly. The model's harmony
+#: format puts its output on a channel the generate envelope does not
+#: carry. So the second transport lives HERE, in the module that already
+#: owns the Ollama exit, rather than in the caller that needs it: "one
+#: submission implementation" (A-02) is a rule about how many modules
+#: build these requests, not about how many paths Ollama exposes.
+CHAT_PATH = "/api/chat"
 
 #: The roster path. Pinned from radar/llm_client.py:31 (`_TAGS_URL`), read
 #: by `llm_available()` at `:427`. It lives here for the same reason
@@ -107,6 +117,10 @@ class LlmRequest:
     #: one field with two admissible shapes rather than a second request
     #: type (measured against Ollama 0.32.8 before landing).
     response_format: Any = "json"
+    #: `"generate"` (production's shape, a bare prompt) or `"chat"` (a
+    #: system/user message pair). See `CHAT_PATH` for why the second
+    #: exists; production's callers do not pass it and are unaffected.
+    transport: str = "generate"
     #: Reasoning-effort control for models that have one (`"low"` /
     #: `"medium"` / `"high"`, or a bool). Absent from the body when None,
     #: because an absent key and an explicit default are different
@@ -138,6 +152,17 @@ class LlmRequest:
                 self.max_tokens, int) or self.max_tokens <= 0:
             raise DomainError("llm max_tokens must be a positive integer")
 
+    def _chat_body(self) -> dict:
+        """The chat shape: the same fields, carried as messages."""
+        messages = []
+        if self.system:
+            messages.append({"role": "system", "content": self.system})
+        messages.append({"role": "user", "content": self.prompt})
+        return {"model": self.model_id, "messages": messages,
+                "stream": False,
+                "options": {"temperature": float(self.temperature),
+                            MAX_TOKENS_KEY: int(self.max_tokens)}}
+
     def body(self) -> Mapping[str, Any]:
         """The request body, transcribed from radar/llm_client.py:585-601.
 
@@ -145,18 +170,21 @@ class LlmRequest:
         set, matching production's conditional assignment — an empty
         `system` key is a different request from an absent one.
         """
-        payload: dict = {
-            "model": self.model_id,
-            "prompt": self.prompt,
-            "stream": False,
-            "options": {"temperature": float(self.temperature),
-                        MAX_TOKENS_KEY: int(self.max_tokens)},
-        }
+        if self.transport == "chat":
+            payload = self._chat_body()
+        else:
+            payload = {
+                "model": self.model_id,
+                "prompt": self.prompt,
+                "stream": False,
+                "options": {"temperature": float(self.temperature),
+                            MAX_TOKENS_KEY: int(self.max_tokens)},
+            }
         if self.response_format:
             payload["format"] = (dict(self.response_format)
                                  if isinstance(self.response_format, Mapping)
                                  else self.response_format)
-        if self.system:
+        if self.system and self.transport != "chat":
             payload["system"] = self.system
         if self.think is not None:
             payload["think"] = self.think
@@ -175,12 +203,13 @@ class LlmRequest:
             raise DomainError(
                 "llm endpoint is required; it is supplied by the "
                 "composition root, never read from the environment here")
+        chat = self.transport == "chat"
         return RequestSpec(
-            url=f"{base}{GENERATE_PATH}",
+            url=f"{base}{CHAT_PATH if chat else GENERATE_PATH}",
             method="POST",
             body=self.body(),
             body_content_type="application/json",
-            label="llm_generate")
+            label="llm_chat" if chat else "llm_generate")
 
 
 @dataclass(frozen=True, slots=True)
@@ -258,6 +287,17 @@ def _response_text(payload) -> str:
     text = str(envelope.get("response") or "").strip()
     if text:
         return text
+    # The chat envelope carries the answer under `message.content`; the
+    # generate one under `response`. Read after `response` so the
+    # production path is untouched.
+    message = envelope.get("message")
+    if isinstance(message, Mapping):
+        text = str(message.get("content") or "").strip()
+        if text:
+            return text
+        thinking = str(message.get("thinking") or "").strip()
+        if thinking:
+            return thinking
     return str(envelope.get("thinking") or "").strip()
 
 
@@ -397,7 +437,7 @@ def submit(request: LlmRequest, *, client, store, adapter_id: str,
 
 __all__ = ["LlmRequest", "LlmResult", "submit", "replay", "parse_response",
            "Availability", "probe", "model_matches",
-           "GENERATE_PATH", "TAGS_PATH", "AVAILABILITY_TIMEOUT_SEC",
+           "GENERATE_PATH", "CHAT_PATH", "TAGS_PATH", "AVAILABILITY_TIMEOUT_SEC",
            "MAX_TOKENS_KEY", "DEFAULT_TEMPERATURE",
            "DEFAULT_MAX_TOKENS", "DISABLED", "UNAVAILABLE", "MODEL_ABSENT",
            "HTTP_ERROR", "PARSE_FAILED", "REPLAY_MISSING"]
