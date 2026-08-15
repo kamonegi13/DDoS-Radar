@@ -391,6 +391,105 @@
      * on the chip that IS the rank.
      */
     /**
+     * The scenario's DRAWER face (P9 §1.12 D-27, completed on the 13th
+     * review's point: the card import wasted the pane just as the lane
+     * row had). Same grammar as the lane face — sentence at full
+     * measure, a visible fact grid, the participants in full (the rail
+     * caps at six; here there is room for all of them), the domain bars,
+     * the provenance line, and the verbs as a real row.
+     */
+    function drawerScenarioHtml(card, now) {
+        var tl = card.tl;
+        var since = card.sinceLastCheck;
+        var clock = typeof now === 'number' ? now : Date.now() / 1000;
+        var ago = Fmt.duration(since.seenAt === null || since.seenAt === undefined
+            ? null : clock - since.seenAt);
+        var facts = [
+            { term: _t('ui.drawer.fact.score'),
+              value: Fmt.num(card.score, 2) },
+            { term: _t('ui.board.tl_caption'),
+              value: (tl.tl === null ? Fmt.ABSENT : String(tl.tl))
+                  + ' ' + _t(tl.labelKey) },
+            { term: _t('ui.drawer.fact.availability'),
+              value: _t(card.availability.labelKey) },
+            { term: _t('ui.drawer.fact.trend'),
+              value: card.trend.glyph + ' ' + _t(card.trend.labelKey)
+                  + ' ' + Fmt.signed(card.trend.delta) },
+            { term: _t('ui.drawer.fact.mode'),
+              value: card.coverage && card.coverage.scoringMode
+                  ? card.coverage.scoringMode : Fmt.ABSENT },
+        ].map(function (fact) {
+            return '<div class="dl-fact"><dt>' + esc(fact.term)
+                + '</dt><dd>' + esc(String(fact.value)) + '</dd></div>';
+        }).join('');
+        var strip = (card.participants || []).map(function (p) {
+            return '<li class="cc' + (p.isAdversary ? ' cc-adversary' : '')
+                + '" title="' + esc(p.country + ' — ' + _t(p.roleKey))
+                + '"><span class="cc-flag">' + esc(p.flag)
+                + '</span><span class="cc-iso">' + esc(p.country)
+                + '</span></li>';
+        }).join('');
+        var domainBar = '';
+        if (card.domains) {
+            domainBar = '<ul class="domain-bar">'
+                + card.domains.domains.map(function (d) {
+                    var width = d.fill === null ? 0 : Math.round(d.fill * 100);
+                    return '<li class="domain domain-'
+                        + esc(String(d.state || 'unknown')) + '">'
+                        + '<span class="domain-name">'
+                        + esc(_t('ui.domain.' + d.domain)) + '</span>'
+                        + '<span class="domain-track"><span class="domain-fill" '
+                        + 'style="width:' + width + '%"></span></span>'
+                        + '<span class="domain-value">' + esc(Fmt.num(d.score, 1))
+                        + '</span>'
+                        + '<span class="domain-state">' + esc(_t(d.stateKey))
+                        + '</span></li>';
+                }).join('') + '</ul>';
+        }
+        var unavailable = card.availability.sentenceKey
+            ? '<p class="dl-narrative">'
+              + esc(_t(card.availability.sentenceKey)) + '</p>'
+            : '';
+        return '<div class="ds" data-scenario="' + esc(card.scenarioId) + '">'
+            + '<p class="dl-head">'
+            + '<span class="crow-tl" style="--tl-color: var('
+            + esc(tl.cssVar) + ')">'
+            + esc(tl.tl === null ? Fmt.ABSENT : String(tl.tl)) + '</span>'
+            + '<strong class="dl-scenario">'
+            + esc(card.displayName || card.scenarioId) + '</strong>'
+            + (card.focused
+                ? '<span class="chip chip-focus">'
+                  + esc(_t('ui.board.focused')) + '</span>' : '')
+            + '</p>'
+            + '<p class="dl-narrative">' + esc(_t(since.labelKey, {
+                ago: _t(ago.key, ago.vars),
+                delta: Fmt.signed(since.severityDelta),
+                current: tl.tl === null ? Fmt.ABSENT : String(tl.tl),
+                previous: since.previousTl === null
+                    ? Fmt.ABSENT : String(since.previousTl),
+            })) + '</p>'
+            + unavailable
+            + '<dl class="dl-facts">' + facts + '</dl>'
+            + (strip
+                ? '<ul class="card-countries ds-countries" aria-label="'
+                  + esc(_t('ui.board.participants_label')) + '">' + strip
+                  + '</ul>'
+                : '')
+            + domainBar
+            + _derivedLineHtml(card, null)
+            + '<div class="dl-actions">'
+            + (card.focused
+                ? ''
+                : '<button type="button" data-focus="' + esc(card.scenarioId)
+                  + '">' + esc(_t('ui.board.focus_here')) + '</button>')
+            + '<button type="button" data-open-scenario="'
+            + esc(card.scenarioId) + '">'
+            + esc(_t('ui.board.open_face', { id: card.scenarioId }))
+            + '</button>'
+            + '</div></div>';
+    }
+
+    /**
      * The lane item's DRAWER face (P9 §1.12 D-27). The rail's grid row
      * squeezed into the drawer left nine tenths of the pane empty; this
      * layout is built FOR the width: the sentence at full measure, the
@@ -1192,6 +1291,7 @@
         cardRowHtml: cardRowHtml,
         laneLineHtml: laneLineHtml,
         drawerLaneHtml: drawerLaneHtml,
+        drawerScenarioHtml: drawerScenarioHtml,
         laneRowHtml: laneRowHtml,
         calibrationHtml: calibrationHtml,
         unavailableHtml: unavailableHtml,

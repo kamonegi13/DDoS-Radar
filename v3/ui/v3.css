@@ -1251,3 +1251,7 @@ tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust);
 .dl-fact dd { margin: 0; font-weight: 600; }
 .dl-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .dl-actions button { flex: 1; min-width: 90px; padding: var(--space-2); }
+
+.ds-countries { margin-bottom: var(--space-3); }
+.ds .card-derived { margin-bottom: var(--space-3); }
+.ds .domain-bar { margin-bottom: var(--space-3); }

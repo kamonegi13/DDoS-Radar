@@ -172,6 +172,9 @@
         'ui.drawer.fact.formula': '式',
         'ui.drawer.fact.snapshot': 'スナップショット',
         'ui.drawer.fact.state': '対応状態',
+        'ui.drawer.fact.availability': '結論',
+        'ui.drawer.fact.trend': '傾向（24h）',
+        'ui.drawer.fact.mode': '採点範囲（scoring_mode）',
         'ui.drawer.lane_title': '注目事象の詳細',
         'ui.board_map.unplaced_on_real': '地図に置けない国: {list}（座標資産の未登録 — 観測は落としていません）',
         // ── 観測レイヤ（P8 §9 / NP9） ────────────────────────────────────

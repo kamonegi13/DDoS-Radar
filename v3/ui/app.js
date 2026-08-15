@@ -178,7 +178,7 @@
             });
             if (card) {
                 title = card.displayName || card.scenarioId;
-                body = Render.cardHtml(card, Date.now() / 1000, null, 'full');
+                body = Render.drawerScenarioHtml(card, Date.now() / 1000);
             }
         } else if (state.drawer.kind === 'lane' && state.lane) {
             var row = null;

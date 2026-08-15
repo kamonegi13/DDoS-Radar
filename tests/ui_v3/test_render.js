@@ -526,6 +526,30 @@ test('a row with no scenario says why it cannot be opened', () => {
         'a silently missing button is indistinguishable from a broken one');
 });
 
+// ── the drawer's scenario face (P9 §1.12 D-27, 13th review) ─────────────
+
+test('the scenario face shows facts, ALL participants, and the verbs', () => {
+    const many = ['TW', 'JP', 'US', 'CN', 'KR', 'PH', 'AU', 'GU'].map(
+        (country) => ({ country, flag: '', role: null,
+                        roleKey: 'ui.geo.role.unlisted', isAdversary: false }));
+    const html = R.drawerScenarioHtml(card({ displayName: '台湾正面',
+        focused: false, participants: many }), CARD_NOW);
+    assert.ok(/class="ds"/.test(html), html);
+    assert.ok(/dl-facts/.test(html));
+    assert.ok(/台湾正面/.test(html));
+    assert.strictEqual((html.match(/cc-iso/g) || []).length, 8,
+        'the drawer shows every participant — the rail caps, the face does not');
+    assert.ok(/data-focus="taiwan_contingency"/.test(html),
+        'a background scenario offers the focus verb');
+    assert.ok(/data-open-scenario="taiwan_contingency"/.test(html));
+});
+
+test('the focused scenario face offers no focus verb, only the way in', () => {
+    const html = R.drawerScenarioHtml(card({ focused: true }), CARD_NOW);
+    assert.ok(!/data-focus=/.test(html), html);
+    assert.ok(/chip-focus/.test(html));
+});
+
 // ── the drawer's lane face (P9 §1.12 D-27) ──────────────────────────────
 
 test('the drawer lane face shows the basis as visible facts, not a tooltip', () => {

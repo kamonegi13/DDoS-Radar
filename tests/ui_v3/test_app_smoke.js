@@ -614,8 +614,9 @@ test('choosing an index row opens the drawer with the FULL card', async () => {
     assert.strictEqual(doc.getElementById('detail-drawer').hidden, false,
         'a click inside the drawer keeps it open');
     const body = html(doc, 'drawer-body');
-    assert.ok(/card-focused/.test(body), 'the drawer holds the full card');
-    assert.ok(/domain-bar/.test(body), 'with its domain bars');
+    assert.ok(/class="ds"/.test(body), 'the drawer holds the scenario face');
+    assert.ok(/dl-facts/.test(body), 'with its visible fact grid');
+    assert.ok(/domain-bar/.test(body), 'and its domain bars');
     assert.ok(/結論あり|結論不可/.test(body));
 });
 
