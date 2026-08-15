@@ -186,28 +186,31 @@ class CalibrationLedgerMixin:
             found.append(record)
         return found
 
-    def pending_fn_draft_counts(self, *, epoch_id: str) -> dict:
-        """Unresolved drafts per (scenario_id, conclusion_type).
+    def unlabelled_fn_drafts(self, *, epoch_id: str) -> list:
+        """Drafts with no FALSE_NEGATIVE label on their conclusion yet.
 
-        Pending = no FALSE_NEGATIVE label exists for the draft's
-        conclusion in the same epoch — a later Tier 1 convergence, a
-        Tier 2 agreement or a human confirm all resolve a draft by
-        WRITING THE LABEL, never by touching the draft row. This count
-        is the width of the published recall interval (0.4f): it may
-        only delay a cell's validity, never fake it.
+        HALF of "pending": the other half is the adjudication fold (a
+        REJECTED draft leaves no label but is nonetheless answered), and
+        that lives in `v3/calibration/human.py::pending_draft_counts`,
+        which is the ONE definition of pending. This method deliberately
+        returns rows rather than counts so that the definition upstream
+        can subtract per draft instead of guessing at aggregates.
         """
         if not isinstance(epoch_id, str) or not epoch_id.strip():
-            raise DomainError("pending_fn_draft_counts needs an epoch_id")
+            raise DomainError("unlabelled_fn_drafts needs an epoch_id")
         rows = self._read_connection().execute(
-            "SELECT d.scenario_id, d.conclusion_type, COUNT(*) AS n "
-            "FROM calibration_fn_draft d WHERE d.epoch_id = ? "
+            "SELECT d.* FROM calibration_fn_draft d WHERE d.epoch_id = ? "
             "AND NOT EXISTS (SELECT 1 FROM calibration_label l "
             "  WHERE l.conclusion_id = d.conclusion_id "
             "  AND l.label = 'FALSE_NEGATIVE' AND l.epoch_id = d.epoch_id) "
-            "GROUP BY d.scenario_id, d.conclusion_type",
+            "ORDER BY d.observed_at ASC, d.id ASC",
             (epoch_id.strip(),)).fetchall()
-        return {(row["scenario_id"], row["conclusion_type"]): int(row["n"])
-                for row in rows}
+        found = []
+        for row in rows:
+            record = dict(row)
+            record["sources"] = json.loads(record.pop("sources_json") or "[]")
+            found.append(record)
+        return found
 
     def append_s9_run(self, *, ran_at: float, window_start: float,
                       window_end: float, outcome: str, report: dict,

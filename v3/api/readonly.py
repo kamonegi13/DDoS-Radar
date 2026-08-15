@@ -95,13 +95,13 @@ READ_METHODS: frozenset = frozenset({
     "max_freshness_horizon",
     "migrated_row_count",
     "oldest_observed_at",
-    "pending_fn_draft_counts",
     "proposal_by_id",
     "proposals_between",
     "read_baseline",
     "rows_at_offsets",
     "signals_between",
     "tl_between",
+    "unlabelled_fn_drafts",
 })
 
 #: Everything else public on `LedgerStore`. Named rather than implied,

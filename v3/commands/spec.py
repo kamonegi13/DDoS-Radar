@@ -27,6 +27,7 @@ from typing import Callable, Optional
 from v3.auth import store as U
 from v3.intel import adjudication as I
 from v3.commands import attention as A
+from v3.commands import calibration as C
 from v3.commands import state as S
 from v3.kernel.errors import DomainError
 
@@ -34,6 +35,7 @@ TARGET_KINDS: frozenset = frozenset({S.TARGET_SCENARIO, S.TARGET_CONCLUSION,
                                      S.TARGET_CONFIG, S.TARGET_PROPOSAL,
                                      A.TARGET_ATTENTION,
                                      A.TARGET_ATTENTION_THRESHOLDS,
+                                     C.TARGET_DRAFT,
                                      U.TARGET_USER, I.TARGET_INTEL})
 
 #: Field names whose VALUE must never reach a projection, at any depth.
@@ -249,6 +251,32 @@ SPECS: tuple[CommandSpec, ...] = (
                 "per-actor, and also annotation rather than removal: R6 "
                 "still returns the row, because a row that vanishes makes "
                 "'I dealt with it' and 'I never saw it' look identical."),
+    # ── WP-0.4 v2 (0.4e) — the analyst's half of the FN draft queue ─────
+    CommandSpec(
+        action=C.DRAFT_CONFIRM,
+        target_kind=C.TARGET_DRAFT,
+        resolve=C.resolve_draft,
+        apply=C.apply_draft_confirm,
+        requires_reason=True,
+        effect_key="draft",
+        summary="WP-0.4 v2 — the candidate is a real miss. Materialises a "
+                "FALSE_NEGATIVE label under the ANALYST's identity, which "
+                "is the population the human-only series (C-12) is made "
+                "of. NOT per-actor: an adjudication changes the label set "
+                "every reader's recall is computed from, so two analysts "
+                "disagreeing must resolve to one state (the later row).",),
+    CommandSpec(
+        action=C.DRAFT_REJECT,
+        target_kind=C.TARGET_DRAFT,
+        resolve=C.resolve_draft,
+        apply=C.apply_draft_reject,
+        requires_reason=True,
+        effect_key="draft",
+        summary="WP-0.4 v2 — the candidate is not a miss. Writes NO label "
+                "(the tool's silence about that conclusion is what 'not a "
+                "miss' means) but DOES leave the pending set: a rejected "
+                "draft that stayed pending would widen the published "
+                "recall interval forever on a question already answered.",),
     CommandSpec(
         action=A.ATTENTION_THRESHOLDS,
         target_kind=A.TARGET_ATTENTION_THRESHOLDS,

@@ -31,6 +31,7 @@ from v3.api.handlers import decisions as H_decisions
 from v3.api.handlers import conclusions as H_conclusions
 from v3.api.handlers import config as H_config
 from v3.api.handlers import disclosure as H_disclosure
+from v3.api.handlers import drafts as H_drafts
 from v3.api.handlers import evidence as H_evidence
 from v3.api.handlers import intel as H_intel
 from v3.api.handlers import observations as H_observations
@@ -298,6 +299,22 @@ ROUTES: tuple[Route, ...] = (
     _command("C9p", f"{API_PREFIX}/scenarios/<scenario_id>/ground_truth",
              H_commands.assert_ground_truth, ("I-2",),
              note="S9 の教師信号。観測時刻と検証可能な出典を必須とする"),
+    # ── WP-0.4 v2 (0.4e) — the FN draft queue, Tier 3's surface ─────────
+    _read("R17", f"{API_PREFIX}/calibration/drafts", H_drafts.read_drafts,
+          ("I-2",),
+          note="未裁定 FN 候補（ADR-V3-012）。裁定は任意・期限なし・自動処分"
+               "なし — 未裁定の間は R7 の recall 区間が広いままになる"),
+    _command("C14c",
+             f"{API_PREFIX}/calibration/drafts/<draft_id>/confirm",
+             H_drafts.confirm_draft, ("I-2",),
+             note="実際の見逃しである、という裁定。ラベルは次回 S9 サイクルで "
+                  "analyst 名義により台帳へ着地する（確認だけで pending から"
+                  "外れない = 裁定しただけで recall が良く見えない）"),
+    _command("C14r",
+             f"{API_PREFIX}/calibration/drafts/<draft_id>/reject",
+             H_drafts.reject_draft, ("I-2",),
+             note="見逃しではない、という裁定。ラベルは書かれないが pending "
+                  "からは外れる（答えの出た問いが区間を広げ続けない）"),
     _command("C7s", f"{API_PREFIX}/config/<key>", H_config.set_config,
              ("I-2",),
              note="可変キーの変更。効果は 3 層チェーンで読み戻される"

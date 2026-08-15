@@ -379,5 +379,6 @@ class TestTheSurfaceAccountsForWhatLanded:
         # REST; the channel is registered beside it so the decision to
         # decline it is reviewable rather than invisible.
         assert REG.WS_TRANSPORT.p7_id not in REG.P7_SURFACE
-        # 28 + R16 (P8 §9 / NP9 observation board, 2026-08-14).
-        assert REG.coverage()["served"] + REG.coverage()["deferred"] == 29
+        # 28 + R16 (P8 §9 / NP9 observation board, 2026-08-14)
+        # + R17/C14 (WP-0.4 v2 FN draft queue, ADR-V3-012, 2026-08-15).
+        assert REG.coverage()["served"] + REG.coverage()["deferred"] == 31

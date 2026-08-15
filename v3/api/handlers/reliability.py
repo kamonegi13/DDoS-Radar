@@ -41,6 +41,7 @@ to be the same arithmetic, which is only checkable if there is one.
 from __future__ import annotations
 
 from v3.api.envelope import ApiResponse, tool_response
+from v3.calibration import human as HUMAN
 from v3.calibration import labels as L
 from v3.calibration import recall as R
 from v3.calibration import status as S
@@ -170,8 +171,8 @@ def _calibration_block(context) -> dict:
         until=stamp_all.until, exclude_auto=True)
     cells_all = L.cells_for(context.ledger, stamp=stamp_all)
     cells_human = L.cells_for(context.ledger, stamp=stamp_human)
-    pending = context.ledger.pending_fn_draft_counts(
-        epoch_id=stamp_all.epoch_id)
+    pending = HUMAN.pending_draft_counts(
+        context.ledger, now=context.now, epoch_id=stamp_all.epoch_id)
     interval = []
     for cell in cells_all:
         waiting = pending.get((cell.scenario_id, cell.conclusion_type), 0)

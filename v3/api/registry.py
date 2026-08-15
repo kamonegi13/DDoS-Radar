@@ -73,12 +73,18 @@ class Deferred:
 #: representation face. The definition amendment created a product P7's
 #: original inventory had no row for; the row is added HERE, in the
 #: inventory, rather than smuggled past the accounting.
+#: R17 added by WP-0.4 v2 (ADR-V3-012, 2026-08-15): the FN draft queue.
+#: Same reasoning as R16 — the three-tier confirm ladder created a
+#: surface P7's inventory had no row for, and an unlisted endpoint is an
+#: endpoint the accounting cannot see.
 READ_SURFACE: tuple[str, ...] = (
     "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11",
-    "R12", "R13", "R14", "R15", "R16")
+    "R12", "R13", "R14", "R15", "R16", "R17")
 
-#: P7 §1.2 — the 13 command families.
-COMMAND_SURFACE: tuple[str, ...] = tuple(f"C{n}" for n in range(1, 14))
+#: P7 §1.2 — 13 command families, plus C14 (WP-0.4 v2): adjudicating an
+#: FN draft. Tier 3's verbs are commands like every other analyst
+#: decision, so they are folds of `command_record` and R9 replays them.
+COMMAND_SURFACE: tuple[str, ...] = tuple(f"C{n}" for n in range(1, 15))
 
 #: P7 §1.3 — the one channel's four events.
 WS_EVENTS: tuple[str, ...] = ("conclusion_update", "attention_update",
@@ -101,6 +107,13 @@ SERVED: tuple[Served, ...] = (
     # ── NP9 (2026-08-14): the representation face's first supply ────────
     Served("R16", "観測ボード — 国別観測数 + 掃引 3 帯（P8 §9、NP9 観測レイヤ）",
            ("R16",)),
+    # ── WP-0.4 v2 (ADR-V3-012, 2026-08-15): Tier 3 の面 ─────────────────
+    Served("R17", "未裁定 FN 候補キュー — 期限なし・自動処分なし。"
+                  "未裁定の件数が R7 の recall 区間の幅そのもの", ("R17",)),
+    Served("C14", "FN 草稿の裁定 2 動詞（confirm/reject）。confirm は次回 "
+                  "S9 サイクルで analyst 名義のラベルになる（裁定だけでは "
+                  "pending から外れない = recall が良く見えない）",
+           ("C14c", "C14r")),
     # ── WP-4.1c: the command surface's first three ──────────────────────
     Served("C1", "focus 登録（読み取りの副作用から分離）", ("C1",)),
     Served("C2", "結論フィードバック投稿（G-01 の恒久化）", ("C2",)),

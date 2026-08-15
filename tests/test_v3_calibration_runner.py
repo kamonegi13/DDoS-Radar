@@ -19,6 +19,7 @@ import dataclasses
 import pytest
 
 from tests.conclusions_fixtures import healthy, provenance
+from v3.calibration import human as HUMAN
 from v3.calibration import runner as RUNNER
 from v3.calibration import thresholds as T
 from v3.calibration.epoch import CURRENT_EPOCH
@@ -118,7 +119,7 @@ class TestTier1Convergence:
         _conclusion(store, observed_at=NOW - 2 * HOUR, state="TL5")
         _signal(store, at=NOW - HOUR, source="bg_observer_rss")
         RUNNER.s9_cycle(store, now=NOW, scenarios=REFS)
-        assert store.pending_fn_draft_counts(epoch_id=EPOCH) == {
+        assert HUMAN.pending_draft_counts(store, now=NOW) == {
             (SCENARIO, "threat_level"): 1}
         # The second source arrives a day later; Tier 1 now converges.
         _signal(store, at=NOW + HOUR, source="gdelt")
@@ -126,7 +127,7 @@ class TestTier1Convergence:
         assert report.labels_new.get("FALSE_NEGATIVE") == 1
         # The draft row survives (append-only), but it is no longer
         # pending — the label's existence is the resolution.
-        assert store.pending_fn_draft_counts(epoch_id=EPOCH) == {}
+        assert HUMAN.pending_draft_counts(store, now=NOW) == {}
         assert len(store.fn_drafts(epoch_id=EPOCH)) == 1
 
 

@@ -33,6 +33,7 @@ from typing import Optional, Sequence
 from v3.calibration import authority as A
 from v3.calibration import etl as ETL
 from v3.calibration import ground_truth as GT
+from v3.calibration import human as HUMAN
 from v3.calibration import labels as L
 from v3.calibration import thresholds as T
 from v3.kernel.errors import DomainError
@@ -56,6 +57,10 @@ class S9Report:
     labels_existing: int = 0
     drafts_new: int = 0
     drafts_existing: int = 0
+    #: Analyst labels materialised into `calibration_label` this cycle
+    #: (0.4e). Counted separately from `labels_new` because the two
+    #: populate different series — the human-only one is made of these.
+    human_labels_new: int = 0
     pending_total: int = 0
     unlabelled: dict = field(default_factory=dict)
 
@@ -67,6 +72,7 @@ class S9Report:
                 "labels_existing": self.labels_existing,
                 "drafts_new": self.drafts_new,
                 "drafts_existing": self.drafts_existing,
+                "human_labels_new": self.human_labels_new,
                 "pending_total": self.pending_total,
                 "unlabelled": dict(self.unlabelled)}
 
@@ -172,14 +178,21 @@ def s9_cycle(store, *, now: float, scenarios: Sequence) -> S9Report:
             else:
                 labels_existing += 1
 
-    pending = store.pending_fn_draft_counts(
-        epoch_id=_current_epoch_id())
+    # 0.4e: the human half, reconciled on the same cycle. Analyst labels
+    # live in `command_record` and recall is computed from
+    # `calibration_label`; until this ran, a human label reached no
+    # measurement at all and the human-only series was structurally
+    # empty. Idempotent, so a cycle that already did it does nothing.
+    humans_new = HUMAN.materialise_feedback(store, now=float(now))
+    humans_new += HUMAN.materialise_confirmed_drafts(store, now=float(now))
+
+    pending = HUMAN.pending_draft_counts(store, now=float(now))
     return S9Report(
         ran_at=float(now), window_start=window_start,
         window_end=float(now), scenarios=len(tuple(scenarios)),
         positions=positions_seen, labels_new=labels_new,
         labels_existing=labels_existing, drafts_new=drafts_new,
-        drafts_existing=drafts_existing,
+        drafts_existing=drafts_existing, human_labels_new=humans_new,
         pending_total=sum(pending.values()), unlabelled=unlabelled)
 
 
