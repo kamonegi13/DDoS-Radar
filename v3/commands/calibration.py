@@ -36,6 +36,18 @@ DRAFT_ACTIONS: tuple[str, ...] = (DRAFT_CONFIRM, DRAFT_REJECT)
 
 TARGET_DRAFT = "calibration_draft"
 
+#: 0.4e's second half — the sampled audit of AUTOMATED labels. Two
+#: verdicts and no third: an auditor either agrees the generator got
+#: this one right or says it did not, and "unsure" is the absence of a
+#: row (the same shape the draft queue uses for "nobody has decided").
+LABEL_AUDIT_CORRECT = "calibration.label_audit_correct"
+LABEL_AUDIT_INCORRECT = "calibration.label_audit_incorrect"
+
+AUDIT_ACTIONS: tuple[str, ...] = (LABEL_AUDIT_CORRECT,
+                                  LABEL_AUDIT_INCORRECT)
+
+TARGET_LABEL = "calibration_label"
+
 #: The three states a draft can be in. `pending` is the absence of a row,
 #: never a value anything writes — there is nowhere for "nobody has
 #: decided" to be recorded wrongly, which is the same shape C4 uses.
@@ -101,6 +113,51 @@ def resolve_draft(ledger, *, target_id, actor_id, until, config=None):
     return draft_state(ledger, target_id, until=until)
 
 
+# ── the sampled audit (0.4e) ────────────────────────────────────────────
+def label_audit_state(ledger, label_id: str, *,
+                      until: Optional[float] = None) -> Optional[dict]:
+    """The latest audit verdict on one label, or None.
+
+    Not per-actor, for the same reason `draft_state` is not: the error
+    rate this feeds is a property of the generator, and a rate that
+    depended on who was asking could not gate anything.
+    """
+    rows = [row for row in ledger.command_records(
+        target_kind=TARGET_LABEL, target_id=str(label_id), until=until)
+        if row["action"] in AUDIT_ACTIONS]
+    return dict(rows[-1]["after"]) if rows else None
+
+
+def resolve_label_audit(ledger, *, target_id, actor_id, until,
+                        config=None):
+    return label_audit_state(ledger, target_id, until=until)
+
+
+def _apply_audit(action: str):
+    def apply(before, *, target_id, payload, actor_id, at, config=None):
+        reason = payload.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            raise DomainError(
+                "監査には理由が必要です: the error rate this feeds can "
+                "freeze the automated label series, and a freeze whose "
+                "evidence is a bare verdict cannot be reviewed")
+        return {"label_id": str(target_id),
+                "verdict": ("correct" if action == LABEL_AUDIT_CORRECT
+                            else "incorrect"),
+                "actor_id": actor_id, "at": float(at),
+                "reason": reason.strip()}
+    apply.__name__ = f"apply_{action.replace('.', '_')}"
+    apply.__doc__ = (
+        f"WP-0.4 v2's {action!r}. Pure. An auditor who changes their "
+        f"mind writes a second row and the fold takes it; the first "
+        f"stays as the record that the reading changed.")
+    return apply
+
+
+apply_label_audit_correct = _apply_audit(LABEL_AUDIT_CORRECT)
+apply_label_audit_incorrect = _apply_audit(LABEL_AUDIT_INCORRECT)
+
+
 def _apply_draft(action: str):
     def apply(before, *, target_id, payload, actor_id, at, config=None):
         reason = payload.get("reason")
@@ -126,6 +183,9 @@ apply_draft_reject = _apply_draft(DRAFT_REJECT)
 
 
 __all__ = ["DRAFT_CONFIRM", "DRAFT_REJECT", "DRAFT_ACTIONS", "TARGET_DRAFT",
+           "LABEL_AUDIT_CORRECT", "LABEL_AUDIT_INCORRECT", "AUDIT_ACTIONS",
+           "TARGET_LABEL", "label_audit_state", "resolve_label_audit",
+           "apply_label_audit_correct", "apply_label_audit_incorrect",
            "STATE_PENDING", "STATE_CONFIRMED", "STATE_REJECTED",
            "draft_state", "state_name", "rejected_draft_ids",
            "resolve_draft", "apply_draft_confirm", "apply_draft_reject"]

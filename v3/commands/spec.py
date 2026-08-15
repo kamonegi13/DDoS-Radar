@@ -35,7 +35,7 @@ TARGET_KINDS: frozenset = frozenset({S.TARGET_SCENARIO, S.TARGET_CONCLUSION,
                                      S.TARGET_CONFIG, S.TARGET_PROPOSAL,
                                      A.TARGET_ATTENTION,
                                      A.TARGET_ATTENTION_THRESHOLDS,
-                                     C.TARGET_DRAFT,
+                                     C.TARGET_DRAFT, C.TARGET_LABEL,
                                      U.TARGET_USER, I.TARGET_INTEL})
 
 #: Field names whose VALUE must never reach a projection, at any depth.
@@ -277,6 +277,29 @@ SPECS: tuple[CommandSpec, ...] = (
                 "miss' means) but DOES leave the pending set: a rejected "
                 "draft that stayed pending would widen the published "
                 "recall interval forever on a question already answered.",),
+    CommandSpec(
+        action=C.LABEL_AUDIT_CORRECT,
+        target_kind=C.TARGET_LABEL,
+        resolve=C.resolve_label_audit,
+        apply=C.apply_label_audit_correct,
+        requires_reason=True,
+        effect_key="label_audit",
+        summary="WP-0.4 v2 0.4e — the sampled audit agrees the generator "
+                "got this automatic label right. The rate these feed is "
+                "what ADR-V3-012 makes counting valid cells on the "
+                "all-labels series conditional on.",),
+    CommandSpec(
+        action=C.LABEL_AUDIT_INCORRECT,
+        target_kind=C.TARGET_LABEL,
+        resolve=C.resolve_label_audit,
+        apply=C.apply_label_audit_incorrect,
+        requires_reason=True,
+        effect_key="label_audit",
+        summary="WP-0.4 v2 0.4e — the generator got this one wrong. Above "
+                "the measured ceiling the automated series STOPS GROWING: "
+                "no new automatic labels, every FN candidate waits as a "
+                "draft. The stored labels stay — they are the evidence "
+                "the rate was measured from.",),
     CommandSpec(
         action=A.ATTENTION_THRESHOLDS,
         target_kind=A.TARGET_ATTENTION_THRESHOLDS,

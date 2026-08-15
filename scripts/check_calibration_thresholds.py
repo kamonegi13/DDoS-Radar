@@ -166,6 +166,14 @@ STRUCTURALLY_UNMAPPABLE: dict = {
         "reader for calibration labels, so there is no value to read",
     "S9_TIER2_DRAFTS_PER_CYCLE":
         "WP-0.4 v2 Tier 2 — new to v3; same reason as the token bound",
+    "S9_AUDIT_SAMPLE_PCT":
+        "WP-0.4 v2 0.4e — new to v3; production confirmed every FN label "
+        "by hand, so it has no sampled audit and no share to map",
+    "S9_AUDIT_MIN_SAMPLE":
+        "WP-0.4 v2 0.4e — new to v3; same reason as the sample share",
+    "S9_AUDIT_MAX_ERROR_RATE":
+        "WP-0.4 v2 0.4e — new to v3; production has no measured-error "
+        "freeze for its label generator",
     "GT_KINETIC_CONFIDENCE_FLOOR":
         "ground_truth_etl.py — inline `confidence >= 0.60` inside "
         "_expected_severity_floor; no module constant",

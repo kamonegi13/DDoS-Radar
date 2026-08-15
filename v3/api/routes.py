@@ -25,6 +25,7 @@ from v3.api.authorization import Access
 from v3.api.cookies import (CSRF_COOKIE, REFRESH_COOKIE, CookiePolicy,
                             NO_COOKIES)
 from v3.api.handlers import attention as H_attention
+from v3.api.handlers import audits as H_audits
 from v3.api.handlers import auth as H_auth
 from v3.api.handlers import commands as H_commands
 from v3.api.handlers import decisions as H_decisions
@@ -310,6 +311,18 @@ ROUTES: tuple[Route, ...] = (
              note="実際の見逃しである、という裁定。ラベルは次回 S9 サイクルで "
                   "analyst 名義により台帳へ着地する（確認だけで pending から"
                   "外れない = 裁定しただけで recall が良く見えない）"),
+    _read("R18", f"{API_PREFIX}/calibration/audits", H_audits.read_audits,
+          ("I-2",),
+          note="自動ラベルの標本監査キュー（0.4e）。実測誤り率が上限を"
+               "超えると自動系列は成長を停止する"),
+    _command("C15c",
+             f"{API_PREFIX}/calibration/labels/<label_id>/audit_correct",
+             H_audits.audit_correct, ("I-2",),
+             note="生成器はこのラベルを正しく出した、という監査判定"),
+    _command("C15i",
+             f"{API_PREFIX}/calibration/labels/<label_id>/audit_incorrect",
+             H_audits.audit_incorrect, ("I-2",),
+             note="誤って出した、という監査判定。十分に積むと系列凍結"),
     _command("C14r",
              f"{API_PREFIX}/calibration/drafts/<draft_id>/reject",
              H_drafts.reject_draft, ("I-2",),

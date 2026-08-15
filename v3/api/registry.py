@@ -79,12 +79,12 @@ class Deferred:
 #: endpoint the accounting cannot see.
 READ_SURFACE: tuple[str, ...] = (
     "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11",
-    "R12", "R13", "R14", "R15", "R16", "R17")
+    "R12", "R13", "R14", "R15", "R16", "R17", "R18")
 
 #: P7 §1.2 — 13 command families, plus C14 (WP-0.4 v2): adjudicating an
 #: FN draft. Tier 3's verbs are commands like every other analyst
 #: decision, so they are folds of `command_record` and R9 replays them.
-COMMAND_SURFACE: tuple[str, ...] = tuple(f"C{n}" for n in range(1, 15))
+COMMAND_SURFACE: tuple[str, ...] = tuple(f"C{n}" for n in range(1, 16))
 
 #: P7 §1.3 — the one channel's four events.
 WS_EVENTS: tuple[str, ...] = ("conclusion_update", "attention_update",
@@ -114,6 +114,12 @@ SERVED: tuple[Served, ...] = (
                   "S9 サイクルで analyst 名義のラベルになる（裁定だけでは "
                   "pending から外れない = recall が良く見えない）",
            ("C14c", "C14r")),
+    Served("R18", "自動ラベルの標本監査キュー + 実測誤り率と凍結状態",
+           ("R18",)),
+    Served("C15", "標本監査の判定 2 動詞（correct/incorrect）。誤り率が"
+                  "上限を超えると自動系列が成長を停止する（既存ラベルは"
+                  "残す — 誤り率を測った証拠であるため）",
+           ("C15c", "C15i")),
     # ── WP-4.1c: the command surface's first three ──────────────────────
     Served("C1", "focus 登録（読み取りの副作用から分離）", ("C1",)),
     Served("C2", "結論フィードバック投稿（G-01 の恒久化）", ("C2",)),

@@ -158,10 +158,11 @@ class TestTheSurfaceAccounting:
     def test_the_coverage_numbers_are_computed_not_asserted(self):
         report = REG.coverage()
         # 28 + R16, the observation board P8 §9 added when NP9 made the
-        # representation face a product (2026-08-14), + R17/C14, the FN
-        # draft queue and its two verdicts (WP-0.4 v2 / ADR-V3-012,
-        # 2026-08-15). Grown in the inventory, not slipped past it.
-        assert report["p7_total"] == 31
+        # representation face a product (2026-08-14), + R17/C14 (the FN
+        # draft queue and its verdicts) + R18/C15 (the sampled audit and
+        # its verdicts), both WP-0.4 v2 / ADR-V3-012 on 2026-08-15.
+        # Grown in the inventory, not slipped past it.
+        assert report["p7_total"] == 33
         assert report["served"] + report["deferred"] == report["p7_total"]
         assert report["routes"] == len(R.ROUTES)
 

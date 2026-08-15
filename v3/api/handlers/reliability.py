@@ -41,6 +41,7 @@ to be the same arithmetic, which is only checkable if there is one.
 from __future__ import annotations
 
 from v3.api.envelope import ApiResponse, tool_response
+from v3.calibration import audit as AUDIT
 from v3.calibration import human as HUMAN
 from v3.calibration import labels as L
 from v3.calibration import llm_reader as LLM
@@ -224,8 +225,15 @@ def _calibration_block(context) -> dict:
             "pending_fn_drafts": waiting,
             "tp": cell.tp, "fn": cell.fn,
         })
+    audit_state = AUDIT.state_for(context.ledger, stamp=stamp_all,
+                                  until=context.now)
     return {
         "tier2": _tier2_block(context),
+        # 0.4e: ADR-V3-012 makes counting C-15's valid cells on the
+        # all-labels series conditional on this being live. A frozen
+        # series is disclosed here rather than only in the runner's log,
+        # because the consumer that must not count it reads THIS.
+        "audit": audit_state.as_dict(),
         "calibration": S.self_evaluate(cells_all,
                                        stamp=stamp_all).as_dict(),
         "calibration_human_only": S.self_evaluate(

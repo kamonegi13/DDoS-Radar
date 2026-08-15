@@ -200,6 +200,32 @@ _PINNED: dict[str, Threshold] = {
                        "report says how many were left, because a silent "
                        "cap reads as 'the model saw everything' (G-17)"),
 
+    "S9_AUDIT_SAMPLE_PCT": Threshold.pinned(
+        20.0, unit="percent",
+        provenance_ref="WP-0.4 v2 0.4e, v3/calibration/audit.py "
+                       "is_sampled: the share of AUTOMATED labels the "
+                       "audit selects, hashed from the label id so the "
+                       "sample is a property of the population rather "
+                       "than of when it was asked for. 20% is the top of "
+                       "the 10-20% band the ladder was approved with — "
+                       "NP1 prefers over-sampling a generator that has "
+                       "already failed three times"),
+    "S9_AUDIT_MIN_SAMPLE": Threshold.pinned(
+        10.0, unit="count",
+        provenance_ref="WP-0.4 v2 0.4e, v3/calibration/audit.py evaluate: "
+                       "audited rows required before an error rate may "
+                       "freeze anything. One wrong out of two is a 50% "
+                       "rate and no evidence; below this the state is "
+                       "disclosed as under-sampled rather than read as "
+                       "either fine or broken"),
+    "S9_AUDIT_MAX_ERROR_RATE": Threshold.pinned(
+        0.1, unit="ratio",
+        provenance_ref="WP-0.4 v2 0.4e, v3/calibration/audit.py evaluate: "
+                       "above this measured rate the automated series "
+                       "stops growing. Strictly greater freezes, so the "
+                       "boundary passes — the same convention "
+                       "DESIGN_W_MAX_DROP uses"),
+
     # ── auto-tune governor (S1-CALIB-062/063) ──────────────────────────
     "AUTOTUNE_MIN_SAMPLE_N": Threshold.pinned(
         30.0, unit="count",
@@ -369,6 +395,9 @@ S9_POSITION_LOOKBACK_SEC = S9_POSITION_LOOKBACK_D * 86400.0
 S9_TIER1_MIN_DISTINCT_SOURCES = int(_pinned_number(
     "S9_TIER1_MIN_DISTINCT_SOURCES"))
 S9_TIER2_MAX_TOKENS = int(_pinned_number("S9_TIER2_MAX_TOKENS"))
+S9_AUDIT_SAMPLE_PCT = _pinned_number("S9_AUDIT_SAMPLE_PCT")
+S9_AUDIT_MIN_SAMPLE = int(_pinned_number("S9_AUDIT_MIN_SAMPLE"))
+S9_AUDIT_MAX_ERROR_RATE = _pinned_number("S9_AUDIT_MAX_ERROR_RATE")
 S9_TIER2_DRAFTS_PER_CYCLE = int(_pinned_number(
     "S9_TIER2_DRAFTS_PER_CYCLE"))
 #: Not a number, so not in `_PINNED`: the reasoning-effort token is a

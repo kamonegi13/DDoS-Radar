@@ -30,6 +30,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Sequence
 
+from v3.calibration import audit as AUDIT
 from v3.calibration import authority as A
 from v3.calibration import etl as ETL
 from v3.calibration import ground_truth as GT
@@ -65,6 +66,9 @@ class S9Report:
     #: Tier 2's pass (0.4d): asked / recorded / verdicts / skipped, with
     #: every way of doing nothing named.
     tier2: dict = field(default_factory=dict)
+    #: The sampled audit's state (0.4e), including whether it froze the
+    #: automated series this cycle.
+    audit: dict = field(default_factory=dict)
     pending_total: int = 0
     unlabelled: dict = field(default_factory=dict)
 
@@ -78,6 +82,7 @@ class S9Report:
                 "drafts_existing": self.drafts_existing,
                 "human_labels_new": self.human_labels_new,
                 "tier2": dict(self.tier2),
+                "audit": dict(self.audit),
                 "pending_total": self.pending_total,
                 "unlabelled": dict(self.unlabelled)}
 
@@ -134,6 +139,11 @@ def s9_cycle(store, *, now: float, scenarios: Sequence,
              egress=None) -> S9Report:
     """One full calibration pass. Pure orchestration over the store."""
     window_start = float(now) - T.S9_POSITION_LOOKBACK_SEC
+    # 0.4e: the sampled audit's verdict on the generator. Above the
+    # measured ceiling the automated series STOPS GROWING — no new
+    # automatic label is written and every FN candidate waits as a
+    # draft. Read once per cycle so one cycle is one decision.
+    frozen = _audit_state(store, now=float(now))
     labels_new: dict = {}
     labels_existing = 0
     drafts_new = 0
@@ -190,7 +200,10 @@ def s9_cycle(store, *, now: float, scenarios: Sequence,
 
             if verdict.label == "FALSE_NEGATIVE":
                 sources = ETL.convergent_sources(position, events)
-                if ETL.tier1_decision(sources) == "pending":
+                # A frozen series releases nothing: the candidate is
+                # kept, in the open, for a human rather than dropped.
+                if frozen.frozen or \
+                        ETL.tier1_decision(sources) == "pending":
                     draft = ETL.draft_for(
                         verdict, scenario_id=str(scenario_id),
                         conclusion_id=conclusion_id,
@@ -202,6 +215,13 @@ def s9_cycle(store, *, now: float, scenarios: Sequence,
                     else:
                         drafts_existing += 1
                     continue
+
+            if frozen.frozen:
+                # TP/FP/TN are the same generator's claims, so a freeze
+                # stops them too. Counted by reason, never silently.
+                unlabelled["series_frozen"] = \
+                    unlabelled.get("series_frozen", 0) + 1
+                continue
 
             built = L.record(
                 authorisation=A.authorize(_ACTOR, L.SUBMIT_LABEL),
@@ -239,8 +259,18 @@ def s9_cycle(store, *, now: float, scenarios: Sequence,
         positions=positions_seen, labels_new=labels_new,
         labels_existing=labels_existing, drafts_new=drafts_new,
         drafts_existing=drafts_existing, human_labels_new=humans_new,
-        tier2=tier2, pending_total=sum(pending.values()),
-        unlabelled=unlabelled)
+        tier2=tier2, audit=frozen.as_dict(),
+        pending_total=sum(pending.values()), unlabelled=unlabelled)
+
+
+def _audit_state(store, *, now: float):
+    """The audit verdict over the current epoch's calibration window."""
+    from v3.calibration.epoch import CURRENT_EPOCH, EpochStamp
+    since = max(float(CURRENT_EPOCH.started_at),
+                float(now) - T.CALIBRATION_WINDOW_SEC)
+    stamp = EpochStamp(epoch_id=CURRENT_EPOCH.epoch_id, since=since,
+                       until=float(now), exclude_auto=False)
+    return AUDIT.state_for(store, stamp=stamp, until=float(now))
 
 
 def _current_epoch_id() -> str:
