@@ -129,13 +129,21 @@
         var improved = sorted.some(function (m) {
             return m.severityDelta !== null && m.severityDelta < 0;
         });
+        var isAttentionTop = attentionTop !== null
+            && sorted.some(function (m) {
+                return m.scenarioId === attentionTop.scenarioId;
+            });
         return {
             //: 'worse' | 'better' | null — what the pulse animation keys on.
             change: worsened ? 'worse' : (improved ? 'better' : null),
             //: The attention lane's #1 scenario pings here (R-I ②).
-            isAttentionTop: attentionTop !== null && sorted.some(function (m) {
-                return m.scenarioId === attentionTop;
-            }),
+            isAttentionTop: isAttentionTop,
+            //: D-28 (P9 §1.13): the ping carries its WHY — the reason
+            //: sentence rides the tooltip, the item id makes the marker
+            //: a door to the lane drawer. Server prose, never composed
+            //: here (R-E / G-09).
+            attentionReason: isAttentionTop ? attentionTop.reason : null,
+            attentionItemId: isAttentionTop ? attentionTop.itemId : null,
             observation: _observationOf(observation),
             country: country,
             flag: Tiles.flagOf(country),
@@ -209,7 +217,18 @@
 
         var attentionTop = typeof input.attentionTopScenario === 'string'
             && input.attentionTopScenario
-            ? input.attentionTopScenario : null;
+            ? {
+                scenarioId: input.attentionTopScenario,
+                //: D-28: the WHY and the door, both optional — a ping
+                //: with no reason supplied still pings, and the marker
+                //: says the reason is missing rather than inventing one.
+                reason: typeof input.attentionTopReason === 'string'
+                    && input.attentionTopReason
+                    ? input.attentionTopReason : null,
+                itemId: typeof input.attentionTopItemId === 'string'
+                    && input.attentionTopItemId
+                    ? input.attentionTopItemId : null,
+            } : null;
 
         var placed = [];
         var spillover = [];

@@ -311,6 +311,15 @@
             // by the floor, so take the first SHOWN row).
             attentionTopScenario: attentionRows.length > 0
                 ? attentionRows[0].scenario_id || null : null,
+            // D-28 (P9 §1.13): the ping carries its WHY — the same
+            // server sentence the lane shows (v2 preferred, stored v1
+            // as fallback), and the item id that opens the drawer.
+            attentionTopReason: attentionRows.length > 0
+                ? (attentionRows[0].narrative_v2
+                    || attentionRows[0].narrative || null)
+                : null,
+            attentionTopItemId: attentionRows.length > 0
+                ? attentionRows[0].item_id || null : null,
         });
         if (!state.boardMapView) {
             state.boardMapView = BoardMapView.createBoardMapView({

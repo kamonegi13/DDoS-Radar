@@ -457,8 +457,15 @@ class TestNarrativeV2IsComposedReadSide:
 
     def test_every_served_row_gains_the_read_side_sentence(self, ranked):
         row = _rows(_get(ranked, "/api/v3/attention"))[0]
-        assert row["narrative_v2_template_ref"] == "attention.row@3"
+        # WP-4.13a (P9 §1.13 D-28): rows scored by the WP-4.11 supply
+        # carry the state-change basis, so the sentence may speak the
+        # change instant — and the WHY is a causal clause, not a fact
+        # list the reader has to interpret.
+        assert row["narrative_v2_template_ref"] == "attention.row_changed@1"
         assert "が注目" in row["narrative_v2"]
+        assert "理由:" in row["narrative_v2"]
+        assert "時間前に状態が変化" in row["narrative_v2"]
+        assert "ため。" in row["narrative_v2"]
         # D-25: substance first — never the degenerate novelty factor.
         assert "主因" not in row["narrative_v2"]
         assert "確度" in row["narrative_v2"]
@@ -467,4 +474,38 @@ class TestNarrativeV2IsComposedReadSide:
 
     def test_the_template_is_disclosed_beside_the_rows(self, ranked):
         body = _get(ranked, "/api/v3/attention").as_dict()
+        # Both live templates AND the superseded v3: rows decorated
+        # before WP-4.13 stored its ref, and a replay must still find
+        # the words that were actually shown (AP4).
+        assert "attention.row@4" in body["narrative_templates"]
+        assert "attention.row_changed@1" in body["narrative_templates"]
         assert "attention.row@3" in body["narrative_templates"]
+
+    def test_a_zero_score_row_keeps_its_stored_silent_sentence(
+            self, tmp_path):
+        # WP-4.13a: the v4 sentence is a causal claim ("...のため注目 N
+        # 位"), which would be a false statement on a row the tool is not
+        # asking anyone to look at. The stored silent sentence stays the
+        # row's only voice.
+        store = LedgerStore(str(tmp_path / "silent.db"))
+        try:
+            store.append_conclusion(to_record(Conclusion(
+                scenario_id=SCENARIO, conclusion_type=THREAT_LEVEL,
+                observed_at=NOW, confidence=0.0,
+                provenance=provenance("tl@S1-CONC-001"),
+                input_health=healthy(),
+                unavailable_reason="calibration_pending",
+                suppression=Suppression(
+                    guard_id="calibration_window",
+                    reason="calibration_pending",
+                    detail="30 日窓が満たされていません",
+                    overridden=False))))
+            RUNTIME.rank_cycle(now=NOW, store=store, scenario_ids=[SCENARIO])
+            _post(store, "/api/v3/attention/thresholds",
+                  {"thresholds": {"min_score": 0.0}}, method="PUT")
+            row = _rows(_get(store, "/api/v3/attention"))[0]
+            assert float(row["score"]) == 0.0
+            assert "narrative_v2" not in row
+            assert row["narrative_template_ref"] == "attention.silent@1"
+        finally:
+            store.close()

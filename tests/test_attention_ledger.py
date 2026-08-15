@@ -256,6 +256,59 @@ class TestTheNarrativeIsATemplate:
         with pytest.raises(DomainError):
             template.render({"a": 1})
 
+    # ── WP-4.13a (P9 §1.13 D-28): the v4 sentence speaks a REASON ──────
+    def _components(self, **extra_inputs):
+        inputs = {"last_changed_at": NOW - 2 * HOUR, "confidence": 0.8,
+                  "previous_confidence": 0.2,
+                  "last_analyst_action_at": NOW - 3 * HOUR, "now": NOW}
+        inputs.update(extra_inputs)
+        return {"inputs": inputs,
+                "horizons": {"blindness_horizon_sec": 6 * HOUR}}
+
+    def test_v4_speaks_the_change_instant_when_the_basis_is_real(self):
+        text, ref = N.render_row_v4(
+            components=self._components(
+                novelty_basis=N.NOVELTY_BASIS_STATE_CHANGE),
+            scenario_label="台湾正面", subject="anomaly", rank=1,
+            substance="検知源 check_host（US）")
+        assert ref == "attention.row_changed@1"
+        assert "理由:" in text
+        assert "2.0 時間前に状態が変化し" in text
+        assert "確度が 0.200 → 0.800 と動き" in text
+        assert "3.0 時間続いているため" in text
+
+    def test_v4_without_the_marker_does_not_claim_a_change(self):
+        # A row scored before WP-4.11 carries a WRITE instant in
+        # `last_changed_at`; calling it a state change would be a false
+        # sentence, so the reason speaks only the two real factors.
+        text, ref = N.render_row_v4(
+            components=self._components(),
+            scenario_label="台湾正面", subject="anomaly", rank=2,
+            substance="検知源 check_host（US）")
+        assert ref == "attention.row@4"
+        assert "理由:" in text
+        assert "状態が変化" not in text
+        assert "確度が 0.200 → 0.800 と動き" in text
+
+    def test_v4_with_the_marker_but_no_instant_falls_back(self):
+        text, ref = N.render_row_v4(
+            components=self._components(
+                novelty_basis=N.NOVELTY_BASIS_STATE_CHANGE,
+                last_changed_at=None),
+            scenario_label="台湾正面", subject="anomaly", rank=1,
+            substance="検知源 check_host（US）")
+        assert ref == "attention.row@4"
+        assert "状態が変化" not in text
+
+    def test_the_v4_templates_are_disclosed(self):
+        disclosed = N.disclosure()
+        assert "attention.row@4" in disclosed
+        assert "attention.row_changed@1" in disclosed
+        # The superseded refs stay: a replay of an old row must still
+        # find the words that were shown (AP4).
+        assert "attention.row@3" in disclosed
+        assert "attention.row@1" in disclosed
+
 
 # ── the ledger ──────────────────────────────────────────────────────────
 @pytest.fixture()
@@ -435,6 +488,80 @@ class TestSupplyReadsOneSourcePerFactor:
             store, scenario_id="taiwan_contingency",
             conclusion_type=THREAT_LEVEL, now=NOW)
         assert candidate.previous_confidence is None
+
+    # ── WP-4.11 (P9 §6.9): novelty reads the STATE diff, not the write ──
+    def _tl_row(self, *, observed_at, confidence, state):
+        from tests.conclusions_fixtures import healthy, provenance
+        from v3.conclusions import Conclusion, THREAT_LEVEL, to_record
+        return to_record(Conclusion(
+            scenario_id="taiwan_contingency", conclusion_type=THREAT_LEVEL,
+            observed_at=observed_at, confidence=confidence,
+            provenance=provenance("tl"), input_health=healthy(),
+            state=state, threshold_ref={}, source_urls=(),
+            calibration_status={}))
+
+    def test_the_change_instant_is_the_last_state_diff_not_the_last_write(
+            self, store):
+        from v3.conclusions import THREAT_LEVEL
+        # TL4 → TL2 five hours ago, then the same TL2 re-written an hour
+        # ago (confidence jitter). The OLD read answered NOW - HOUR and
+        # crowned every candidate maximally novel (D-25(a)); the fact is
+        # that the finding last said something different 5h ago.
+        for observed_at, confidence, state in (
+                (NOW - 10 * HOUR, 0.30, "TL4"),
+                (NOW - 5 * HOUR, 0.80, "TL2"),
+                (NOW - HOUR, 0.82, "TL2")):
+            store.append_conclusion(self._tl_row(
+                observed_at=observed_at, confidence=confidence,
+                state=state))
+        candidate = SUPPLY.candidate_for(
+            store, scenario_id="taiwan_contingency",
+            conclusion_type=THREAT_LEVEL, now=NOW)
+        assert candidate.last_changed_at == pytest.approx(NOW - 5 * HOUR)
+        assert S.score_for(candidate, now=NOW).novelty == pytest.approx(
+            1.0 - (5 * HOUR) / T.NOVELTY_HORIZON_SEC)
+
+    def test_a_stable_history_is_old_not_novel(self, store):
+        from v3.conclusions import THREAT_LEVEL
+        # Same state across the whole window: unchanged since at least
+        # the window's oldest row. Answering None here would score a
+        # maximally STABLE finding as maximally NOVEL.
+        for observed_at, confidence in ((NOW - 60 * HOUR, 0.50),
+                                        (NOW - 30 * HOUR, 0.55),
+                                        (NOW - HOUR, 0.52)):
+            store.append_conclusion(self._tl_row(
+                observed_at=observed_at, confidence=confidence,
+                state="TL3"))
+        candidate = SUPPLY.candidate_for(
+            store, scenario_id="taiwan_contingency",
+            conclusion_type=THREAT_LEVEL, now=NOW)
+        assert candidate.last_changed_at == pytest.approx(NOW - 60 * HOUR)
+        assert S.score_for(candidate, now=NOW).novelty == 0.0
+
+    def test_a_first_ever_row_dates_the_change_at_its_own_instant(
+            self, store):
+        from v3.conclusions import THREAT_LEVEL
+        store.append_conclusion(self._tl_row(
+            observed_at=NOW - HOUR, confidence=0.6, state="TL3"))
+        candidate = SUPPLY.candidate_for(
+            store, scenario_id="taiwan_contingency",
+            conclusion_type=THREAT_LEVEL, now=NOW)
+        # Nothing → TL3 IS a change, dated by the row that first said it.
+        assert candidate.last_changed_at == pytest.approx(NOW - HOUR)
+
+    def test_the_novelty_basis_marker_rides_into_the_stored_inputs(
+            self, store):
+        from v3.conclusions import THREAT_LEVEL
+        store.append_conclusion(self._tl_row(
+            observed_at=NOW - HOUR, confidence=0.6, state="TL3"))
+        candidate = SUPPLY.candidate_for(
+            store, scenario_id="taiwan_contingency",
+            conclusion_type=THREAT_LEVEL, now=NOW)
+        stored = S.score_for(candidate, now=NOW).inputs
+        # WP-4.13a picks its words on this marker: without it, a row's
+        # `last_changed_at` is a write instant and must not be spoken
+        # as a state change.
+        assert stored[N.NOVELTY_BASIS_KEY] == N.NOVELTY_BASIS_STATE_CHANGE
 
     def test_the_order_hint_follows_the_declared_conclusion_types(self):
         from v3.conclusions.vocabulary import CONCLUSION_TYPES

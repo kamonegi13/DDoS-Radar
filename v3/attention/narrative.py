@@ -171,6 +171,36 @@ ROW_TEMPLATE_V3 = Template(
          "確度 {confidence_from} → {confidence}、"
          "アナリスト未対応 {idle_hours} 時間。")
 
+#: WP-4.13a (P9 §1.13 D-28): the read-side sentence grows its REASON.
+#: v3 stated the facts — confidence from → to, hours unattended — and
+#: left the causality to the reader; the 14th review named the gap
+#: ("なぜ注目すべきなのかが表現されていない"). A ranked row's score is
+#: positive, so all three factors are positive, so the causal claim is
+#: always true for any row these templates are allowed to speak for —
+#: the caller must NOT use them on a zero-score row, whose stored silent
+#: sentence already says why the tool is not asking anyone to look.
+#:
+#: Two templates rather than one with an optional hole: rows scored
+#: before WP-4.11 carry a WRITE instant in `last_changed_at`, and a
+#: sentence calling one a state change would be a false statement about
+#: the finding. The choice is deterministic on the stored
+#: `novelty_basis` marker, so a replay picks the same words (AP4).
+NOVELTY_BASIS_KEY = "novelty_basis"
+NOVELTY_BASIS_STATE_CHANGE = "state_change"
+
+ROW_TEMPLATE_V4 = Template(
+    template_id="attention.row", version="4",
+    text="『{scenario}』の{subject}が注目 {rank} 位 — {substance}。"
+         "理由: 確度が {confidence_from} → {confidence} と動き、"
+         "アナリスト未対応が {idle_hours} 時間続いているため。")
+
+ROW_TEMPLATE_CHANGED = Template(
+    template_id="attention.row_changed", version="1",
+    text="『{scenario}』の{subject}が注目 {rank} 位 — {substance}。"
+         "理由: {age_hours} 時間前に状態が変化し、確度が {confidence_from} "
+         "→ {confidence} と動き、アナリスト未対応が {idle_hours} 時間"
+         "続いているため。")
+
 #: Conclusion types as analyst words. The raw value is the API's and
 #: stays on the wire; this is prose vocabulary, not a state rename.
 TYPE_TEXT: dict = {
@@ -209,6 +239,44 @@ def render_row_v3(*, components: Mapping, scenario_label: str,
         "idle_hours": _hours(idle)}), ROW_TEMPLATE_V3.ref)
 
 
+def render_row_v4(*, components: Mapping, scenario_label: str,
+                  subject: str, rank, substance: str) -> tuple:
+    """`(narrative, template_ref)` with the reason clause (WP-4.13a).
+
+    Composed read-side from stored numbers, like v3, and choosing its
+    words from them too: the change instant is spoken only when the
+    stored inputs carry the WP-4.11 marker AND an actual instant —
+    otherwise the age would be the write-churn artefact D-25(a) named,
+    and the sentence falls back to the two factors that are real either
+    way. The caller guards score > 0; see the template block comment.
+    """
+    stated = dict(components.get("inputs") or {})
+    horizons = dict(components.get("horizons") or {})
+    now = float(stated.get("now") or 0.0)
+    last_action = stated.get("last_analyst_action_at")
+    horizon = float(horizons.get("blindness_horizon_sec") or 0.0)
+    idle = (horizon if last_action is None
+            else max(0.0, now - float(last_action)))
+    previous = stated.get("previous_confidence")
+    values = {
+        "scenario": scenario_label,
+        "subject": TYPE_TEXT.get(subject, subject),
+        "rank": rank,
+        "substance": substance,
+        "confidence_from": ("なし" if previous is None
+                            else f"{float(previous):.3f}"),
+        "confidence": f"{float(stated.get('confidence') or 0.0):.3f}",
+        "idle_hours": _hours(idle)}
+    last_changed = stated.get("last_changed_at")
+    if (stated.get(NOVELTY_BASIS_KEY) == NOVELTY_BASIS_STATE_CHANGE
+            and last_changed is not None):
+        values["age_hours"] = _hours(
+            max(0.0, now - float(last_changed)))
+        return (ROW_TEMPLATE_CHANGED.render(values),
+                ROW_TEMPLATE_CHANGED.ref)
+    return (ROW_TEMPLATE_V4.render(values), ROW_TEMPLATE_V4.ref)
+
+
 def disclosure() -> dict:
     """Every template with its id, version and slots (AP2 / NP6)."""
     return {template.ref: {"template_id": template.template_id,
@@ -216,9 +284,12 @@ def disclosure() -> dict:
                            "slots": list(template.slots),
                            "text": template.text}
             for template in (ROW_TEMPLATE, SILENT_TEMPLATE,
-                             ROW_TEMPLATE_V3)}
+                             ROW_TEMPLATE_V3, ROW_TEMPLATE_V4,
+                             ROW_TEMPLATE_CHANGED)}
 
 
 __all__ = ["Template", "ROW_TEMPLATE", "SILENT_TEMPLATE", "ROW_TEMPLATE_V3",
+           "ROW_TEMPLATE_V4", "ROW_TEMPLATE_CHANGED",
+           "NOVELTY_BASIS_KEY", "NOVELTY_BASIS_STATE_CHANGE",
            "REASON_TEXT", "TYPE_TEXT",
-           "render_row", "render_row_v3", "disclosure"]
+           "render_row", "render_row_v3", "render_row_v4", "disclosure"]

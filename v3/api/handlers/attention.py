@@ -81,7 +81,7 @@ def read_attention(context, *, at=None, scenario_id=None) -> ApiResponse:
 
 
 def _decorate_v2(context, payload) -> None:
-    """WP-4.8d: the read-side sentence, beside the stored one.
+    """WP-4.8d / WP-4.13a: the read-side sentence, beside the stored one.
 
     The stored `narrative` was rendered in the tick and stays untouched —
     it is AP4's record of what was written when, and P9 §1.8's audit
@@ -89,15 +89,27 @@ def _decorate_v2(context, payload) -> None:
     `narrative_v2` is composed HERE from the same stored numbers: the
     scenario's display name (the refs the context already carries), the
     conclusion the item points at read back through `conclusion_by_id`
-    (the same lookup R4 serves) for its type and SUBSTANCE, and the two
-    ranking factors that discriminate (P9 §1.10 D-25 — novelty is
-    degenerate until WP-4.11 and is not spoken). Deterministic, versioned
-    (`attention.row@3`), disclosed in `narrative_templates`.
+    (the same lookup R4 serves) for its type and SUBSTANCE, and the
+    ranking factors as a REASON clause (P9 §1.13 D-28 — v3 listed the
+    facts and left the "why" to the reader). Deterministic, versioned
+    (`attention.row@4` / `attention.row_changed@1`, chosen on the stored
+    `novelty_basis`), disclosed in `narrative_templates`.
+
+    A zero-score row is NOT decorated: the reason clause is a causal
+    claim ("...のため注目 N 位"), which is false for a row the tool is
+    not asking anyone to look at. Its stored silent sentence already
+    says why it did not rank, and stays the row's voice.
     """
     import json as _json
     labels = {ref.scenario_id: ref.display_name_ja
               for ref in context.scenarios}
     for row in payload.get("attention") or []:
+        try:
+            positive = float(row.get("score") or 0.0) > 0.0
+        except (TypeError, ValueError):
+            positive = False
+        if not positive:
+            continue
         subject = str(row.get("item_kind") or "")
         substance = "内容の要約は取得できませんでした"
         if subject == "conclusion" and row.get("item_id"):
@@ -115,7 +127,7 @@ def _decorate_v2(context, payload) -> None:
             except ValueError:
                 components = {}
         try:
-            narrative, ref = narrative_module.render_row_v3(
+            narrative, ref = narrative_module.render_row_v4(
                 components=components, scenario_label=label,
                 subject=subject, rank=row.get("rank_position"),
                 substance=substance)

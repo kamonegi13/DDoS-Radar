@@ -319,6 +319,39 @@ test('the attention top scenario pings through its participants', () => {
     assert.strictEqual(tileOf(map, 'US').isAttentionTop, false);
 });
 
+test('the ping carries its WHY and its door (D-28)', () => {
+    const map = BoardMap.buildBoardMap({
+        scenarios: [
+            scenario('hot', { participants: { TW: 1.0 }, threat_level: 3 }),
+            scenario('other', { participants: { US: 1.0 },
+                                threat_level: 5 }),
+        ],
+        attentionTopScenario: 'hot',
+        attentionTopReason: '『台湾正面』の異常検知が注目 1 位 — 理由: …のため。',
+        attentionTopItemId: 'item-9',
+    });
+    const top = tileOf(map, 'TW');
+    assert.strictEqual(top.attentionReason,
+        '『台湾正面』の異常検知が注目 1 位 — 理由: …のため。');
+    assert.strictEqual(top.attentionItemId, 'item-9');
+    // A tile that is not the top carries neither — the reason belongs
+    // to the ping, not to the neighbourhood.
+    assert.strictEqual(tileOf(map, 'US').attentionReason, null);
+    assert.strictEqual(tileOf(map, 'US').attentionItemId, null);
+});
+
+test('a ping with no reason supplied says null, never invents (G-09)', () => {
+    const map = BoardMap.buildBoardMap({
+        scenarios: [
+            scenario('hot', { participants: { TW: 1.0 }, threat_level: 3 }),
+        ],
+        attentionTopScenario: 'hot',
+    });
+    assert.strictEqual(tileOf(map, 'TW').isAttentionTop, true);
+    assert.strictEqual(tileOf(map, 'TW').attentionReason, null);
+    assert.strictEqual(tileOf(map, 'TW').attentionItemId, null);
+});
+
 // ── report ──────────────────────────────────────────────────────────────
 
 process.stdout.write('\n');

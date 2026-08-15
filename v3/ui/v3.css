@@ -1148,6 +1148,8 @@ tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust);
            animation: bm-ping-ring 2.2s ease-out infinite;
            pointer-events: none; }
 .bm-marker { position: relative; }
+/* D-28: the attention top is a door to the lane drawer. */
+.bm-marker[data-drawer-item] { cursor: pointer; }
 
 /* Cards follow the same clock: changed carries the accent, quiet recedes. */
 .card-changed { border-left: 3px solid var(--color-warning); }

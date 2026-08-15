@@ -167,6 +167,8 @@
         'ui.board_map.membership': '{name} — TL {tl}',
         'ui.board_map.membership_null': '{name} — TL 未算出',
         'ui.board_map.adversary_suffix': '（敵対側）',
+        'ui.board_map.attention_reason_unsupplied':
+            '注目 1 位（理由文が未取得のため、右のレーンで確認してください）',
         'ui.drawer.close': '閉じる',
         'ui.drawer.fact.score': 'スコア',
         'ui.drawer.fact.formula': '式',
@@ -183,7 +185,7 @@
         'ui.board_map.obs.band_global': '全球掃引の到達のみ',
         'ui.board_map.obs.silent': 'この 24 時間、国別掃引の対象外で、全球掃引からも観測が届いていません（静けさではなく未観測）',
         'ui.board_map.obs.unsupplied': '観測ボード（R16）が未取得のため、観測数は表示できません',
-        'ui.board_map.legend': '数字 = 24 時間の発火観測数。大マーカー = シナリオ参加国（色は最深刻 TL）、小ドット = 全球掃引のみが到達した国。数字なし = 未観測（静けさとは区別されます）',
+        'ui.board_map.legend': '数字 = 24 時間の発火観測数。大マーカー = シナリオ参加国（色は最深刻 TL）、小ドット = 全球掃引のみが到達した国。数字なし = 未観測（静けさとは区別されます）。波紋 = 注目 1 位 — ポインタを置くと理由、クリックで詳細',
         'ui.board_map.coverage_silent': '観測範囲: センサー {total} 基中 {silent} 基が沈黙 — {names}（上の数字はこれらの寄与を含みません）',
         'ui.board_map.coverage_all': '観測範囲: 宣言センサー {total} 基すべてが観測を書き込んでいます',
         'ui.board_map.coverage_unsupplied': '観測範囲: センサー面（R8）が未取得のため確認できません',

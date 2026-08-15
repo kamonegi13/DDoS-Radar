@@ -121,10 +121,10 @@
             substance: typeof raw.substance === 'string' && raw.substance
                 ? raw.substance : null,
             formulaRef: raw.formula_ref || null,
-            // WP-4.8d: the read-side v2 sentence (analyst language,
-            // `attention.row@2`) is preferred; the stored v1 remains the
-            // fallback and the ledger's own record. Whichever is shown,
-            // its template ref rides along (AP2).
+            // WP-4.8d / WP-4.13a: the read-side sentence (analyst
+            // language, with its reason clause) is preferred; the stored
+            // v1 remains the fallback and the ledger's own record.
+            // Whichever is shown, its template ref rides along (AP2).
             narrative: (typeof raw.narrative_v2 === 'string'
                         && raw.narrative_v2)
                 ? raw.narrative_v2

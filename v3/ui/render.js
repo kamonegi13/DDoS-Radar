@@ -1079,14 +1079,23 @@
     }
 
     function bmMarkerHtml(tile) {
-        var tip = tile.memberships.map(function (m) {
+        var lines = tile.memberships.map(function (m) {
             var line = m.tl.tl === null
                 ? _t('ui.board_map.membership_null', { name: m.displayName })
                 : _t('ui.board_map.membership', {
                     name: m.displayName, tl: String(m.tl.tl) });
             return line
                 + (m.isAdversary ? _t('ui.board_map.adversary_suffix') : '');
-        }).concat([_obsTipLine(tile.observation)]).join('\n');
+        }).concat([_obsTipLine(tile.observation)]);
+        // D-28 (P9 §1.13): the ping's WHY, first — the reason sentence
+        // is the server's (R6 narrative), and a top with none supplied
+        // says so instead of pinging mutely.
+        if (tile.isAttentionTop) {
+            lines.unshift(tile.attentionReason
+                ? tile.attentionReason
+                : _t('ui.board_map.attention_reason_unsupplied'));
+        }
+        var tip = lines.join('\n');
         var obs = tile.observation;
         var obsBand = obs && obs.band ? obs.band : 'unsupplied';
         return '<div class="bm-marker bm-band-' + esc(tile.band)
@@ -1101,6 +1110,12 @@
             + (tile.hasFocused ? ' bm-marker-focused' : '')
             + '" data-country="' + esc(tile.country) + '"'
             + ' data-map-scenarios="' + esc(tile.scenarioIds.join(' ')) + '"'
+            // D-28: the marker is a door to the drawer that holds the
+            // full reason — app.js's delegated click handler already
+            // opens `data-drawer-item`, so this is wiring, not a listener.
+            + (tile.isAttentionTop && tile.attentionItemId
+                ? ' data-drawer-item="' + esc(tile.attentionItemId) + '"'
+                : '')
             + ' style="--bm-color: var(' + esc(tile.cssVar) + ')"'
             + ' title="' + esc(tip) + '">'
             + (tile.isAttentionTop

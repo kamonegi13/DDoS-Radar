@@ -1018,6 +1018,64 @@ test('the spillover row is drawn with its reason, never omitted (G-17)', () => {
     assert.ok(/観測は落としていません/.test(html));
 });
 
+// ── the real-map marker (P9 §1.13 D-28: the ping carries its WHY) ────────
+
+function bmTile(overrides) {
+    return Object.assign({
+        country: 'TW', band: 'severe', cssVar: '--color-severe',
+        change: null, isAttentionTop: false, isAdversary: false,
+        hasFocused: false, scenarioIds: ['hot'],
+        attentionReason: null, attentionItemId: null,
+        memberships: [{ scenarioId: 'hot', displayName: '台湾正面',
+                        isAdversary: false, tl: { tl: 2 } }],
+        observation: { fired: 3, suppressed: 0, band: 'dense' },
+    }, overrides || {});
+}
+
+test('the attention-top marker leads its tooltip with the reason', () => {
+    const html = R.bmMarkerHtml(bmTile({
+        isAttentionTop: true,
+        attentionReason: '『台湾正面』の異常検知が注目 1 位 — 理由: …のため。',
+        attentionItemId: 'item-9',
+    }));
+    const title = /title="([^"]*)"/.exec(html)[1];
+    assert.ok(title.indexOf('『台湾正面』の異常検知が注目 1 位') === 0, title);
+    // The reason line comes BEFORE the membership lines.
+    assert.ok(title.indexOf('理由:') < title.indexOf('台湾正面 — TL 2'),
+              title);
+});
+
+test('the attention-top marker is a door to the lane drawer (D-28)', () => {
+    const html = R.bmMarkerHtml(bmTile({
+        isAttentionTop: true, attentionReason: '理由文',
+        attentionItemId: 'item-9',
+    }));
+    assert.ok(/data-drawer-item="item-9"/.test(html), html);
+    assert.ok(/bm-ping/.test(html));
+});
+
+test('a top with no reason supplied says so, never invents (G-09)', () => {
+    const html = R.bmMarkerHtml(bmTile({ isAttentionTop: true }));
+    const title = /title="([^"]*)"/.exec(html)[1];
+    assert.ok(/理由文が未取得/.test(title), title);
+    assert.ok(!/data-drawer-item/.test(html), html);
+});
+
+test('an ordinary marker carries neither reason nor door', () => {
+    const html = R.bmMarkerHtml(bmTile());
+    assert.ok(!/data-drawer-item/.test(html), html);
+    assert.ok(!/bm-ping/.test(html), html);
+    assert.ok(!/注目 1 位/.test(html), html);
+});
+
+test('a hostile reason sentence cannot break out of the title', () => {
+    const html = R.bmMarkerHtml(bmTile({
+        isAttentionTop: true, attentionReason: '"><script>alert(1)</script>',
+        attentionItemId: '"><script>x</script>',
+    }));
+    assert.ok(!/<script>/.test(html), html);
+});
+
 // ── empty states (P9 §3.5) ───────────────────────────────────────────────
 
 test('an empty state renders all three parts and nothing else', () => {
