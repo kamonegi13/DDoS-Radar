@@ -1,0 +1,33 @@
+{
+  "jp1.node.check-host.net": [
+    [
+      1,
+      0.634,
+      "Found",
+      "302",
+      "203.0.113.9"
+    ]
+  ],
+  "us1.node.check-host.net": [
+    [
+      1,
+      1.204,
+      "OK",
+      "200",
+      "203.0.113.9"
+    ]
+  ],
+  "de1.node.check-host.net": [
+    [
+      0,
+      0.0,
+      "Connection timed out",
+      "",
+      ""
+    ]
+  ],
+  "nl1.node.check-host.net": [
+    null
+  ],
+  "fr1.node.check-host.net": null
+}

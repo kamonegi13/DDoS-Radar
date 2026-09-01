@@ -1,0 +1,1259 @@
+/* ══ Noroshi v3 L7 — stylesheet ═══════════════════════════════════════
+ *
+ * Every colour is a custom property declared once in :root, mirroring
+ * radar.css's palette so the two surfaces read as one tool during the
+ * parallel-run window. Nothing outside the :root block contains a colour
+ * literal — tests/test_v3_ui_discipline.py enforces that.
+ *
+ * There are no floating-panel rules here. P8 §7 retires the panel
+ * accumulation, so the panel-chrome contract has nothing to leak into; the
+ * same test still refuses any id-rooted rule that declares a chrome
+ * property, so a panel reintroduced later cannot skip the contract.
+ */
+
+/* ── palette ─────────────────────────────────────────────────────────── */
+:root {
+    --color-critical: #ff2a2a;
+    --color-severe:   #ff4444;
+    --color-warning:  #ffaa00;
+    --color-elevated: #ffff00;
+    --color-normal:   #66ff66;
+    --color-accent:   #00ffff;
+    --color-ok:       #00ff88;
+    --color-info:     #66ccff;
+    --color-muted:    #888888;
+    --color-bg:       #0f0f0f;
+    --color-surface:  #0a0a0a;
+    --color-border:   #222222;
+    --color-text:     #ffffff;
+    --color-text-dim: #aaaaaa;
+
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --radius-sm: 3px;
+    --radius-md: 6px;
+
+    /* Typographic scale (P9 D-3). WP-4.2 drew every element at one weight
+     * and one size, so nothing on the screen said "read me first" — which
+     * is why a ten-second board took a minute. Four steps, used for one
+     * thing each: the TL numeral, the sentences that answer a question,
+     * body text, and the numbers that support a sentence. */
+    /* Sized against kuebiko's shipped scale (P9 §1.4 D-18): its body is
+     * 13px and its metadata 11px, and the fourth review measured ours a
+     * step larger everywhere — same information, twice the area. */
+    --text-hero: 34px;   /* the TL numeral — the dominant element of a card */
+    --text-lead: 14px;   /* the situation sentence, the lane narrative */
+    --text-body: 13px;
+    --text-meta: 11px;   /* score, rank, deltas: support, not headline */
+
+    /* Semantic aliases: the trust bands and freshness levels name a colour
+     * once here rather than repeating a palette entry at each use. */
+    --trust-trusted:  var(--color-info);
+    --trust-reserved: var(--color-warning);
+    --trust-distrust: var(--color-critical);
+    --fresh-fresh:    var(--color-ok);
+    --fresh-aging:    var(--color-warning);
+    --fresh-stale:    var(--color-severe);
+    --fresh-failed:   var(--color-critical);
+    --fresh-unknown:  var(--color-muted);
+}
+
+/* ── base ────────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+
+/* The shell is a column the height of the viewport (P9 §1.4 D-15): the
+ * global bars take what they need, `main` takes the rest, and the
+ * situation view lays its map out inside that rest WITHOUT page scroll.
+ * The verify and scenario views scroll inside the same box instead. */
+html, body { height: 100%; }
+body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, monospace;
+    font-size: var(--text-body);
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Sidebar beside content (D-16 — kuebiko's AppShell shape). */
+main {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 148px minmax(0, 1fr);
+}
+.view-stack { min-width: 0; min-height: 0; overflow: hidden;
+              display: flex; }
+.view { flex: 1; min-width: 0; min-height: 0; }
+/* Views that are documents scroll themselves; the situation view is a
+ * screen and does not. */
+#view-scenario, #view-verify, #view-reliability, #view-decisions,
+#view-settings { overflow-y: auto;
+                 padding: var(--space-3) var(--space-4); }
+
+h2, h3, h4, h5 { margin: var(--space-3) 0 var(--space-2); font-weight: 600; }
+h2 { font-size: var(--text-body); }
+h3 { font-size: var(--text-body); border-bottom: 1px solid var(--color-border);
+     padding-bottom: var(--space-1); }
+
+button {
+    background: var(--color-surface);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-1) var(--space-2);
+    cursor: pointer;
+    font: inherit;
+}
+button:hover:not(:disabled) { border-color: var(--color-accent); }
+button:disabled { opacity: 0.5; cursor: progress; }
+button:focus-visible, a:focus-visible, input:focus-visible,
+textarea:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+a { color: var(--color-info); }
+
+textarea, input {
+    background: var(--color-surface);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-1);
+    font: inherit;
+    width: 100%;
+    max-width: 640px;
+}
+
+/* A hidden view must not be reachable by a display rule that outranks the
+ * attribute. Every container below sets `display` explicitly, and one of
+ * them winning over `hidden` would put two views on screen at once — which
+ * is D-1 with extra steps. */
+[hidden] { display: none !important; }
+
+.empty, .hint { color: var(--color-text-dim); font-style: italic; }
+
+/* ── the empty-state contract (P9 §3.5) ──────────────────────────────────
+ *
+ * Three lines, always in this order: what this place shows, why it is empty
+ * now, what would fill it. The reason is the one an analyst is looking for,
+ * so it is the one at full contrast; the other two are the orientation a
+ * first-time reader needs and a returning one skips.
+ */
+.empty-state { display: block; font-style: normal; max-width: 60ch; }
+.empty-state .empty-role,
+.empty-state .empty-reason,
+.empty-state .empty-fills { display: block; }
+.empty-state .empty-role { color: var(--color-text-dim); }
+.empty-state .empty-reason { color: var(--color-text); margin: var(--space-1) 0; }
+.empty-state .empty-fills { color: var(--color-text-dim); font-style: italic; }
+
+/* ── term definitions (P9 §2 R-C / §4) ───────────────────────────────────
+ *
+ * The ⓘ marks a term's first occurrence in a view and nothing else. The
+ * definition itself is in the document for `aria-describedby` and hidden
+ * VISUALLY — never with `hidden`, which would take it out of the
+ * accessibility tree along with the pixels and leave the marker describing
+ * nothing.
+ */
+.term-marker { display: inline; white-space: nowrap; }
+.term-info {
+    display: inline-block;
+    margin-left: var(--space-1);
+    font-size: var(--text-meta);
+    color: var(--color-accent);
+    cursor: help;
+}
+.term-info:focus { outline: 1px solid var(--color-accent); }
+.term-def {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* The one-line lead above a Tier 2 table: what question it answers
+ * (P9 §3.3). Not italic — it is a statement, not an aside. */
+.lead { color: var(--color-text-dim); margin: 0 0 var(--space-2); }
+.warn:not(:empty) { color: var(--color-warning); }
+/* The unlanded surfaces. Since P9 §3.3 they exist only as rows of the
+ * 未着地の機能 table at the end of the verification view, so the rule is
+ * attached to the attribute the registry fills rather than to a class an
+ * operational view could wear again. */
+td[data-deferred] { color: var(--color-muted); }
+
+/* ── NP7: permanent, unconditional, first ────────────────────────────── */
+/* NP7, reduced to a micro-footer (P9 §1.6 D-22): the sentence is the
+ * tool's definition and never leaves the screen (S1-UI-024a), but a
+ * full-width banner spent a viewport line on it every minute of the day.
+ * The element stays FIRST in the document — a screen reader hears the
+ * disclaimer before the dashboard — and `order` moves it to the visual
+ * bottom of the body column. */
+#np7-bar {
+    order: 99;
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    padding: 2px var(--space-3);
+    color: var(--color-muted);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.breach {
+    margin: 0;
+    padding: var(--space-2) var(--space-4);
+    background: var(--color-critical);
+    color: var(--color-bg);
+    font-weight: 700;
+}
+
+.replay-badge {
+    margin: 0;
+    padding: var(--space-2) var(--space-4);
+    background: var(--color-warning);
+    color: var(--color-bg);
+    font-weight: 700;
+    position: sticky;
+    top: 40px;
+    z-index: 19;
+}
+
+/* ── the two-item navigation, worn as a sidebar (P9 §3.2 / §1.4 D-16) ── */
+.view-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-3) 0;
+    border-right: 1px solid var(--color-border);
+    background: var(--color-surface);
+}
+
+.nav-brand {
+    padding: 0 var(--space-3) var(--space-3);
+    font-size: var(--text-body);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: var(--color-text-dim);
+}
+
+/* Group captions (P9 §1.5 — kuebiko's sidebar sections). */
+.nav-group {
+    padding: var(--space-3) var(--space-3) var(--space-1);
+    font-size: var(--text-meta);
+    letter-spacing: 0.14em;
+    color: var(--color-muted);
+}
+
+.nav-item {
+    display: block;
+    padding: var(--space-2) var(--space-3);
+    color: var(--color-text-dim);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+    font-size: var(--text-body);
+    letter-spacing: 0.08em;
+}
+.nav-item:hover { color: var(--color-text); }
+
+/* The current view, and the board while one of its children is open. The
+ * branch state is dimmer than the current state on purpose: it says "you
+ * came from here", not "you are here". */
+.nav-current {
+    color: var(--color-accent);
+    border-left-color: var(--color-accent);
+    background: var(--color-bg);
+    font-weight: 700;
+}
+.nav-branch { color: var(--color-info); border-left-color: var(--color-border); }
+
+.view-back { margin: 0 0 var(--space-3); }
+
+.scenario-head:not(:empty) {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin: 0 0 var(--space-3);
+}
+.scenario-head-name { font-size: var(--text-lead); font-weight: 700; }
+.scenario-head-notice {
+    color: var(--color-warning);
+    border-left: 3px solid var(--color-warning);
+    padding-left: var(--space-2);
+}
+
+/* ── onboarding (P9 §3.6) ────────────────────────────────────────────── */
+.onboarding {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-2);
+    margin-bottom: 0;
+    background: var(--color-surface);
+}
+.onboarding-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+}
+.onboarding-head h2 { margin: 0; font-size: var(--text-body); color: var(--color-info); }
+.onboarding-list { margin: var(--space-3) 0 var(--space-2); padding-left: var(--space-5); }
+.onboarding-list li { margin-bottom: var(--space-1); }
+
+/* ── loop stages ─────────────────────────────────────────────────────── */
+.stage {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-2);
+    margin-bottom: var(--space-3);
+    background: var(--color-surface);
+}
+
+.stage-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-3);
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: var(--space-2);
+}
+
+.stage-head h2 { margin: 0; font-size: var(--text-body); }
+
+/* No .stage-n / .stage-question rules: the numbered-loop chrome was
+   diagnosis D-8/D-9 (P9 §1.2) and the elements are gone from the shell. */
+.stage-tools { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
+
+/* ── freshness badge ─────────────────────────────────────────────────── */
+.freshness {
+    border: 1px solid currentColor;
+    border-radius: var(--radius-sm);
+    padding: 0 var(--space-1);
+    white-space: nowrap;
+}
+.freshness-fresh   { color: var(--fresh-fresh); }
+.freshness-aging   { color: var(--fresh-aging); }
+.freshness-stale   { color: var(--fresh-stale); }
+.freshness-failed  { color: var(--fresh-failed); font-weight: 700; }
+.freshness-unknown { color: var(--fresh-unknown); }
+.freshness em { font-style: normal; text-decoration: underline; }
+
+/* ── the composite trust chip (AP3, one chip) ────────────────────────── */
+.trust-chip {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    border-width: 2px;
+    line-height: 1.2;
+}
+.trust-chip .trust-band { font-weight: 700; }
+.trust-chip .trust-reason { color: var(--color-text-dim); }
+.trust-trusted  { border-color: var(--trust-trusted); color: var(--trust-trusted); }
+.trust-reserved { border-color: var(--trust-reserved); color: var(--trust-reserved); }
+.trust-distrust { border-color: var(--trust-distrust); color: var(--trust-distrust); }
+
+tr.trust-trusted  td:first-child { border-left: 3px solid var(--trust-trusted); }
+tr.trust-reserved td:first-child { border-left: 3px solid var(--trust-reserved); }
+tr.trust-distrust td:first-child { border-left: 3px solid var(--trust-distrust); }
+
+/* ── the situation sentence (P9 R-A) ─────────────────────────────────── */
+/* ── the situation screen (P9 §2.2 R-G / §3.7, recomposed by §1.4 D-15):
+ * the map is the canvas, everything else is a strip or a rail. The fourth
+ * review's instruction was literal — 「地図を全面に出したうえで、スクロール
+ * しなくて良いように画面を構成」 — and this is v1's own composition. */
+.situation-screen {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    margin: 0;
+    background: var(--color-bg);
+}
+.situation-top {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+}
+.situation-top h2 { margin: 0; font-size: var(--text-body);
+                    white-space: nowrap; }
+.situation-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+}
+.board-map-block {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+.situation-rail {
+    flex: none;
+    width: 380px;
+    min-height: 0;
+    border-left: 1px solid var(--color-border);
+    padding: var(--space-2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    background: var(--color-surface);
+}
+/* Two decks, both always in view (P9 §1.6 D-21): the cards take what
+ * they need up to roughly half the rail and scroll inside it; the lane
+ * takes the rest and scrolls inside itself. Neither can push the other
+ * off the screen. */
+.situation-rail #board-cards { flex: 0 1 auto; min-height: 0;
+                               max-height: 52%; overflow-y: auto; }
+.situation-rail #stage-2 { flex: 1 1 0; min-height: 140px;
+                           display: flex; flex-direction: column;
+                           overflow: hidden; margin-bottom: 0; }
+.situation-rail #stage-2 .lane { flex: 1; min-height: 0;
+                                 overflow-y: auto; margin: 0; }
+.situation-rail .onboarding { flex: none; }
+/* Narrow screens stack and the page scrolls again — a phone has no room
+ * for a no-scroll composition, and pretending otherwise clips the rail. */
+@media (max-width: 960px) {
+    .situation-screen { height: auto; }
+    .situation-body { display: block; }
+    .situation-rail { width: auto; border-left: none; overflow: visible; }
+    .board-map-block { min-height: 320px; }
+    #view-situation { overflow-y: auto; }
+}
+
+/* The sentence rides the strip inline (D-18): one line that wraps to two
+ * at most, not a boxed block. */
+.board-summary { margin: 0; flex: 1; min-width: 0; }
+.board-summary:not(:empty) { display: block; }
+.summary-text { font-size: var(--text-lead); line-height: 1.4; }
+.summary-unsupplied { color: var(--color-text-dim); font-style: italic; }
+.summary-ref { font-size: var(--text-meta); color: var(--color-muted);
+               margin-left: var(--space-2); }
+
+/* ── scenario cards (one per row on the rail) ────────────────────────── */
+.cards {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-2);
+}
+
+.card {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-2);
+    background: var(--color-bg);
+}
+.card-focused { border-color: var(--color-accent); }
+
+.card-head { display: flex; justify-content: space-between; align-items: center;
+             gap: var(--space-2); }
+.card-title { margin: 0; font-size: 16px; }
+
+/* The name is the way into the face, so it is a button — but it must read
+ * as a title, not as a form control. */
+.card-open {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    font-weight: 700;
+    color: var(--color-text);
+    text-align: left;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+.card-open:hover:not(:disabled) { color: var(--color-accent); border: none; }
+
+.chip-focus {
+    border: 1px solid var(--color-accent);
+    border-radius: var(--radius-sm);
+    color: var(--color-accent);
+    padding: 0 var(--space-1);
+    white-space: nowrap;
+}
+
+/* The TL block is the dominant element and takes about a third of the card
+ * (P9 §3.1). Everything else on the card is a sentence or a supporting
+ * number, and both are quieter than this. */
+.card-body {
+    display: grid;
+    grid-template-columns: minmax(72px, auto) 1fr;
+    gap: var(--space-2);
+    align-items: start;
+    margin: var(--space-2) 0;
+}
+
+.card-tl {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-2);
+    border: 1px solid var(--tl-color);
+    border-radius: var(--radius-md);
+}
+.tl-value {
+    font-size: var(--text-hero);
+    font-weight: 700;
+    line-height: 1;
+    color: var(--tl-color);
+}
+.tl-label { color: var(--tl-color); font-weight: 700; letter-spacing: 0.06em; }
+.tl-caption { color: var(--color-text-dim); font-size: var(--text-meta); }
+
+.card-lines { display: flex; flex-direction: column; gap: var(--space-2); }
+.card p { margin: 0; }
+
+/* Sentence first. */
+.card-since { font-size: var(--text-lead); line-height: 1.5; }
+.card-inconclusive { color: var(--color-warning); }
+.card-resolution { color: var(--color-text-dim); }
+
+/* Numbers second: one quiet line carrying availability, trend and score. */
+.card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    font-size: var(--text-meta);
+    color: var(--color-text-dim);
+}
+/* No .card-coverage rule: WP-4.5b folded the scope line into the
+ * provenance line (one origin sentence per card, D-14). */
+.trend-glyph { color: var(--color-accent); }
+
+.domain-bar { list-style: none; margin: var(--space-2) 0; padding: 0; }
+.domain { display: grid; grid-template-columns: 4em 1fr 3em auto;
+          gap: var(--space-1); align-items: center; }
+.domain-track { background: var(--color-border); height: 6px;
+                border-radius: var(--radius-sm); overflow: hidden; }
+.domain-fill { display: block; height: 100%; background: var(--color-muted); }
+.domain-ACTIVE    .domain-fill { background: var(--color-critical); }
+.domain-ELEVATED  .domain-fill { background: var(--color-warning); }
+.domain-DEGRADING .domain-fill { background: var(--color-info); }
+.domain-STABLE    .domain-fill { background: var(--color-normal); }
+.domain-state { color: var(--color-text-dim); }
+
+/* ── attention lane ──────────────────────────────────────────────────── */
+.lane { list-style: none; margin: var(--space-2) 0 0; padding: 0; }
+
+/* The narrative is the row (P9 §3.1). The rank and the scenario id sit on
+ * a second, quieter line: they say why the sentence is HERE, which is a
+ * different question from what the sentence says. */
+.lane-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "head actions" "narrative actions";
+    gap: var(--space-1) var(--space-3);
+    align-items: center;
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--color-border);
+}
+/* The header line (P9 §1.6 D-23a): rank chip + the scenario's Japanese
+ * name. The chip carries every ranking number in its tooltip. */
+.lane-head { grid-area: head; margin: 0; display: flex;
+             align-items: center; gap: var(--space-2); }
+.lane-rank-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 1px solid var(--color-accent);
+    color: var(--color-accent);
+    font-size: var(--text-meta);
+    font-weight: 700;
+    cursor: help;
+}
+.lane-narrative {
+    grid-area: narrative;
+    margin: 0;
+    font-size: var(--text-body);
+    line-height: 1.5;
+    color: var(--color-text-dim);
+}
+.lane-rank-fallback { font-style: normal; color: var(--color-warning);
+                      font-size: var(--text-meta); }
+.lane-scenario { color: var(--color-text); }
+.lane-open-absent { color: var(--color-muted); font-size: var(--text-meta); }
+.lane-actions { grid-area: actions; display: flex; gap: var(--space-1);
+                align-items: center; }
+.lane-summary, .lane-suppressed { color: var(--color-text-dim); margin: var(--space-1) 0; }
+.lane-suppressed:not(:empty) { color: var(--color-warning); }
+
+/* ── conclusion face ─────────────────────────────────────────────────── */
+.face-section {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2);
+    margin-top: var(--space-2);
+}
+.face-section h4 { margin: 0 0 var(--space-1); }
+
+.conclusion-row { border-left: 3px solid var(--color-ok); padding-left: var(--space-2);
+                  margin-bottom: var(--space-2); }
+.conclusion-unavailable { border-left-color: var(--color-muted); }
+.conclusion-state { font-weight: 600; }
+.override { color: var(--color-warning); font-weight: 700; }
+
+.unavailable { background: var(--color-surface); padding: var(--space-2);
+               border-radius: var(--radius-sm); }
+.unavailable-reason { font-weight: 700; color: var(--color-warning); }
+.guards { list-style: none; padding: 0; margin: var(--space-1) 0 0; }
+.guard-fired { color: var(--color-warning); }
+.guard-quiet { color: var(--color-text-dim); }
+
+.calib-notes { list-style: none; padding: 0; margin: var(--space-1) 0 0; }
+.calib-high { color: var(--color-critical); font-weight: 700; }
+.calib-medium { color: var(--color-warning); }
+
+.sources { list-style: none; padding: 0; margin: var(--space-1) 0 0; }
+
+/* ── derivation ──────────────────────────────────────────────────────── */
+.derivation-section { margin-bottom: var(--space-2); }
+.derivation-payload {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2);
+    overflow-x: auto;
+    max-height: 320px;
+    color: var(--color-text-dim);
+}
+
+/* ── tables ──────────────────────────────────────────────────────────── */
+.grid { width: 100%; border-collapse: collapse; margin-bottom: var(--space-3); }
+.grid th, .grid td {
+    border-bottom: 1px solid var(--color-border);
+    padding: var(--space-1) var(--space-2);
+    text-align: left;
+    vertical-align: top;
+}
+.grid th { color: var(--color-accent); font-weight: 600; }
+.whatif-changed { background: var(--color-surface); }
+
+/* ── proposals ───────────────────────────────────────────────────────── */
+.proposals { list-style: none; padding: 0; margin: 0; }
+.proposal {
+    display: grid;
+    grid-template-columns: 12em 14em 1fr 7em auto;
+    gap: var(--space-2);
+    align-items: center;
+    padding: var(--space-1) 0;
+    border-bottom: 1px solid var(--color-border);
+}
+.proposal-state { color: var(--color-text-dim); }
+.proposal-actions { display: flex; gap: var(--space-1); }
+
+/* ── toasts: the operation-feedback surface DP1 recorded as missing ──── */
+.toast-rail {
+    position: fixed;
+    right: var(--space-4);
+    bottom: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    z-index: 30;
+    max-width: 420px;
+}
+.toast {
+    border: 1px solid currentColor;
+    border-radius: var(--radius-sm);
+    padding: var(--space-2);
+    background: var(--color-surface);
+}
+.toast-ok { color: var(--color-ok); }
+.toast-error { color: var(--color-critical); }
+
+/* ── motion ──────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+}
+
+/* ── analyst feedback (step ④) ───────────────────────────────────────── */
+.feedback {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2);
+    margin-bottom: var(--space-3);
+}
+.tally { list-style: none; display: flex; gap: var(--space-3); padding: 0; margin: 0; }
+.tally-row { display: flex; gap: var(--space-1); }
+.tally-count { font-weight: 700; color: var(--color-accent); }
+.tally-analysts { color: var(--color-text-dim); }
+.feedback-form { display: flex; gap: var(--space-2); flex-wrap: wrap;
+                 margin: var(--space-2) 0; }
+.feedback-state { margin: 0; }
+.feedback-saved { color: var(--color-ok); }
+.feedback-saving { color: var(--color-info); }
+.feedback-rejected, .feedback-network_error { color: var(--color-critical); }
+.feedback-no_label, .feedback-unsupported { color: var(--color-text-dim); }
+
+/* ── login gate (S1-UI-001〜005) ──────────────────────────────────────
+ *
+ * Not a floating panel: P8 §7 retires that chrome and the discipline gate
+ * refuses it, so this is a plain full-viewport overlay with one card. It
+ * sits below the NP7 banner in z-order on purpose — the disclaimer is
+ * never conditional, so the one screen an unauthenticated visitor sees
+ * must not be the one screen without it.
+ */
+.auth-gate {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-5);
+    background: var(--color-bg);
+}
+.auth-gate[hidden] { display: none; }
+.auth-card {
+    width: 100%;
+    max-width: 380px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    padding: var(--space-5);
+}
+.auth-card h1 {
+    margin: 0 0 var(--space-2);
+    font-size: 18px;
+    color: var(--color-accent);
+}
+.auth-lede { margin: 0 0 var(--space-4); color: var(--color-text-dim); }
+.auth-reason { margin: 0 0 var(--space-3); color: var(--color-warning); }
+.auth-field { display: block; margin-bottom: var(--space-3); }
+.auth-field span { display: block; margin-bottom: var(--space-1); }
+.auth-field input {
+    width: 100%;
+    padding: var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg);
+    color: var(--color-text);
+    font: inherit;
+}
+.auth-card button {
+    width: 100%;
+    padding: var(--space-2);
+    border: 1px solid var(--color-accent);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-accent);
+    font: inherit;
+    cursor: pointer;
+}
+.auth-card button[disabled] { color: var(--color-muted);
+                              border-color: var(--color-border);
+                              cursor: default; }
+.auth-detail { margin: var(--space-3) 0 0; color: var(--color-critical); }
+.auth-detail[hidden] { display: none; }
+
+/* The signed-in strip. One line, above the loop, so "who am I and how do
+ * I leave" is answerable without hunting for a menu. */
+/* At the sidebar's foot (P9 §1.5 D-19): the identity row was a full-width
+ * bar above the content that spent a viewport line on two words. */
+.auth-bar {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+    margin: auto 0 0;
+    padding: var(--space-2) var(--space-3);
+    border-top: 1px solid var(--color-border);
+    color: var(--color-text-dim);
+    font-size: var(--text-meta);
+    overflow-wrap: anywhere;
+}
+.auth-bar[hidden] { display: none; }
+.auth-bar button {
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-text-dim);
+    font: inherit;
+    cursor: pointer;
+}
+
+/* ── WP-4.3: the four surfaces WP-4.2 deferred ───────────────────────── */
+
+/* The critical banner. Above everything, and nothing an analyst can press
+ * takes it down (S1-UI-032). */
+.critical-banner {
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 2px solid var(--color-critical);
+    background: var(--color-surface);
+    color: var(--color-critical);
+    font-weight: 700;
+}
+.critical-banner[hidden] { display: none; }
+
+/* The focus-change mask (S1-UI-048/049). It sits over the page rather than
+ * over one element because the numbers it must not let you misread are
+ * spread across the loop. */
+.dim-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    padding: var(--space-5);
+    background: var(--color-bg);
+    color: var(--color-text-dim);
+    text-align: center;
+}
+.dim-overlay[hidden] { display: none; }
+/* Phase 2 is a marker, not a mask: it must not block the page it annotates. */
+.dim-overlay[data-masked="false"] {
+    position: static;
+    display: block;
+    padding: var(--space-1) var(--space-4);
+    background: transparent;
+    text-align: left;
+    border-bottom: 1px solid var(--color-border);
+}
+.dim-overlay[data-phase="stale"] { color: var(--color-warning); }
+#dim-retry[hidden] { display: none; }
+
+/* Connection and mode chips. */
+.live-chip, .mode-chip {
+    display: inline-block;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-dim);
+    white-space: nowrap;
+}
+.live-connected { border-color: var(--color-ok); color: var(--color-ok); }
+.live-degraded { border-color: var(--color-warning); color: var(--color-warning); }
+.live-disconnected { border-color: var(--color-severe); color: var(--color-severe); }
+.live-unmounted, .live-connecting { color: var(--color-muted); }
+.mode-critical-banner { border-color: var(--color-critical); color: var(--color-critical); }
+.mode-pin-dock { border-color: var(--color-accent); color: var(--color-accent); }
+.mode-dormant { color: var(--color-muted); }
+
+/* ── the geographic face ─────────────────────────────────────────────── */
+.geo-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-2);
+}
+.geo-layers { display: flex; flex-wrap: wrap; gap: var(--space-3);
+              margin: 0; padding: 0; list-style: none; }
+.geo-layer label { display: inline-flex; align-items: center; gap: var(--space-1); }
+.geo-layer-unserved { color: var(--color-muted); max-width: 46ch; }
+.geo-layer-unserved em { display: block; font-style: normal; }
+.geo-summary { color: var(--color-text-dim); margin: 0 0 var(--space-2); }
+
+/* ── the country-tile map (P9 §3.4) ──────────────────────────────────────
+ *
+ * D-5: the question is "where is it happening" and WP-4.2 answered with a
+ * list of ISO codes. Region blocks on a CSS grid, positioned from the static
+ * placement table in geo_tiles.js — not from coordinates, which are still
+ * absent from the wire and absent from the browser. The grid is aria-hidden
+ * duplication of the marker list below it.
+ */
+.geo-tilemap { display: flex; flex-wrap: wrap; gap: var(--space-4);
+               align-items: flex-start; margin-bottom: var(--space-3); }
+.geo-region { border: 1px solid var(--color-border);
+              border-radius: var(--radius-md);
+              padding: var(--space-2) var(--space-3); }
+.geo-region-name { margin: 0 0 var(--space-2); font-size: var(--text-meta);
+                   color: var(--color-text-dim); letter-spacing: 1px; }
+.geo-region-grid { display: grid; gap: var(--space-1);
+                   margin: 0; padding: 0; list-style: none; }
+/* The spillover row has no placement to honour, so it simply flows. */
+.geo-region-grid-flow { display: flex; flex-wrap: wrap; }
+.geo-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 52px;
+    padding: var(--space-1);
+    border: 1px solid var(--color-border);
+    /* The role ring: the same five classes as the marker list, so a country
+     * cannot read as one role in the map and another in the list. */
+    border-left-width: 4px;
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text-dim);
+}
+/* A country with events is the thing the map exists to show, so it is the
+ * only one drawn at full contrast. */
+.geo-tile-events { color: var(--color-text); border-color: var(--color-warning); }
+/* Solid, not dashed (P9 §1.3 D-14): dashed strokes at chip size read as
+ * broken UI, and the third review counted them as clutter. */
+.geo-tile-adversary { outline: 1px solid var(--color-severe); }
+.geo-tile-chain { box-shadow: inset 0 0 0 1px var(--color-accent); }
+.tile-flag { font-size: 18px; line-height: 1.1; }
+.tile-iso { font-size: var(--text-meta); font-weight: 700; }
+.tile-dots { display: flex; gap: 2px; min-height: 6px; margin-top: 2px; }
+/* The domain sets `color`, so the fired dot fills with it and the
+ * suppressed dot rings with it — one hue per domain either way. */
+.tile-dot { width: 6px; height: 6px; border-radius: 50%;
+            color: var(--color-muted); background: currentColor; }
+.tile-domain-cyber { color: var(--color-accent); }
+.tile-domain-physical { color: var(--color-critical); }
+.tile-domain-info { color: var(--color-info); }
+/* E-17 at tile granularity: an excluded signal is drawn, and drawn
+ * differently from one that fired. Hollow, never absent. */
+.tile-dot-suppressed { background: transparent;
+                       box-shadow: inset 0 0 0 1px currentColor; }
+
+/* ── the situation view's scenario map (P9 §2.2 R-F / §3.7) ──────────────
+ * Reuses the regional skeleton above. The tile's left border carries the
+ * colour of the most severe scenario the country participates in
+ * (--bm-color, set inline from the TL band's own variable), so the map and
+ * the card that scenario paints read as one system. */
+.board-map { display: flex; flex-wrap: wrap; gap: var(--space-3);
+             align-items: flex-start; }
+/* The REAL map (P9 §1.3, WP-4.5a; full-bleed per §1.4 D-15): the
+ * container becomes a Leaflet pane and fills the canvas the screen gives
+ * it — no frame, no fixed height. */
+.board-map.board-map-real { display: block; flex: 1; min-height: 0;
+                            height: auto;
+                            background: var(--color-surface); }
+/* The tile-grid fallback lives in the same slot and scrolls if it must. */
+.board-map:not(.board-map-real) { flex: 1; min-height: 0;
+                                  overflow-y: auto;
+                                  padding: var(--space-2); }
+#board-map-note { flex: none; margin: 0;
+                  padding: var(--space-1) var(--space-2); }
+.bm-marker-anchor { background: none; border: none; }
+.bm-marker { display: flex; flex-direction: column; align-items: center;
+             gap: 2px; transform: translate(-50%, -50%);
+             width: max-content; }
+.bm-dot { width: 13px; height: 13px; border-radius: 50%;
+          background: var(--bm-color, var(--color-muted));
+          box-shadow: 0 0 9px var(--bm-color, var(--color-muted)); }
+.bm-adversary .bm-dot { outline: 1px solid var(--color-severe);
+                        outline-offset: 2px; }
+.bm-marker-focused .bm-dot { outline: 1px solid var(--color-accent);
+                             outline-offset: 4px; }
+.bm-iso { font-size: 10px; font-weight: 700; color: var(--color-text);
+          text-shadow: 0 0 3px var(--color-bg), 0 0 6px var(--color-bg); }
+.bm-marker.map-hot .bm-dot { box-shadow: 0 0 14px var(--bm-color,
+                                                     var(--color-accent)); }
+.bm-marker.map-hot .bm-iso { color: var(--color-accent); }
+
+/* ── the observation layer (P8 §9 / NP9) ──────────────────────────────
+ * The count is the 24h fired total; its absence is the point — an
+ * unswept country shows no number, which must read differently from a
+ * swept country showing 0 (G-17). */
+.bm-obs-count { font-size: 9px; font-weight: 700;
+                color: var(--color-text);
+                background: var(--color-surface);
+                border: 1px solid var(--color-border);
+                border-radius: var(--radius-sm);
+                padding: 0 3px; line-height: 1.3; }
+.bm-obs-silent .bm-dot { background: transparent;
+                         box-shadow: inset 0 0 0 1px var(--color-muted); }
+.bm-obs-silent .bm-iso { color: var(--color-muted); }
+.bm-obs-marker { display: flex; flex-direction: column;
+                 align-items: center; gap: 1px;
+                 transform: translate(-50%, -50%); width: max-content;
+                 opacity: 0.55; }
+.bm-obs-dot { width: 5px; height: 5px; border-radius: 50%;
+              background: var(--color-info); }
+.bm-obs-n { font-size: 8px; color: var(--color-text-dim);
+            text-shadow: 0 0 3px var(--color-bg), 0 0 5px var(--color-bg); }
+.bm-obs-count { text-shadow: 0 0 3px var(--color-bg); }
+.board-map-legend { flex: none; margin: 0;
+                    padding: 2px var(--space-2);
+                    font-size: var(--text-meta);
+                    color: var(--color-muted);
+                    border-top: 1px solid var(--color-border); }
+
+/* ── the replay scrubber (WP-4.9b, R-H) ──────────────────────────────── */
+.replay-slider-control { display: flex; align-items: center;
+                         gap: var(--space-2); }
+.replay-slider-control input[type="range"] { width: 220px; padding: 0;
+                                             accent-color: var(--color-accent); }
+.replay-slider-at { font-size: var(--text-meta);
+                    color: var(--color-text-dim);
+                    min-width: 9em; }
+
+/* The tile-grid fallback keeps its own look. */
+.board-map .bm-tile { border-left-color: var(--bm-color, var(--color-border));
+                      color: var(--color-text); }
+.bm-tile-focused { box-shadow: inset 0 0 0 1px var(--color-accent); }
+/* The card-hover highlight: emphasis, not information — every fact the
+ * glow points at is in the card's participant strip. */
+/* Background rather than outline or box-shadow: the adversary ring owns
+ * `outline` and the focused ring owns `box-shadow`, and the highlight must
+ * compose with both. */
+.bm-tile.map-hot { border-color: var(--color-accent);
+                   background: var(--color-border); }
+.bm-multi { font-size: var(--text-meta); color: var(--color-text-dim); }
+.board-map-block .lead { color: var(--color-text-dim); }
+
+/* ── the card's provenance line (P9 §2.2 R-E, D-11) ────────────────────── */
+.card-derived { margin: var(--space-1) 0 0; color: var(--color-text-dim);
+                font-size: var(--text-meta); }
+.card-derived-absent { font-style: italic; }
+.card-why { background: none; border: 1px solid var(--color-border);
+            border-radius: var(--radius-sm); color: var(--color-accent);
+            cursor: pointer; padding: 0 var(--space-1);
+            font-size: var(--text-meta); }
+.card-why:hover { border-color: var(--color-accent); }
+
+/* ── the card's participant strip (P9 §3.7, D-10) ──────────────────────── */
+.card-countries { margin: var(--space-2) 0 0; padding: 0; list-style: none;
+                  display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.card-countries .cc { display: inline-flex; align-items: center; gap: 3px;
+                      padding: 0 var(--space-1);
+                      border: 1px solid var(--color-border);
+                      border-radius: var(--radius-sm);
+                      color: var(--color-text-dim); }
+.card-countries .cc-adversary { border-color: var(--color-severe);
+                                color: var(--color-severe); }
+.card-countries .cc-more { color: var(--color-text-dim); }
+.cc-flag { font-size: 14px; line-height: 1.2; }
+.cc-iso { font-size: var(--text-meta); font-weight: 700; }
+
+.geo-markers { margin: 0; padding: 0; list-style: none;
+               display: grid; gap: var(--space-2);
+               grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.geo-marker {
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border);
+    border-left-width: 4px;
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+}
+/* The role is the first visual dimension (S1-UI-060): five classes, and the
+ * left edge is the only place any of them claims a colour. */
+.geo-role-target { border-left-color: var(--color-critical); }
+.geo-role-adversary { border-left-color: var(--color-severe); }
+.geo-role-allied { border-left-color: var(--color-info); }
+.geo-role-unstable { border-left-color: var(--color-warning); }
+.geo-role-observer { border-left-color: var(--color-muted); }
+.geo-country { font-weight: 700; margin-right: var(--space-2); }
+.geo-role, .geo-weight, .geo-state { display: block; color: var(--color-text-dim); }
+.geo-fired, .geo-suppressed { margin: var(--space-1) 0 0; padding-left: var(--space-4); }
+.geo-fired-row { color: var(--color-warning); }
+.geo-suppressed-row { color: var(--color-muted); }
+.chip-chain, .chip-adversary {
+    display: inline-block;
+    margin-right: var(--space-1);
+    padding: 0 var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-accent);
+}
+
+/* ── SETTINGS ────────────────────────────────────────────────────────── */
+.settings-summary { color: var(--color-accent); margin: 0 0 var(--space-2); }
+.setting-why { margin: var(--space-1) 0 0; color: var(--color-text-dim); max-width: 52ch; }
+.setting-badges .badge {
+    display: inline-block;
+    margin: 0 var(--space-1) var(--space-1) 0;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-dim);
+}
+.setting-override .badge-source { color: var(--color-accent); }
+.setting-override { color: var(--color-text-dim); max-width: 32ch; }
+.setting-value input { width: 10ch; }
+.setting-unit { margin-left: var(--space-1); color: var(--color-muted); }
+.setting-result { display: block; margin-top: var(--space-1); color: var(--color-text-dim); }
+
+
+/* ── compact cards — background scenarios (P9 §1.6 D-21) ──────────────
+ * The focused card keeps the hero numeral and the domain bar; the others
+ * fold to a header row, the change sentence and the origin line, so four
+ * scenarios and the attention lane share one viewport. The participant
+ * strip stays in the accessibility tree (it is the map's textual twin)
+ * but leaves the visual flow. */
+.card-compact .card-body { display: flex; gap: var(--space-2);
+                           align-items: center; margin: var(--space-1) 0; }
+.card-compact .card-tl { flex-direction: row; gap: var(--space-1);
+                         padding: 2px var(--space-2); }
+.card-compact .tl-value { font-size: 16px; }
+.card-compact .tl-caption { display: none; }
+.card-compact .card-countries {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+
+/* ── decision sentences and sensor states (WP-4.8d(2)(3)) ────────────── */
+.decisions { margin: 0; padding: 0; list-style: none; }
+.decision { padding: var(--space-2) 0;
+            border-bottom: 1px solid var(--color-border); }
+.decision-at { font-size: var(--text-meta); color: var(--color-muted); }
+.decision-sentence { margin: 2px 0 0; }
+.decision-reason { margin: 2px 0 0; font-size: var(--text-meta);
+                   color: var(--color-text-dim); }
+.sensor-silent td { color: var(--color-warning); }
+/* The self-eval band already rides the row class (trust-*); give the
+ * state column its chip look so the band reads without the legend. */
+.grid tr.trust-reserved td:nth-child(2) { color: var(--trust-reserved); }
+.grid tr.trust-distrust td:nth-child(2) { color: var(--trust-distrust); }
+.grid tr.trust-trusted td:nth-child(2) { color: var(--trust-trusted); }
+
+/* ── R-I: the quiet/moving discipline (P9 §1.9 D-24, WP-4.10) ──────────
+ * Motion and glow are reserved for CHANGE and for the attention top;
+ * everything else recedes. A screen with nothing moving IS the answer
+ * "nothing changed" — legible before a single sentence is read. The
+ * classes only emphasise facts the sentences already state. */
+@keyframes bm-pulse {
+    0%, 100% { box-shadow: 0 0 6px var(--bm-color, var(--color-muted)); }
+    50% { box-shadow: 0 0 18px var(--bm-color, var(--color-muted)),
+                      0 0 4px var(--color-text); }
+}
+@keyframes bm-ping-ring {
+    0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0.9; }
+    100% { transform: translate(-50%, -50%) scale(3.2); opacity: 0; }
+}
+
+/* Unchanged markers recede; the eye should not land on them first. */
+.bm-marker.bm-quiet { opacity: 0.62; }
+.bm-marker.bm-quiet .bm-dot { box-shadow: none; }
+.bm-marker.bm-changed .bm-dot { animation: bm-pulse 1.6s ease-in-out
+                                           infinite; }
+.bm-marker.bm-changed-better .bm-dot { animation-duration: 3.2s; }
+
+/* The attention top: a sonar ping under the dot. */
+.bm-ping { position: absolute; left: 50%; top: 8px;
+           width: 22px; height: 22px; border-radius: 50%;
+           border: 2px solid var(--color-accent);
+           transform: translate(-50%, -50%);
+           animation: bm-ping-ring 2.2s ease-out infinite;
+           pointer-events: none; }
+.bm-marker { position: relative; }
+/* D-28: the attention top is a door to the lane drawer. */
+.bm-marker[data-drawer-item] { cursor: pointer; }
+
+/* Cards follow the same clock: changed carries the accent, quiet recedes. */
+.card-changed { border-left: 3px solid var(--color-warning); }
+.card-changed-better { border-left-color: var(--color-ok); }
+.card-quiet:not(.card-focused) { opacity: 0.75; }
+
+/* The lane's #1 — the same beacon colour as its ping on the map. */
+.lane-row-top .lane-rank-chip { background: var(--color-accent);
+                                color: var(--color-bg);
+                                box-shadow: 0 0 8px var(--color-accent); }
+
+/* Motion sensitivity: the emphasis survives, the animation stops. */
+@media (prefers-reduced-motion: reduce) {
+    .bm-marker.bm-changed .bm-dot { animation: none;
+        box-shadow: 0 0 14px var(--bm-color, var(--color-muted)); }
+    .bm-ping { animation: none; opacity: 0.6; }
+}
+
+
+/* ── the detail drawer (P9 §1.11 R-J) ─────────────────────────────────── */
+.drawer {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    width: 460px;
+    max-width: 92vw;
+    background: var(--color-surface);
+    border-left: 1px solid var(--color-accent);
+    box-shadow: -12px 0 28px var(--color-bg);
+    z-index: 1100;               /* above every Leaflet pane */
+    display: flex;
+    flex-direction: column;
+    animation: drawer-in 0.2s ease-out;
+}
+@keyframes drawer-in {
+    from { transform: translateX(28px); opacity: 0; }
+}
+.drawer-head { flex: none; display: flex; justify-content: space-between;
+               align-items: center; gap: var(--space-2);
+               padding: var(--space-2) var(--space-3);
+               border-bottom: 1px solid var(--color-border); }
+.drawer-head h3 { margin: 0; border: none; padding: 0; }
+.drawer-body { flex: 1; min-height: 0; overflow-y: auto;
+               padding: var(--space-3); }
+
+/* ── the rail as an index (R-J) ──────────────────────────────────────── */
+.cards .crow {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg);
+    text-align: left;
+    cursor: pointer;
+}
+.crow-quiet { opacity: 0.8; }
+.crow-changed-worse { border-left: 3px solid var(--color-warning); }
+.crow-changed-better { border-left: 3px solid var(--color-ok); }
+.crow-focused { border-color: var(--color-accent); }
+.crow-tl { min-width: 30px; text-align: center; font-weight: 700;
+           font-size: 15px; color: var(--tl-color);
+           border: 1px solid var(--tl-color);
+           border-radius: var(--radius-sm); padding: 0 4px; }
+.crow-name { flex: 1; font-weight: 600; }
+.crow-trend { color: var(--color-text-dim); font-size: var(--text-meta); }
+
+.lane-line { border-bottom: 1px solid var(--color-border);
+             list-style: none; }
+.lane-line-open { display: flex; width: 100%; align-items: center;
+                  gap: var(--space-2); background: none; border: none;
+                  padding: var(--space-2) 0; cursor: pointer;
+                  text-align: left; }
+.lane-line-sub { flex: 1; color: var(--color-text-dim);
+                 font-size: var(--text-meta); overflow: hidden;
+                 text-overflow: ellipsis; white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+    .drawer { animation: none; }
+}
+
+
+/* ── drawer faces use the pane (P9 §1.12 D-27) ─────────────────────────
+ * The card sheds its own frame inside the drawer — the drawer IS the
+ * frame — and the lane face lays out for 460px instead of importing the
+ * rail's squeeze. */
+.drawer-body .card { border: none; padding: 0; background: none; }
+.dl-head { margin: 0 0 var(--space-2); display: flex; align-items: center;
+           gap: var(--space-2); font-size: var(--text-lead); }
+.dl-narrative { margin: 0 0 var(--space-3); font-size: var(--text-lead);
+                line-height: 1.7; }
+.dl-facts { margin: 0 0 var(--space-3); padding: var(--space-2);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-sm);
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: var(--space-1) var(--space-3); }
+.dl-fact { display: flex; justify-content: space-between;
+           gap: var(--space-2); }
+.dl-fact dt { color: var(--color-text-dim); font-size: var(--text-meta); }
+.dl-fact dd { margin: 0; font-weight: 600; }
+.dl-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.dl-actions button { flex: 1; min-width: 90px; padding: var(--space-2); }
+
+.ds-countries { margin-bottom: var(--space-3); }
+.ds .card-derived { margin-bottom: var(--space-3); }
+.ds .domain-bar { margin-bottom: var(--space-3); }

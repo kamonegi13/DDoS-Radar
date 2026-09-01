@@ -1,0 +1,15 @@
+{
+  "count": 1,
+  "results": [
+    {
+      "streamname": "TW",
+      "streamtype": "country",
+      "starttime": "2026-08-07T08:00:00Z",
+      "endtime": "2026-08-07T08:30:00Z",
+      "avglevel": 12.5,
+      "nbdiscoprobes": 8,
+      "totalprobes": 40,
+      "level": 12.5
+    }
+  ]
+}

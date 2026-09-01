@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Security wire</title>
+    <item>
+      <title>NoName057 claims responsibility for outage 1</title>
+      <description><p>The group <b>took down</b> government websites.</p></description>
+      <link>https://sec.test/a1</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>NoName057 claims responsibility for outage 2</title>
+      <description><p>The group <b>took down</b> government websites.</p></description>
+      <link>https://sec.test/a2</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>NoName057 claims responsibility for outage 3</title>
+      <description><p>The group <b>took down</b> government websites.</p></description>
+      <link>https://sec.test/a3</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>NoName057 claims responsibility for outage 4</title>
+      <description><p>The group <b>took down</b> government websites.</p></description>
+      <link>https://sec.test/a4</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>NoName057 claims responsibility for outage 5</title>
+      <description><p>The group <b>took down</b> government websites.</p></description>
+      <link>https://sec.test/a5</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>NoName057 claims responsibility for outage 6</title>
+      <description><p>The group <b>took down</b> government websites.</p></description>
+      <link>https://sec.test/a6</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>NoName057 claims responsibility for outage 7</title>
+      <description><p>The group <b>took down</b> government websites.</p></description>
+      <link>https://sec.test/a7</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>How to protect against a DDoS campaign</title>
+      <description>Best practices for hacktivist defence.</description>
+      <link>https://sec.test/mkt</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>Killnet DDoS attack on ports</title>
+      <description>Old news.</description>
+      <link>https://sec.test/old</link>
+      <pubDate>Fri, 10 Nov 2023 22:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>Quarterly patch roundup</title>
+      <description>Routine updates.</description>
+      <link>https://sec.test/x</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

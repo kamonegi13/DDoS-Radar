@@ -183,6 +183,111 @@ def _migration_v49_seed_config_runtime_from_env(conn) -> None:
     )
 
 
+def _migration_v55_firing_liveness(conn) -> None:
+    """WP-1.1 (v3 Phase 1) — L5 firing-liveness monitoring tables.
+
+    Four tables, all also declared in the _SCHEMA_SQL baseline so fresh
+    DBs get them without a migration run:
+
+      sensor_flag_state     per (sensor, flag): first_observed_at,
+                            last_eval_at, last_fired_at. S5-VERIF-002
+                            requires this to survive restarts.
+      sensor_flag_fire_log  append-only fire events (60d retention),
+                            backing fire_count_30d.
+      l5_check_result       append-only verification ledger of
+                            S5-VERIF-016.
+      l5_job_state          persistent next-run schedule — the F-01
+                            volatile-counter replacement.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sensor_flag_state (
+            sensor            TEXT NOT NULL,
+            flag_id           TEXT NOT NULL,
+            first_observed_at REAL NOT NULL,
+            last_eval_at      REAL NOT NULL,
+            last_fired_at     REAL,
+            PRIMARY KEY (sensor, flag_id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sensor_flag_fire_log (
+            sensor  TEXT NOT NULL,
+            flag_id TEXT NOT NULL,
+            ts      REAL NOT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sensor_flag_fire_log_flag "
+        "ON sensor_flag_fire_log (sensor, flag_id, ts DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sensor_flag_fire_log_ts "
+        "ON sensor_flag_fire_log (ts)"
+    )
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS l5_check_result (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts                REAL NOT NULL,
+            check_id          TEXT NOT NULL,
+            target            TEXT NOT NULL,
+            verdict           TEXT NOT NULL,
+            measured_json     TEXT,
+            expected_json     TEXT,
+            first_detected_at REAL
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_l5_check_result_check_ts "
+        "ON l5_check_result (check_id, ts DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_l5_check_result_target "
+        "ON l5_check_result (check_id, target, ts DESC)"
+    )
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS l5_job_state (
+            job_id      TEXT PRIMARY KEY,
+            last_run_at REAL,
+            next_run_at REAL
+        )
+    """)
+
+
+def _migration_v56_config_read_stats(conn) -> None:
+    """WP-1.2 (v3 Phase 1) — persisted config read tracker.
+
+    S5-VERIF-014 requires the reachability audit to rest on at least 24h
+    of observed runtime, which an in-process counter cannot provide across
+    restarts. `config_layered` counts reads in memory; the daily job merges
+    them here and resets the counters, so `first_read_at` is the earliest
+    read ever observed and `read_count` accumulates over the deployment's
+    lifetime. Also declared in the _SCHEMA_SQL baseline.
+
+    `first_considered_at` is when the key first entered the audit's field of
+    view (written for every registered key on each daily run, read or not).
+    The 24h floor is measured per key against it: a key registered today
+    must not inherit a months-old observation window from unrelated keys.
+    `first_read_at` / `last_read_at` stay NULL until something reads it.
+
+    A table left over from an earlier shape is rebuilt rather than patched:
+    it is a read-count accumulator with no dependants, so recreating it
+    costs at most one observation window and keeps the schema single-valued.
+    """
+    existing = {row[1] for row in
+                conn.execute("PRAGMA table_info(config_read_stats)").fetchall()}
+    if existing and "first_considered_at" not in existing:
+        conn.execute("DROP TABLE config_read_stats")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS config_read_stats (
+            config_key          TEXT PRIMARY KEY,
+            first_considered_at REAL    NOT NULL,
+            first_read_at       REAL,
+            last_read_at        REAL,
+            read_count          INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+
+
 def _migration_v48_llm_embedding_ledger(conn) -> None:
     """Phase 9.2 C7 — per-call ledger for the embedding pipeline.
 
@@ -1467,6 +1572,81 @@ CREATE INDEX IF NOT EXISTS idx_auto_judge_decisions_item
     ON auto_judge_decisions (item_id, ts);
 CREATE INDEX IF NOT EXISTS idx_auto_judge_decisions_applied
     ON auto_judge_decisions (applied, ts);
+
+-- WP-1.1 (v3 Phase 1) — L5 firing-liveness monitoring.
+-- Mirrored in migration v55 for upgraded DBs; declared here so fresh DBs
+-- get the tables without depending on migration runs (_run_migrations
+-- short-circuits on a brand-new DB and only stamps the baseline version).
+--
+-- sensor_flag_state: one row per (sensor, detection flag). S5-VERIF-002
+-- requires last_fired_at to survive a restart — the pre-WP-1.1 system kept
+-- nothing of the sort, which is why F-08 (gps_jamming, unreachable
+-- thresholds) went unnoticed from the day it shipped.
+CREATE TABLE IF NOT EXISTS sensor_flag_state (
+    sensor            TEXT NOT NULL,
+    flag_id           TEXT NOT NULL,
+    first_observed_at REAL NOT NULL,
+    last_eval_at      REAL NOT NULL,
+    last_fired_at     REAL,
+    PRIMARY KEY (sensor, flag_id)
+);
+
+-- sensor_flag_fire_log: append-only fire events, pruned opportunistically
+-- to FIRE_LOG_RETENTION_DAYS on insert (same pattern as sensor_obs_record).
+-- Backs fire_count_30d.
+CREATE TABLE IF NOT EXISTS sensor_flag_fire_log (
+    sensor  TEXT NOT NULL,
+    flag_id TEXT NOT NULL,
+    ts      REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sensor_flag_fire_log_flag
+    ON sensor_flag_fire_log (sensor, flag_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_sensor_flag_fire_log_ts
+    ON sensor_flag_fire_log (ts);
+
+-- l5_check_result: the append-only verification ledger of S5-VERIF-016,
+-- {check id, target, verdict, measured, expected, first detected at}.
+-- Shared by later L5 checks (config reachability, baseline windows, ...),
+-- hence the generic check_id/target columns.
+CREATE TABLE IF NOT EXISTS l5_check_result (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts                REAL NOT NULL,
+    check_id          TEXT NOT NULL,
+    target            TEXT NOT NULL,
+    verdict           TEXT NOT NULL,
+    measured_json     TEXT,
+    expected_json     TEXT,
+    first_detected_at REAL
+);
+CREATE INDEX IF NOT EXISTS idx_l5_check_result_check_ts
+    ON l5_check_result (check_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_l5_check_result_target
+    ON l5_check_result (check_id, target, ts DESC);
+
+-- l5_job_state: persistent next-run schedule. S5-VERIF-016 requires the
+-- daily job to be driven by a persisted timestamp, NOT by a volatile
+-- in-process counter — defect F-01, where scheduler.py's `_cycle % 24`
+-- offsets never fired at all if the process restarted inside 24 hours.
+CREATE TABLE IF NOT EXISTS l5_job_state (
+    job_id      TEXT PRIMARY KEY,
+    last_run_at REAL,
+    next_run_at REAL
+);
+
+-- config_read_stats: which registered config keys were actually READ at
+-- runtime, merged from the in-process tracker in radar/config_layered.py.
+-- S5-VERIF-014 requires the "registered but never read" verdict to rest on
+-- >= 24h of observation, which no volatile counter can survive.
+-- first_considered_at is the per-key start of the observation window; the
+-- 24h floor is measured against it so a newly registered key cannot inherit
+-- another key's history and be accused of never being read on day one.
+CREATE TABLE IF NOT EXISTS config_read_stats (
+    config_key          TEXT PRIMARY KEY,
+    first_considered_at REAL    NOT NULL,
+    first_read_at       REAL,
+    last_read_at        REAL,
+    read_count          INTEGER NOT NULL DEFAULT 0
+);
 """
 
 # Column name mapping for parameterized HOD methods.
@@ -2870,6 +3050,16 @@ class RadarDB:
                 LIMIT 1
             """),
         ]),
+        # v56: WP-1.2 config reachability — persisted read tracker.
+        (56, "config reachability: config_read_stats (S5-VERIF-014)",
+         _migration_v56_config_read_stats),
+
+        # v55: WP-1.1 L5 firing-liveness monitoring. Mirrors the baseline
+        # declarations in _SCHEMA_SQL for already-provisioned DBs.
+        (55, "L5 firing liveness: sensor_flag_state + sensor_flag_fire_log "
+             "+ l5_check_result + l5_job_state (S5-VERIF-002/003/016)",
+         _migration_v55_firing_liveness),
+
         (54, "drop retired scaffolding tables: conclusion_diff_log (v2 "
              "rollout monitoring, writer retired 2026-05-29) and "
              "shadow_eval_log (ADR-015 sampler never wired)",
@@ -3162,14 +3352,17 @@ class RadarDB:
         row = self._get_conn().execute("SELECT COUNT(*) FROM time_series_ts").fetchone()
         return row[0] if row else 0
 
-    # ── sensor_observation_ts (Phase 3 watchpane sparklines) ────────────────
+    # ── sensor_observation_ts (watchpane sparklines + v3 parity replay) ─────
     # Per-sensor per-scope observation series. Written from the scoring tick
-    # after cache swap; read by /api/v2/sensors/<n>/observations to render
-    # real 1h sparklines. 24h TTL is enough for the planned 1h–6h windows.
+    # after cache swap; read by /api/v2/sensors/<n>/observations and, once
+    # 30 days have accumulated, by the v3 parity harness (S5-VERIF-018).
+    # ttl_sec is caller-supplied on purpose: the 86400.0 default that used to
+    # live here silently capped replay at 24h (D2 G-05). The caller resolves
+    # it from SIGNAL_LEDGER_RETENTION_DAYS via signal_ledger_ttl_sec().
     def sensor_obs_record(
         self, sensor: str, scope: str, ts: float, score: float,
+        ttl_sec: float,
         baseline: float | None = None, status: str | None = None,
-        ttl_sec: float = 86400.0,
     ) -> None:
         """Insert one observation point and opportunistically prune > ttl_sec."""
         conn = self._get_conn()
@@ -3195,6 +3388,279 @@ class RadarDB:
             (sensor, scope, since_ts),
         ).fetchall()
         return [(r[0], r[1], r[2], r[3]) for r in rows]
+
+    # ── L5 firing liveness (WP-1.1, S5-VERIF-002/003/016) ───────────────────
+    def flag_state_upsert(self, sensor: str, flag_id: str, ts: float,
+                          fired: bool) -> None:
+        """Record one evaluation of one detection flag.
+
+        first_observed_at keeps the earliest timestamp ever seen,
+        last_eval_at the latest, and last_fired_at the latest fire — a
+        non-firing evaluation never clears it. Using MIN/MAX rather than
+        last-write-wins makes the row order-independent, so out-of-order
+        or backfilled evaluations cannot corrupt the window that
+        S5-VERIF-003 measures against.
+        """
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(self._FLAG_STATE_UPSERT_SQL,
+                         (sensor, flag_id, ts, ts, ts if fired else None))
+
+    _FLAG_STATE_UPSERT_SQL = (
+        "INSERT INTO sensor_flag_state "
+        "(sensor, flag_id, first_observed_at, last_eval_at, last_fired_at) "
+        "VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT (sensor, flag_id) DO UPDATE SET "
+        "  first_observed_at = MIN(sensor_flag_state.first_observed_at, "
+        "                          excluded.first_observed_at), "
+        "  last_eval_at = MAX(sensor_flag_state.last_eval_at, "
+        "                     excluded.last_eval_at), "
+        "  last_fired_at = CASE "
+        "    WHEN excluded.last_fired_at IS NULL "
+        "      THEN sensor_flag_state.last_fired_at "
+        "    WHEN sensor_flag_state.last_fired_at IS NULL "
+        "      THEN excluded.last_fired_at "
+        "    ELSE MAX(sensor_flag_state.last_fired_at, "
+        "             excluded.last_fired_at) END"
+    )
+
+    def flag_record_evaluation(self, sensor: str, fired: dict[str, bool],
+                               ts: float, ttl_sec: float) -> None:
+        """Persist one sensor's whole flag evaluation in ONE transaction.
+
+        This is the set_cache hot path: a per-flag transaction would cost
+        up to 2N commits per fetch, block the gevent event loop on each
+        fsync, and open a crash window where last_fired_at advances without
+        its matching fire-log row (silently undercounting fire_count_30d).
+        Batching makes the state row and its fire event atomic.
+        """
+        if not fired:
+            return
+        conn = self._get_conn()
+        with conn.writing():
+            conn.executemany(self._FLAG_STATE_UPSERT_SQL, [
+                (sensor, flag_id, ts, ts, ts if is_fired else None)
+                for flag_id, is_fired in fired.items()
+            ])
+            fire_rows = [(sensor, flag_id, ts)
+                         for flag_id, is_fired in fired.items() if is_fired]
+            if fire_rows:
+                conn.executemany(
+                    "INSERT INTO sensor_flag_fire_log (sensor, flag_id, ts) "
+                    "VALUES (?, ?, ?)", fire_rows,
+                )
+                conn.execute(
+                    "DELETE FROM sensor_flag_fire_log WHERE ts < ?",
+                    (ts - ttl_sec,),
+                )
+
+    def flag_state_all(self) -> list[dict]:
+        """Every (sensor, flag) state row."""
+        rows = self._get_conn().execute(
+            "SELECT sensor, flag_id, first_observed_at, last_eval_at, "
+            "last_fired_at FROM sensor_flag_state"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def flag_state_for(self, sensor: str) -> list[dict]:
+        """State rows for a single sensor (cheap path for detection_health)."""
+        rows = self._get_conn().execute(
+            "SELECT sensor, flag_id, first_observed_at, last_eval_at, "
+            "last_fired_at FROM sensor_flag_state WHERE sensor = ?",
+            (sensor,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def flag_fire_append(self, sensor: str, flag_id: str, ts: float,
+                         ttl_sec: float) -> None:
+        """Append one fire event and opportunistically prune > ttl_sec.
+
+        Same insert-time pruning contract as sensor_obs_record: the caller
+        owns the retention value so the knob cannot silently default away
+        (that was defect G-05).
+        """
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO sensor_flag_fire_log (sensor, flag_id, ts) "
+                "VALUES (?, ?, ?)",
+                (sensor, flag_id, ts),
+            )
+            conn.execute(
+                "DELETE FROM sensor_flag_fire_log WHERE ts < ?",
+                (ts - ttl_sec,),
+            )
+
+    def flag_fire_counts_since(self, since_ts: float) -> dict[tuple, int]:
+        """{(sensor, flag_id): fire count} since `since_ts`, in one query."""
+        rows = self._get_conn().execute(
+            "SELECT sensor, flag_id, COUNT(*) AS n FROM sensor_flag_fire_log "
+            "WHERE ts >= ? GROUP BY sensor, flag_id",
+            (since_ts,),
+        ).fetchall()
+        return {(r["sensor"], r["flag_id"]): int(r["n"]) for r in rows}
+
+    def l5_job_get(self, job_id: str) -> dict | None:
+        row = self._get_conn().execute(
+            "SELECT job_id, last_run_at, next_run_at FROM l5_job_state "
+            "WHERE job_id = ?", (job_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def l5_job_set(self, job_id: str, last_run_at: float,
+                   next_run_at: float) -> None:
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO l5_job_state (job_id, last_run_at, next_run_at) "
+                "VALUES (?, ?, ?) "
+                "ON CONFLICT (job_id) DO UPDATE SET "
+                "  last_run_at = excluded.last_run_at, "
+                "  next_run_at = excluded.next_run_at",
+                (job_id, last_run_at, next_run_at),
+            )
+
+    def l5_job_all(self) -> list[dict]:
+        """Every scheduled L5 check's persisted state (the heartbeat source)."""
+        rows = self._get_conn().execute(
+            "SELECT job_id, last_run_at, next_run_at FROM l5_job_state "
+            "ORDER BY job_id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def user_attention_thresholds_all(self) -> list[dict]:
+        """Every stored per-user ATTENTION threshold override.
+
+        Read-only, for the WP-1.4 lineage audit. The evaluation path in
+        radar/attention.py reads none of these rows — that is defect G-02,
+        and this accessor exists to measure it, not to feed it.
+        """
+        rows = self._get_conn().execute(
+            "SELECT user_id, rule_id, threshold, set_at "
+            "FROM user_attention_thresholds ORDER BY user_id, rule_id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def l5_check_append(self, ts: float, check_id: str, target: str,
+                        verdict: str, measured_json: str | None = None,
+                        expected_json: str | None = None,
+                        first_detected_at: float | None = None,
+                        ttl_sec: float | None = None) -> None:
+        """Append one verification result (S5-VERIF-016). Never updates.
+
+        `ttl_sec` prunes opportunistically, same contract as
+        sensor_obs_record / flag_fire_append: the caller owns the retention
+        value. Passing None keeps every row (used by ad-hoc callers).
+        """
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO l5_check_result "
+                "(ts, check_id, target, verdict, measured_json, expected_json, "
+                " first_detected_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (ts, check_id, target, verdict, measured_json, expected_json,
+                 first_detected_at),
+            )
+            if ttl_sec is not None:
+                conn.execute(
+                    "DELETE FROM l5_check_result WHERE ts < ?", (ts - ttl_sec,),
+                )
+
+    def l5_check_latest(self, check_id: str, limit: int = 100) -> list[dict]:
+        rows = self._get_conn().execute(
+            "SELECT id, ts, check_id, target, verdict, measured_json, "
+            "expected_json, first_detected_at FROM l5_check_result "
+            "WHERE check_id = ? ORDER BY ts DESC, id DESC LIMIT ?",
+            (check_id, int(limit)),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def l5_check_last_for_target(self, check_id: str, target: str) -> dict | None:
+        """Most recent row for one target — backs first_detected_at carry-forward."""
+        row = self._get_conn().execute(
+            "SELECT ts, verdict, first_detected_at FROM l5_check_result "
+            "WHERE check_id = ? AND target = ? ORDER BY ts DESC, id DESC LIMIT 1",
+            (check_id, target),
+        ).fetchone()
+        return dict(row) if row else None
+
+    @staticmethod
+    def _read_stat_row(key: str, entry: dict, ts: float) -> tuple:
+        first = entry.get("first_read_at")
+        last = entry.get("last_read_at")
+        first = ts if first is None else float(first)
+        last = ts if last is None else float(last)
+        count = entry.get("read_count")
+        return (key, min(first, ts), first, last,
+                0 if count is None else int(count))
+
+    def config_read_stats_merge(self, entries: dict,
+                                now: float | None = None) -> int:
+        """Merge in-process config read counters into the persisted table.
+
+        `entries` maps config key -> {first_read_at, last_read_at,
+        read_count}. Counts ADD (the caller drains its tracker on a
+        successful merge, so a restart continues the same total),
+        first_read_at / first_considered_at only ever move backwards and
+        last_read_at only forwards. Returns the number of keys merged.
+        """
+        if not entries:
+            return 0
+        ts = time.time() if now is None else now
+        rows = [self._read_stat_row(key, entry, ts)
+                for key, entry in entries.items()]
+        conn = self._get_conn()
+        with conn.writing():
+            conn.executemany(
+                "INSERT INTO config_read_stats (config_key, "
+                "  first_considered_at, first_read_at, last_read_at, "
+                "  read_count) VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT (config_key) DO UPDATE SET "
+                "  first_considered_at = MIN(first_considered_at, "
+                "                            excluded.first_considered_at), "
+                "  first_read_at = MIN(COALESCE(first_read_at, "
+                "                               excluded.first_read_at), "
+                "                      excluded.first_read_at), "
+                "  last_read_at  = MAX(COALESCE(last_read_at, "
+                "                               excluded.last_read_at), "
+                "                      excluded.last_read_at), "
+                "  read_count    = read_count + excluded.read_count",
+                rows,
+            )
+        return len(rows)
+
+    def config_read_stats_note_considered(self, keys, now: float) -> int:
+        """Start the observation window for keys not yet tracked.
+
+        Written for every registered key on each daily run so the 24h floor
+        of S5-VERIF-014 is measured per key. Never touches an existing row —
+        a key's window starts once and does not restart.
+        """
+        rows = [(key, float(now)) for key in keys]
+        if not rows:
+            return 0
+        conn = self._get_conn()
+        with conn.writing():
+            conn.executemany(
+                "INSERT INTO config_read_stats "
+                "(config_key, first_considered_at, read_count) "
+                "VALUES (?, ?, 0) ON CONFLICT (config_key) DO NOTHING",
+                rows,
+            )
+        return len(rows)
+
+    def config_read_stats_all(self) -> dict:
+        """{config key: {first_considered_at, first_read_at, last_read_at,
+        read_count}}."""
+        rows = self._get_conn().execute(
+            "SELECT config_key, first_considered_at, first_read_at, "
+            "last_read_at, read_count FROM config_read_stats"
+        ).fetchall()
+        return {r["config_key"]: {
+            "first_considered_at": r["first_considered_at"],
+            "first_read_at": r["first_read_at"],
+            "last_read_at": r["last_read_at"],
+            "read_count": int(r["read_count"])} for r in rows}
 
     # ── time_series value-only (combined/l3/l7) ─────────────────────────────
     def series_append(self, theater: str, series_type: str,

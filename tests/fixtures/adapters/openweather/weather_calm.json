@@ -1,0 +1,21 @@
+{
+  "coord": {
+    "lon": 139.7,
+    "lat": 35.68
+  },
+  "weather": [
+    {
+      "id": 800,
+      "main": "Clear",
+      "description": "clear sky"
+    }
+  ],
+  "main": {
+    "temp": 18.0
+  },
+  "wind": {
+    "speed": 3.1
+  },
+  "name": "Tokyo",
+  "cod": 200
+}

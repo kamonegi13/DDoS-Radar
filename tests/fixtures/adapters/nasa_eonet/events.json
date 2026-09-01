@@ -1,0 +1,46 @@
+{
+  "title": "EONET Events",
+  "events": [
+    {
+      "id": "EONET_6501",
+      "title": "Wildfire - Hualien County, Taiwan",
+      "categories": [
+        {
+          "id": "wildfires",
+          "title": "Wildfires"
+        }
+      ],
+      "geometry": [
+        {
+          "magnitudeValue": null,
+          "date": "2026-08-06T00:00:00Z",
+          "type": "Point",
+          "coordinates": [
+            121.6,
+            23.99
+          ]
+        }
+      ]
+    },
+    {
+      "id": "EONET_6502",
+      "title": "Wildfire - Northern Territory",
+      "categories": [
+        {
+          "id": "wildfires",
+          "title": "Wildfires"
+        }
+      ],
+      "geometry": [
+        {
+          "date": "2026-08-06T00:00:00Z",
+          "type": "Point",
+          "coordinates": [
+            133.4,
+            -19.5
+          ]
+        }
+      ]
+    }
+  ]
+}

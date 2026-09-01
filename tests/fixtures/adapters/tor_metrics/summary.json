@@ -1,0 +1,13 @@
+{
+  "version": "9.0",
+  "relays_published": "2026-08-07 12:00:00",
+  "relays": [
+    {"n": "relayOne", "f": "AAAA1111", "a": ["185.100.87.1"], "r": true, "bw": 12000, "cc": "tw"},
+    {"n": "relayTwo", "f": "AAAA2222", "a": ["185.100.87.2"], "r": true, "bw": 8000, "cc": "tw"},
+    {"n": "relayDown", "f": "AAAA3333", "a": ["185.100.87.3"], "r": false, "bw": 4000, "cc": "tw"}
+  ],
+  "bridges": [
+    {"h": "BBBB1111", "r": true},
+    {"h": "BBBB2222", "r": false}
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "type": "alerts",
+  "error": null,
+  "data": [
+    {
+      "entity": {"type": "country", "code": "TW", "name": "Taiwan"},
+      "level": "critical",
+      "time": 1700000000,
+      "value": 120,
+      "historyValue": 900,
+      "condition": "<"
+    }
+  ]
+}

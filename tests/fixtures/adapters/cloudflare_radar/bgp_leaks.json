@@ -1,0 +1,16 @@
+{
+  "success": true,
+  "errors": [],
+  "result": {
+    "asn_leaks": [
+      {
+        "id": 9,
+        "leak_asn": 4809,
+        "leak_country": "cn",
+        "leaked_prefix_count": 42,
+        "origin_asn": 3462,
+        "peer_count": 3
+      }
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "ok": 1,
+  "request_id": "1a2b3c4-5d6e",
+  "permanent_link": "https://check-host.net/check-report/1a2b3c4",
+  "nodes": {
+    "jp1.node.check-host.net": [
+      "asia",
+      "Japan",
+      "Tokyo",
+      "203.0.113.1",
+      "AS64500"
+    ]
+  }
+}

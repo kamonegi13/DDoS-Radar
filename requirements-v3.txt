@@ -1,0 +1,58 @@
+# v3 shadow deployment — the dependencies of `v3/` ALONE.
+#
+# Separate from requirements.txt on purpose. The v3 image copies no
+# `radar/` and installs no v1 dependency, so "the shadow cannot import the
+# legacy application" is a property of the image as well as of the import
+# barrier (`v3/server/isolation.py`). An image that shipped both trees
+# would leave exactly one accident available: an import that succeeds.
+#
+# Derived, not guessed: every third-party name imported anywhere under
+# `v3/` is listed here or deliberately absent, and the AST sweep that
+# produced the list is the same one `tests/test_v3_server.py` runs over
+# the reachable graph.
+
+# v3/api/binding.py — the web boundary. The ONLY framework v3 uses.
+flask>=3.0
+
+# v3/fetch/client.py — the single egress. The discipline gate forbids any
+# other module importing an HTTP library, so this line covers all of v3.
+requests>=2.31
+
+# v3/auth/password.py — argon2id, v3's only password hash. Production
+# still carries PBKDF2 for legacy rows; v3's store is new, so there are none.
+argon2-cffi>=23.0
+
+# v3/auth/tokens.py — `import jwt`. Listed EXPLICITLY rather than taken
+# from flask-jwt-extended's dependency tree: v3 does not install
+# flask-jwt-extended, and the lxml note in requirements.txt records what a
+# transitive-only dependency costs when the transit disappears.
+PyJWT>=2.8
+
+# v3/fetch/parse.py — tolerant XML. defusedxml is the parser; lxml is the
+# stage-2 recovery path, and its absence made recovery fail silently once.
+defusedxml>=0.7
+lxml>=5.0
+
+# v3/adapters/physical/gps_jamming.py — H3 cells.
+h3>=3.7
+
+# The container's server. `v3.server.main:build_wsgi()` is an app factory,
+# so gunicorn calls it explicitly and import stays inert.
+gunicorn>=21.0
+
+# DELIBERATELY ABSENT, each for a stated reason:
+#   flask-socketio   the socket channel is not mounted (v3/ui/ has no
+#                    socket client; see composition.WEBSOCKET_ABSENT).
+#                    `v3/api/ws_publish.py` imports it inside its factory,
+#                    so the module stays importable without it.
+#   gevent           no monkey-patching. The container runs gthread
+#                    workers; `Runtime` waits on `threading.Event`, which
+#                    needs no patch.
+#   python-dotenv    v3 never reads a .env file. The live `config.env`
+#                    holds auto-generated v1 secrets and is read by the
+#                    docker CLI on the host, never by this process.
+#   flask-jwt-extended / flask-limiter / flask-cors
+#                    v3 implements its own session, guard and authorization
+#                    surfaces (P7 C13); a second one would be a second
+#                    answer to "who is this".
+#   pytrends         no v3 adapter uses it.

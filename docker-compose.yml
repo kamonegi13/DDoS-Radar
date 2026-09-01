@@ -35,5 +35,127 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  # ── v3 shadow (Phase 5, R4) ─────────────────────────────────────────────
+  #
+  # Runs BESIDE `radar`, never instead of it. Behind a compose PROFILE, so
+  # a plain `docker compose up -d` cannot start it by accident and the
+  # `radar` service definition above is untouched by its presence.
+  #
+  #   start:   docker compose --profile shadow up -d --build v3_shadow
+  #   stop:    docker compose --profile shadow stop v3_shadow
+  #   logs:    docker compose --profile shadow logs --tail 50 v3_shadow
+  #
+  # Nothing here is shared with `radar`: a different image (no radar/ in
+  # it), a different container name, a different port (8300), a different
+  # volume (v3-shadow-data), a different database file. `config.env` is
+  # read by the docker CLI ON THE HOST through `env_file` and is NOT
+  # mounted, so this container has no handle that could write the file
+  # holding v1's auto-generated secrets. v3 reads its own key ids
+  # (NOROSHI_V3_*) and the adapter credentials; it never reads
+  # JWT_SECRET_KEY.
+  v3_shadow:
+    profiles: ["shadow"]
+    build:
+      context: .
+      dockerfile: Dockerfile.v3
+    image: noroshi-v3:latest
+    container_name: noroshi-v3-shadow
+    restart: unless-stopped
+    stop_grace_period: 60s
+    ports:
+      # LOOPBACK ONLY. `"8300:8300"` publishes on 0.0.0.0 — every host
+      # interface — so a shadow on a laptop is readable by anything on the
+      # same network. `settings.py`'s DEFAULT_HOST already says why ("a
+      # shadow deployment that binds every interface on first run is a
+      # shadow deployment somebody else can read"); the container must
+      # still bind 0.0.0.0 INSIDE itself to receive forwarded traffic, so
+      # the restriction belongs here, on the publish, and nowhere else.
+      # This is what makes "it is not exposed" a fact rather than an
+      # assumption, which is the premise the shadow's auth posture rests on.
+      - "127.0.0.1:8300:8300"
+    volumes:
+      # The v3 ledger. A SEPARATE named volume — `radar-data` is not
+      # mounted here and must never be.
+      - v3-shadow-data:/app/v3data
+    env_file:
+      # Host-side read for the adapter credentials, so the shadow's source
+      # coverage matches production's. Requires config.env to exist, which
+      # the `radar` service above already does.
+      - config.env
+    environment:
+      # Everything below overrides whatever config.env happened to hold.
+      #
+      # v1's OWN secrets are blanked first. v3 reads neither name — it
+      # signs with NOROSHI_V3_JWT_SECRET (§7-2 #100) — but a shadow
+      # container holding the live session signing key is a container
+      # whose compromise forges v1 tokens. Least privilege, spelled out:
+      # the shadow gets the adapter credentials and nothing else.
+      - JWT_SECRET_KEY=
+      - DEFAULT_ADMIN_PASSWORD=
+      - NOROSHI_V3_LEDGER_PATH=/app/v3data/noroshi_v3.db
+      - NOROSHI_V3_HOST=0.0.0.0
+      - NOROSHI_V3_PORT=8300
+      # Empty means "not supplied", and the composition root says so out
+      # loud at start-up rather than inventing a key: with no signing key
+      # every /api/v3/auth/* route answers 503.
+      - NOROSHI_V3_JWT_SECRET=${NOROSHI_V3_JWT_SECRET:-}
+      - NOROSHI_V3_BOOTSTRAP_PASSWORD=${NOROSHI_V3_BOOTSTRAP_PASSWORD:-}
+      # Empty means every enabled scenario in geo_data.json.
+      - NOROSHI_V3_SCENARIOS=${NOROSHI_V3_SCENARIOS:-}
+      - NOROSHI_V3_TICK_INTERVAL_SEC=${NOROSHI_V3_TICK_INTERVAL_SEC:-60}
+      # http on a loopback-published port; flip to true behind TLS.
+      - NOROSHI_V3_COOKIE_SECURE=${NOROSHI_V3_COOKIE_SECURE:-false}
+      #
+      # NOT listed here on purpose: LLM_ENABLED / LLM_HOST / LLM_MODEL /
+      # LLM_TIMEOUT. v3's extraction stage (WP-2.7,
+      # v3/runtime/llm_stage.py) reads v1's OWN variable names, so the
+      # `env_file: config.env` above already supplies them and the shadow
+      # asks the SAME model as production — which is what S5-VERIF-022's
+      # replay comparison assumes. Restating them here would be a second
+      # value to keep in step.
+      #
+      # Operational note: this doubles the load on one Ollama. The stage
+      # is bounded to LLM_ARTICLES_PER_TICK (4) exchanges per tick with
+      # one attempt and no retry, so the added ceiling is 4 x LLM_TIMEOUT
+      # per tick. Set LLM_ENABLED=false in the shadow's own override to
+      # take it off entirely — the tick then reports `llm_disabled`
+      # rather than falling silent.
+    healthcheck:
+      # The check asserts the LOOP, not the process. The previous version
+      # opened /healthz and accepted any 2xx, and that is how this
+      # container reported `healthy` for its whole run while every tick died at
+      # its first write and `tl_observation` stayed empty — G-17 at the
+      # container layer. The status field has four values and only `ok`
+      # means "a tick completed inside its budget"; `starting` and
+      # `unknown` are honest 200s that are NOT health, so the compare is
+      # what catches them. A `degraded` answer is a 503, which raises here
+      # on its own.
+      test: ["CMD", "python", "-c",
+             "import json,sys,urllib.request; sys.exit(0 if json.loads(urllib.request.urlopen('http://localhost:8300/healthz', timeout=5).read())['health']['status'] == 'ok' else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # Three tick intervals at the default 60s cadence, and DELIBERATELY
+      # shorter than the endpoint's own first-tick grace (30 min — the
+      # measured cold sweep, `ops_health.first_tick_grace`). The two do
+      # not agree, and the disagreement is the choice:
+      #
+      #   * a genuinely slow cold start reads `unhealthy` here for the
+      #     length of its first sweep, while /healthz says `starting` with
+      #     the reason. A false alarm.
+      #   * a genuinely broken loop reads `unhealthy` in about five
+      #     minutes rather than in thirty.
+      #
+      # NP1: a missed alarm is worse than a noisy one, and this container
+      # has already spent a whole run being green over nothing. Read
+      # /healthz — not `docker ps` — to tell the two apart.
+      start_period: 180s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
 volumes:
   radar-data:
+  v3-shadow-data:

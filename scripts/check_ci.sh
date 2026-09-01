@@ -68,6 +68,45 @@ step "i18n key audit + untranslated detection (Japanese-only UI, 2026-08-02)"
 # warn-only here — flip to --strict once the unused-key cleanup lands.
 python scripts/check_i18n_keys.py || { echo "FAIL: i18n audit reported issues. See output above." >&2; FAIL=1; }
 
+step "Config reachability (WP-1.2 / S5-VERIF-013)"
+# Static half only — fails when a NEW registered key bypasses the 3-layer
+# resolution chain, or a hardcoded default starts contradicting the
+# registry. The runtime half (import-time frozen constants, "registered but
+# never read") runs daily in-app and surfaces at /api/v2/self_eval.
+if ! python scripts/check_config_reachability.py; then
+    echo "FAIL: config reachability regression. See output above." >&2
+    FAIL=1
+fi
+
+step "K-kernel discipline (WP-2.1 / P6 O-18)"
+# v3 code reads configuration through Threshold, never os.getenv (G-15),
+# and never imports radar.* at module scope (that boots the legacy app).
+if ! python scripts/check_kernel_discipline.py; then
+    echo "FAIL: kernel discipline violation. See output above." >&2
+    FAIL=1
+fi
+
+step "L3 conclusion threshold fidelity (WP-3.1)"
+# Every pinned conclusion threshold is compared against the production
+# module constant by AST. WP-2.6 found 97 transcription infidelities in
+# values that looked correctly copied; a deliberate difference must be
+# registered in wp25-l0-adapter-design.md §7-2 and in EXPECTED_DIFFS.
+if ! python scripts/check_conclusion_thresholds.py; then
+    echo "FAIL: conclusion thresholds drifted from production. See above." >&2
+    FAIL=1
+fi
+
+step "L4 calibration threshold fidelity (WP-3.2)"
+# Same discipline as the L3 gate, for the layer that broke three times.
+# Reads module constants, dict keys AND os.getenv defaults, because
+# calibration keeps most of its numbers inside function bodies. Names it
+# cannot reach are declared with a reason, and the completeness check
+# refuses a pinned threshold that is in neither list.
+if ! python scripts/check_calibration_thresholds.py; then
+    echo "FAIL: calibration thresholds drifted from production. See above." >&2
+    FAIL=1
+fi
+
 step "Secret scan (Phase 1 audit follow-up)"
 # Pure-Python scanner; no external dependency. Conservative regexes, with
 # placeholder/identifier suppression. Flips fatal so leaked credentials

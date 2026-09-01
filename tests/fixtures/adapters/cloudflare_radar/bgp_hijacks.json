@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "errors": [],
+  "result": {
+    "asn_hijacks": [
+      {
+        "id": 1,
+        "confidence": 80,
+        "prefix": "203.0.113.0/24",
+        "victim_asn": 3462,
+        "hijacker_asn": 4134,
+        "victim_country": "tw",
+        "hijacker_country": "cn",
+        "is_ongoing": true,
+        "duration": 3600
+      },
+      {
+        "id": 2,
+        "confidence": 20,
+        "prefix": "198.51.100.0/24",
+        "victim_asn": 2497,
+        "hijacker_asn": 9808,
+        "victim_country": "jp",
+        "hijacker_country": "cn",
+        "is_ongoing": false,
+        "duration": 120
+      }
+    ]
+  }
+}

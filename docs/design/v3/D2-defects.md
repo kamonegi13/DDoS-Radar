@@ -1,0 +1,217 @@
+# D2 — 欠陥リスト（Phase D 診断）
+
+編纂: 2026-08-03。証拠源: D1 三領域調査（file:line 引用）、git 共変更実測（[_drafts/D2-cochange-raw.md](_drafts/D2-cochange-raw.md)）、
+インシデント記録（calibration #1〜#3、移行足場 teardown）。
+重大度は code-review 標準（CRITICAL / HIGH / MEDIUM / LOW）。
+
+**「書き直しで直るか」列の凡例**:
+- ◎ = 設計で構造的に解消（v3 の設計要件になる）
+- ○ = 設計で解消するが、規律がなければ再発する（P で防止機構を設計する）
+- × = **アーキテクチャでは直らない**（プロセス/検証系で対処。リビルドへの過剰期待を防ぐ行）
+
+## A. 構造欠陥（アーキテクチャ起因）
+
+| ID | 欠陥 | 重大度 | 証拠 | 影響原則 | 直るか |
+|----|------|--------|------|----------|--------|
+| A-01 | **GET 副作用スコアリング**: `get_threat_data` 単一関数 2,665 行が センサー読出→ゲーティング→収斂→sequence 登録→conclusions→WS emit→cache 書込を GET ハンドラ内で駆動。polling 遺構 | **CRITICAL** | routes/core.py:509-3173、add_rat は L923 の closure | NP6（導出の追跡性）、NP3 | ◎ v3 本丸: scheduler 駆動採点 + 読み取り専用 API |
+| A-02 | **横断関心のコピペドリフト**: RSS 取得/パース 4-5 複製（tolerant パーサは diplomatic のみ）、LLM 投入骨格 8 複製（max_tokens 200-400 ばらつき）、HOD Z-score ×2、30 日 Z-score ×2、フロント整形系 3-4 複製、engine/scoring の式重複 | **HIGH** | D1-sensors §2、D1-frontend §5.3、scoring.py L1060 自認、共変更 Jaccard 0.77 (diplomatic↔military_exercise) | NP2（入力品質不均一）、NP1、AP2/AP3 一貫性 | ○ 共有基盤（ingestion kit / LLM 投入パイプライン / UI util）へ昇格。**昇格規律がないと再発** |
+| A-03 | **ベースライン永続戦略の不統一**: DB 永続（hod_/gdelt_dow_/ct_log_）と in-mem 揮発（bgp_routing、telegram、ooni、rss_narrative）が混在。再起動で Z-score 系の検知力が数日低下 | **HIGH** | D1-sensors §1 ベースライン列・§3 | **NP1 直撃** | ◎ ベースライン基盤の一元化（v3 設計要件） |
+| A-04 | **database.py god-module**: RadarDB 約 170 メソッド 6,629 行に全ドメインの永続化が同居。約 30 モジュールが同一 god-object に依存 | HIGH | database.py、D1-backend-core §2 ハブ・§3c | 保守性（変更影響が全域） | ◎ 9 repository 分割線は実測済（D1-backend-core §3c） |
+| A-05 | **routes の service-locator 化**: routes/__init__ が registry/engine の注入点を兼務し、calibration/attention が `_routes.registry._sensors` を private 参照。sensor_disable_proposer は `sensor.enabled=False` を直接書換 | HIGH | routes/__init__.py:24-32、attention.py:205、sensor_disable_proposer.py:118,290 | NP3（状態変更の追跡不能） | ◎ registry の独立昇格 + 公開 API 化 |
+| A-06 | **循環 import の常態化**: 遅延 import 270 箇所（全 457 の 59%）、`import radar.routes as _routes` 遅延バインド 8 箇所、climate_state.py のような回避専用モジュール | HIGH | D1-backend-core §2 | 保守性・初期化順序の脆さ | ◎ レイヤー方向の強制（P で依存規則を定義） |
+| A-07 | **radar.js モノリス**: 14,833 行 IIFE なし、top-level 関数 312 個全 window 化、window 代入 137、onclick 直書き 136。フロント 4 ファイルの共変更 Jaccard 0.21-0.45 | **HIGH** | D1-frontend §3、共変更実測 | 保守性（全機能追加が 4 ファイルに波及） | ◎ モジュール化 + 型付き API クライアント |
+| A-08 | **フロントのテスト不能構造**: radar.js 本体カバレッジ 0%。テスト可能なのは抽出済み pure module 6 本のみ | HIGH | D1-frontend §1.2, §5.8 | 品質保証全般 | ◎ 全モジュールを pure-core + 薄い DOM 層で設計 |
+| A-09 | **第 2 SQLite**: convergence_tracker が radar.database 管轄外の convergence_snapshots.db を自前保有 + intel ledger 直接読取。バックアップ/WAL/スキーマ管理の盲点 | HIGH | convergence_tracker.py:54-107, 265-287 | NP3、データ保全 | ◎ 永続層の単一管轄（メタセンサーの層所属を P で定義） |
+| A-10 | **基底ヘルパー全面未採用**: `_safe_get`/`_safe_post`/`handle_rate_limit` の呼出ゼロ。全 28 fetch 実装が raw requests。timeout 指定漏れは gevent ループ閉塞リスク | HIGH | base.py:173-225 vs 全センサー、D1-sensors §5-1 | NP3（可用性） | ○ ingestion kit で構造化。「基底に足すだけ」では再発済みの実績あり |
+| A-11 | **HUD チップのポーリング分散**: 6 本が個別 setInterval + 個別 fetch（30min〜60s）。集約フェッチ層なし | MEDIUM | D1-frontend §4.3 | 効率・一貫性 | ◎ データ同期層の一元化 |
+| A-12 | **conclusions_v2.py の hub 化**: v2 route 10 モジュールが共有 helper に横依存 | MEDIUM | D1-backend-core §2 | 保守性 | ◎ |
+| A-13 | **config の肥大**: config.py 1,612 行（env + 全閾値 + registry）に 3 層解決（config_layered）が別置 | MEDIUM | config.py、config_layered.py | NP6（閾値の所在） | ◎ 宣言的 registry へ統合 |
+| A-14 | **INTEL GUIDE の物理同居**: ガイド Ch.1-14 が index.html 内にあり、バックエンド変更→ガイド更新義務→index.html 共変更 223 回の一因 | MEDIUM | index.html、共変更実測 top1 | 保守性 | ◎ ガイドの分離配信 |
+| A-15 | **fetch_log 二重記録回避の暗黙協調**: `_from_log_fetch` フラグに依存する脆い契約 | LOW | base.py:43-61 | 保守性 | ◎ |
+
+## B. 実装欠陥（現役バグ / 劣化の沈黙）
+
+| ID | 欠陥 | 重大度 | 証拠 | 影響原則 | 直るか |
+|----|------|--------|------|----------|--------|
+| B-01 | **bg_observer の CB 不活性**: 自前 daemon thread が cb_should_skip/cb_record_* を経由せず、docstring（CB 統合維持）と乖離。RSS 障害が続いても抑制がかからない | **HIGH** | bg_observer.py:47-51,144-155 vs scheduler.py:122-145 | **NP3 直撃** | ◎ + **Phase D 完了後に現行系でも修正**（v3 を待たない） |
+| B-02 | **`window.showToast` 全コードベース未定義**: controls_panel/autotune_wizard が参照、通知が silent no-op / alert() fallback に落ちる | HIGH | controls_panel.js:562、autotune_wizard.js:370、rg "toast" 0 件 | AP2（操作結果の可視性） | ◎ + 現行系でも修正候補 |
+| B-03 | **ground_osint の STALE 無視**: 相手センサー cache の鮮度/健全性を確認せず相関判定。劣化が沈黙 | MEDIUM | ground_osint_sensor.py:67-104 | NP2（収斂の入力品質） | ◎ クロスセンサー参照の公式化 |
+| B-04 | **mutable module-global の並存**: `_LATEST_SIGNALS_SNAPSHOT`（routes/core.py）と `state.global_cache` が並存、lock 規律は state.py 側のみ | MEDIUM | routes/core.py 定数欄、state.py | 競合リスク | ◎ |
+| B-05 | **再起動で消える運用状態**: convergence_tracker の `_alerted` クールダウン dict、rss_narrative の dedup 集合 → 再起動直後の重複アラート/重複投入 | MEDIUM | convergence_tracker.py:50、rss_narrative.py:59 | アナリスト信頼 | ◎ |
+| B-06 | **localStorage キーの生リテラル迂回**: `_alLoadState`/`_AL_STORAGE_KEY` を迂回する生読み 1 箇所。キー変更時に追従漏れ | LOW | radar.js:8695 vs 5946 | 保守性 | ◎ |
+| B-07 | **ws.py の dead param**: `emit_intel_update(theater,…)` の theater 引数未使用 | LOW | ws.py:154 | — | ◎ |
+| B-08 | **テストが本番 DB へ直書きできる**: tests が singleton `db` import 経由で稼働 DB に書込み。tradecraft 全表の行数が「82 回のテスト実行 × 固定件数」と完全一致（164=82×2、246=82×3、984=82×12）。decision_ledger 984 行は全量テスト残骸 | **HIGH** | tests/test_analyst_permissions.py、D4-data-assets.md 疑問 1/3 | データ保全・較正データの純度 | ◎ v3: repository 層への接続注入を強制し、テストは構造的に隔離 DB のみ + **現行系でも即修正推奨** |
+| B-09 | **UI 参照が消失した endpoint**: `GET/PUT /api/auth/settings` と `GET/PUT /api/v2/decisions/threshold` が GUIDE+TEST のみで UI から不達（設定 UI のリグレッション疑い） | MEDIUM | D6-api-surface.md 副次発見 | 操作可用性 | 要調査（現行系）。v3 では S2 契約で明示裁定 |
+
+## C. 負債・残滓（休眠足場 / 旧語彙 / dead code）
+
+**先例**: 移行足場 teardown インシデント（2026-05-30）— 足場の残置は「無害な塵」ではなく prod を黙って劣化させた実績がある。
+
+| ID | 欠陥 | 重大度 | 証拠 | 直るか |
+|----|------|--------|------|--------|
+| C-01 | **theater 旧用語の広範残存**: database.py 全域の引数名 / **WS プロトコル**（`subscribe_theater`、`theater:` room）/ intel_queue 互換パス / scenarios.py 互換キー / radar.js 60 箇所 / センサー層変数・DB キー | MEDIUM（ただし WS 境界は契約債務） | D1 各冊 | ◎ v3 語彙は country/scenario で統一（S2/S3 で契約から排除） |
+| C-02 | **tradecraft フルスタック休眠**: 25 endpoint + tradecraft_repo（DB メソッド群）+ tradecraft.js 1,016 行 + 空テーブル群。統合は 2026-04-30 棚上げ済 | MEDIUM | routes/analyst.py、D4 素材空テーブル、MEMORY | **オーナー判断事項**（D3 §3 参照）: v3 に持ち込むか凍結アーカイブか |
+| C-03 | **移行足場の残置**: V2_API_ENABLED（常時 true の gate 13 箇所）、migration.py（dormant）、shadow_metrics.py、v1_sunset_audit.py、audit_middleware.py | MEDIUM | D1-backend-core §3d | ◎ v3 に持ち込まない。現行系でも C-03 は撤去可能 |
+| C-04 | **DDoS 時代レガシー UI が現役パスに混在**: fetchDDoSData（心臓部の旧名）、L3/L7 vector UI、GreyNoise/TG SIGINT/CheckHost Survival/Maskirovka パネル約 900 行、blockade チップ | MEDIUM | D1-frontend §5.4 | ◎ v3 で廃棄（D3 判定表） |
+| C-05 | **確認済み dead code**: switchMapCenter、toggleContent、legacy shim 3 本、tradecraft の不達 fallback、llm_client.py.bak、ddos_radar_triage_state 移行 shim | LOW | D1-frontend §5.5、D1-backend-core §1 | ◎ |
+| C-06 | **i18n バイパス**: TIER_LABELS 直書き、login-init エラー文言、controls_panel トースト文言（CI 監査網の外） | LOW | D1-frontend §5.6 | ◎ v3 は全 UI 文字列を辞書経由で設計 |
+| C-07 | **命名の誤誘導**: `HacktiivistIntelSensor` typo（公開名まで伝播）、nasa_firms の実ソースは EONET | LOW（NP6 上は MEDIUM） | hacktivist_intel_sensor.py:43、nasa_firms.py:11-28 | ◎ |
+| C-08 | **配置違和感**: acled.py（sensors 内の孤立モジュール、実利用は GT ETL）、rss_extractor.py（conclusions 配下）、auth.py の endpoint 同居 | LOW | D1 各所 | ◎ |
+
+## D. アーキテクチャでは直らない欠陥（× 行 — リビルド過剰期待の防波堤)
+
+| ID | 欠陥 | 重大度 | 証拠 | 対処 |
+|----|------|--------|------|------|
+| D-01 | **ラベル生成器のバグ類**: calibration インシデント #1〜#3 はすべて測定系（blanket-TP / TL 反転 / 帰属汚染）のロジックバグ。全テスト通過のまま数週間 prod を劣化させた。**構造をどう変えてもこのクラスは再発しうる** | **CRITICAL**（過去実績） | メモリ: calibration-degenerate、be12bd8 ほか | × 検証系で対処: S5 でラベル系譜（lineage）の常時監査・反事実チェック（「平穏期に FN が湧いたら生成器を疑う」）を**仕様として**設計。AP3 human-anchor の独立レグ維持 |
+| D-02 | **外部 API の脆さ**: ソース側の廃止・仕様変更・ブロック（IHR 400、CISA URL rot、ThreatFox 認証化、NOTAM API 消滅…）は v3 でも起き続ける | HIGH（恒常） | D1-sensors §4 | × 対処は設計でなく運用容易性: ソース死活の可視化（既にある）+ 差し替え容易な ingestion kit（A-02 の副産物） |
+| D-03 | **単独運用の錬度依存**: TL 直接比較禁止（severity=6−TL）のような「知っていないと壊す」規約は構造では強制しきれない | MEDIUM | 反転事故 2 回 | × 型で表現できるものは型へ（P で SeverityScale 型等を検討）、残りは検証ゲート |
+
+## E. 較正系の詳細診断（Phase S の仕様抽出で派生。素材: [_drafts/S1-calibration-llm-raw.md](_drafts/S1-calibration-llm-raw.md) / [_drafts/S1-calibration-proposals-raw.md](_drafts/S1-calibration-proposals-raw.md)）
+
+較正系は 3 インシデントを生き延びた中核だが、詳細仕様抽出により**機能していない機構**が複数見つかった。
+D-01（ラベル生成器バグは構造では直らない）の実例群であり、v3 では「動いているつもりで動いていない」
+状態を検出する仕組み（S5）が要る。
+
+| ID | 欠陥 | 重大度 | 証拠 | 直るか |
+|----|------|--------|------|--------|
+| E-01 | **Defer が構造的に機能しない**: snooze 復活は `state_changed_at` を更新するが `emitted_at` は据え置く。D5 stale-dismiss は `emitted_at` で判定するため、既定設定（snooze 30d = stale 30d）では **Defer した提案は復活直後の次ティックで必ず `auto:timeout_no_action` で dismissed になる** | **HIGH** | database.py:5534,5542 vs proposal_lifecycle.py:309,350 | ◎ 状態機械の再設計。**現行系でも要修正** |
+| E-02 | **FN 1 件が全世界の recall-negative 提案を止める**: `analyst_feedback_fn` が国フィルタ無しのグローバル集計で、`fn > 0` は evidence_strength を即 insufficient にする。30 日窓内にどこか 1 件でも FN が付くとあらゆる国の weight_too_high / dormant_participant が emit 不能 | **HIGH** | _proposal_guards.py:189-193 × :412-413（コード内で「保守的に過剰計上」と自認） | ◎ スコープ付き集計へ。NP1 的には安全側だが**意図した設計か要確認**（オーナー判断候補） |
+| E-03 | **ガード本体が死んでいる**: `evaluate_for_country` / `is_truly_dormant` は本番から一度も呼ばれず、実際の weight_too_high は 4 ヘルパーを個別に呼ぶ再実装経路。**GuardDecision の 3 フラグ算出式はテストでのみ実行される仕様** | **HIGH** | scenario_improver.py:468-511 vs _proposal_guards.py:441-483 | ◎ 単一経路化 |
+| E-04 | **role_reclassify の auto-apply が構造上不可能**: structure_proposer は evidence に `evidence_strength` を書かないが、auto-apply は `strong` を要求 → フラグ ON でも永久に適用されないデッドパス | MEDIUM | scenario_structure_proposer.py:197-218 × scenario_improver.py:268,303-311 | ◎ |
+| E-05 | **P4「結論不可の明示」が死んでいる**: `build_needs_more_data_event` の本番呼び出し元が存在せず、`_rule_weight_too_high` は証拠不足時に単に continue。NP5+8 の transitional 表明が実際には出ない | MEDIUM | _proposal_writer.py:208-237 vs scenario_improver.py:508-511 | ◎ NP5+8 の実装要件として P で再設計 |
+| E-06 | **sensor_disable の dry-run が台帳を汚す**: `V2_AUTO_DISABLE_ENABLED` が false でも `state='applied'` を書き `state_changed_by='auto:escalation_dry_run'` にする → AP3 スコアボードと drift の closed/applied 集計が「実際には無効化していない」行で汚染 | MEDIUM | sensor_disable_proposer.py:260-287 | ◎ |
+| E-07 | **`already_disabled` が提案を止めない**: ガードが「再提案しない」意図で False（= 提案続行）を返す | MEDIUM | sensor_disable_proposer.py:117-155 | ◎ |
+| E-08 | **NP6 違反（LLM 注釈）**: docstring は `prompt_sha256` + `raw_response` を記録すると書くが、実装は `prompt_version` のみ。**導出開示の鎖が切れている** | MEDIUM（NP6 上は HIGH） | g3b_llm_annotator.py docstring:37-39 vs :258-269 | ◎ |
+| E-09 | **llm_confidence_calibrator が収束しない**: 提案値は常に `global_min ± 0.05` で直近採択値を読まない。加えて 0.02 差分ガードは常に通過、clamp は既定設定で実効しない | MEDIUM | llm_confidence_calibrator.py:122-148,138-145 | ◎ |
+| E-10 | **同 calibrator の sample_n が無意味**: JOIN が `li.theater = c.scenario_id` でセンサ単位でなくシナリオ単位 → 「その source_type の llm_intel が 1 件でもあるシナリオの全 feedback」を重複カウント | MEDIUM | llm_confidence_calibrator.py:98-105 | ◎ |
+| E-11 | **revert_rate の系統的過小評価**: 系列の最終ペアは分母に入るが分子に決して入らない。float 変換失敗も分母のみ増加。加えて `applied_by` フィルタが無く**人間の手動 revert も tier 降格の母数に混入** | MEDIUM | auto_apply_tier_governor.py:551-569,529-535 | ◎ |
+| E-12 | **`governor_snapshot()` が「Pure read」契約を破る**: marker 復旧経路で DB 書き込みが起きる（state 表 truncate + marker 生存時、ポーリングの初回に復旧行が書かれる） | MEDIUM | auto_apply_tier_governor.py:814-816 vs :616-624 | ◎ |
+| E-13 | **未知の `applied_by` が最も緩い impact=low に落ちる**（「保守的既定」と称するが逆） | MEDIUM | auto_apply_tier_governor.py:247 | ◎ fail-closed へ |
+| E-14 | **scenario_apply の部分失敗**: mutation 永続化後の台帳 flip 失敗で「シナリオは新状態・台帳は pending」が意図的に残る → 再適用で二重変更しうる | MEDIUM | scenario_apply.py:274-294 | ◎ トランザクション境界の再設計 |
+| E-15 | **discovery の supersede 誤爆**: 後方互換 LIKE フォールバックが先頭国の一致だけで別クラスタを superseded にしうる | LOW | scenario_discoverer.py:208-225 | ◎ |
+| E-16 | **discovery が共通 emit を迂回**: `_emit` を通らないため dedup 窓・active cap・auto-apply フック・evidence_strength 刻印を一切受けない | MEDIUM | scenario_discoverer.py:226-247 | ◎ |
+| E-17 | **抑止の痕跡がゼロ**: `rejection_reason` 列が無く、ガードが emit を止めると永続記録が残らない（ログのみ）。NP6 の「なぜ結論を出さなかったか」が追えない | MEDIUM | database.py:1280-1298 | ◎ **NP6 の要件として P で必須設計** |
+| E-18 | **記述ドリフト群**（全て docstring が実装と食い違う。仕様の一次ソースとして docstring を信用できない証拠）: P2「≥4 of 5」vs 実装 5/5 ／ evidence_strength「strong=4+/moderate=2-3」vs 実装 5/3-4/1-2 ／ **P5「analyst FN ≥ 1」vs 実装 FN == 0（不等号反転）** ／ `participant_remove` が 2 箇所で定義食い違い ／「pending が毎パス evidence を更新する」パスは不在 ／ run_now docstring に 3 phase 欠落 ／ tier governor の「DB-stored config」は未実装 ／ CB スコープの doc/impl 乖離 | MEDIUM | 各 file:line は素材ドラフト参照 | ○ v3 では docstring でなく仕様書が正本（S0 規約）。**再発防止には CI 的な仕組みが要る** |
+| E-19 | **scheduler のログ集計キー不一致**: `k.startswith("labelled_")` を合計するが ETL の実カウンタは `label_*` → **常に 0 を表示** | LOW | scheduler.py:415-416 vs run_ground_truth_etl.py:336-401 | ◎ |
+| E-20 | **死んだメトリクス**: `governor_proposal_count` / `governor_accept_rate` は収集されるが判定に一切使われない。後者は真の受理率でなく「窓内に 1 件でもあれば 1.0」のプロキシ | LOW | auto_apply_tier_governor.py:463-464,504-513 | ◎ |
+
+**補足（良い先例）**: tier governor のテストは `_block_live_db_access` autouse フィクスチャで本番 DB アクセスを
+構造的に遮断している（「リファクタ前のスイートが毎回本番 tier 履歴を truncate していた」ことへの対策）。
+これは **B-08（テストの本番 DB 汚染）の既知の先例であり、v3 では全テストに適用すべきパターン**。
+
+## F. 採点パイプラインの詳細診断（Phase S の仕様抽出で派生。出典: [S1-scoring-pipeline.md](S1-scoring-pipeline.md)）
+
+| ID | 欠陥 | 重大度 | 証拠 | 直るか |
+|----|------|--------|------|--------|
+| F-01 | **日次ジョブが揮発カウンタ駆動で、再起動間隔が 24h を下回ると高オフセットが実行されない**: 保守ワーカは毎時 1 回 `_cycle += 1` し `_cycle % 24 == N` でジョブを起動する。`_cycle` はプロセス内変数で**再起動ごとに 0 へ戻る**（永続 cron ではない）。したがって稼働が N 時間未満で再起動されると、オフセット N 以降のジョブは**一度も走らない**。該当: offset 9 = chronic snapshot、**10 = proposal lifecycle D1/D3/D5**、11 = followup watch、12 = proposal lifecycle 続き<br>**実測（2026-08-04）**: 現コンテナは uptime 9h / restart 0 で `cycle=9` まで到達。offset 10-12 はこの稼働では未実行。デプロイのたびに再起動されるため、**i18n/rename 作業で頻繁に再起動していた 08-02〜08-03 の期間は offset 10-12 が実行されていない公算が高い** | **HIGH** | radar/scheduler.py:175-179（`_cycle` 管理）, :480/:531/:604/:633（offset 9-12）、docker inspect + ログの `cycle=` 実測 | ◎ v3 は永続スケジュール（次回実行時刻を DB 保持）**MUST**。**現行系でも要対処**（起動時に前回実行時刻から補償実行する等） |
+| F-02 | **force 取得の許可リストが最重要 2 センサーに永久に不一致**（**実測で確認済み**）: `_FORCE_SYNC_SENSORS` は `"cf"` / `"ioda"` を含むが、実際の登録名は `"cloudflare_radar"`（cloudflare.py:26）/ `"ioda_bgp"`（ioda.py:42）。突合は `s.name in _FORCE_SYNC_SENSORS`（core.py:80）なので、`force=sensors` でこの 2 基は**決して取得されない** | **HIGH** | radar/routes/core.py:59-61,80 vs sensors/cloudflare.py:26, sensors/ioda.py:42（いずれも実ファイルで確認） | ◎ + **現行系で即修正可**（2 語）。force 経路が完全無テスト（S1-PIPE GAP-11）だったため長期未発見 |
+| F-03 | **noise 除外規則が表示用整形文字列への部分文字列一致**: 突合対象がアナリスト向けに整形された理由文字列のため、**文言を変えると運用中の除外規則が無言で壊れる** | **HIGH** | S1-PIPE の DP4 | ◎ 構造化キーでの突合 **MUST** |
+| F-04 | **ゲーティング判定順序の隠れた非対称 2 件**: (a) 呼出側抑制が既に立っていると noise 規則は評価されるが**適用されず理由も記録されない** → なぜ抑制されたかが追えない（NP6）。(b) noise 規則は**非発火の観測にも適用され** `noise_filters_applied` カウンタを膨らませる → 指標が実態を反映しない | MEDIUM | S1-PIPE-009 の真理値表、無テスト（GAP-01） | ◎ |
+| F-06 | **telegram_mirror の burst 検知が原理的に死んでいる**（**実測確認済み・NP1 直撃**）: ベースライン保持上限が「日数」の生値。`telegram.py:297` は `bl["daily_counts"][-NARRATIVE_BASELINE_DAYS:]`（= 30 サンプル）だが、取得周期 900s → 96 サイクル/日なので **実効窓は約 7.5 時間**。Z-score が直近数時間の自分自身に対して正規化され、burst が検知できない。<br>**同一バグを rss_narrative は 2026-04-29 に修正済み** — `cap = NARRATIVE_BASELINE_DAYS × cycles_per_day`（rss_narrative.py:626-627）で、docstring に「本番で `no_burst_this_cycle` 棄却率 100% を観測」と修正理由が明記されている。**にもかかわらず `telegram.py:275` は「rss_narrative と同じロジック」と自己申告しながら片側だけ未修正**<br>**含意**: 同型バグの水平展開が行われず、しかも docstring の自己申告がそれを隠した。D2 E-18（記述ドリフト）が実害を生んだ実証例 | **CRITICAL** | radar/sensors/telegram.py:290-298 vs radar/sensors/rss_narrative.py:615-634（両方を実ファイルで確認） | ◎ + **現行系で即修正すべき**（1 行）。v3 では**ベースライン基盤の一元化により同型バグを構造的に不可能にする MUST**（A-03 と同根） |
+| F-08 | **gps_jamming が恒久的に無発火**（**実測確認済み・NP1 直撃**）: 比較される値はすべて **0–1 の比率**（`jam_ratio = total_bad / total_aircraft`、タイル別 `bad/(good+bad)`、`max_ratio`）だが、閾値は**百分率を想定した** `GPS_JAM_THRESHOLD=3.0` / `GPS_JAM_CRITICAL_THRESHOLD=7.0`。<br>結果として `jammed_tiles` は常に 0（比率が 3.0 以上になり得ない）、`max_ratio >= 7.0` も `jam_ratio >= 3.0` も成立不能 → **`is_jammed` / `is_critical` は常に False、`country_status` は常に `"NORMAL"`**。GPS 妨害は開戦前兆の古典的指標であり、物理ドメインのセンサー 1 基が完全に沈黙している<br>**発見を妨げた要因**: テスト 0 件。閾値は config registry でチューナブルとして公開されている（config.py:1135,1141）ため、アナリストが「3%」のつもりで調整しても永久に直らない（正しくは 0.03） | **CRITICAL** | radar/sensors/gps_jamming.py:178,184-197,209,213（比率算出と比較を実ファイルで確認）、radar/config.py:487-488 | ◎ + **現行系で即修正すべき**（閾値を 0.03/0.07 にするか、比率を百分率化するか。**単位を型で表現する**のが v3 の規範） |
+| F-09 | **見出し照合が英語専用 → 非ラテン文字ソースは収斂に寄与できない**（**実測確認済み・NP2 直撃**）: `_headline_tokens` は `re.findall(r"[a-z]{3,}", headline.lower())`（intel_queue.py:341）でトークン化するため、**日本語・中国語・ロシア語・アラビア語の見出しはトークン 0 個**になる。`_jaccard` は空集合に対し 0.0 を返す（:346-347）ので、これらの見出しは決して一致しない。<br>**影響は dedup だけでは済まない**: 同じトークナイザが**クロスソース種別の corroboration 記録**にも使われている（:698-702）。つまり **TASS / 新華社 / KCNA / 日本語ソース同士は互いを裏付けとして記録できない** → 多ソース収斂の入力が構造的に英語圏に偏る。埋め込みによる言語非依存 dedup は存在するが**既定 OFF**<br>**含意**: 多言語 OSINT を前提とする設計と正面から矛盾する。NP2 が「複数センサーの収斂で結論強度を担保」と定めるのに、非英語ソースはその母数に入らない | **CRITICAL** | radar/intel_queue.py:339-350（トークン化と Jaccard）、:610-618（dedup）、:697-702（corroboration） | ◎ 言語非依存の照合（正規化 + 埋め込み）**MUST**。**現行系でも埋め込み dedup の既定 ON 化を検討すべき** |
+| F-10 | **corroboration エンジンの出力が自動確認され得ない（自己矛盾）**: auto-confirm 適格 ecosystem は `{independent, cert, us_gov}` に固定（intel_queue.py:228-229）。`classify_ecosystem` は `_MEDIA_ECOSYSTEMS` の prefix に一致しない source_id に**空文字を返す**（:194-207）ため、`diplomatic_*` / `ground_osint_*` / `narrative_*` / `hacknews_*`、そして **corroboration エンジンが合成した `corroborated_*` 自身**が適格集合に入らない。<br>**tier3（corroborated 救済）という経路を作りながら、その出力は永久に pending に留まる**。pending 滞留の主因候補 | **HIGH** | radar/intel_queue.py:165-207,228-229,253-254；intel_auto_judge.py:175 | ◎ ecosystem 分類を「未分類 = 不適格」から明示的な信頼度モデルへ。**オーナー裁定候補**（意図的な保守設計か、見落としか） |
+| F-11 | **theater 互換パスが recall を削っている**: auto-judge の corroborator 計数・重複却下・寄与キャップがすべてレガシー単一 `theater` をキーにしているため、`countries` のみを持つ item は **corroborator 0 固定** → tier3・自動確認・重複却下の全経路から外れる | **HIGH** | S1-intel DP7（radar/intel_auto_judge.py） | ◎ C-01（theater 残滓）の実害。v3 語彙統一で解消 |
+| F-07 | **対象 country の解決規則が 2 系統に分裂**: LLM 系 4 基は全 participant の和集合をカバーするが、gdelt / telegram / tor / travel / convergence の 5 基は focused 対象のみ。**C-lite 契約と不整合で、background シナリオの country は統計系センサーのベースラインが育たない** → focus を切り替えた瞬間は検知力が低い | **HIGH** | S1-sensors-info-llm §8-A4 | ◎ ベースライン育成範囲を C-lite 契約と整合させる **MUST** |
+| F-12 | **結論不可の 4 列挙のうち 3 つに生成経路が無い**: `calibration_pending` / `sensor_degraded` / `upstream_failure` はコード上どこからも生成されず、**全ての結論不可が `insufficient_data` に潰れている**。NP5+8 が要求する「なぜ結論できないか」の区別が実質失われている | **HIGH** | S1-conclusions A1 / DP2（radar/conclusions/base.py の UnavailableReason と生成箇所の突合） | ◎ **NP5+8 の中核要件として P で再設計 MUST**。E-17（抑止の痕跡ゼロ）と同根 |
+| F-13 | **閾値の設計文書乖離が 4 倍規模**: ATTACK_MODE の実装値は 1.2 / 0.8 / 1.0 / 0.8（attack_mode.py:50-53）だが、設計文書と D5 台帳はいずれも 5.0 / 1.5 / 3.0 / 1.5 のまま（**2026-05-10 の再較正が未反映**）。PER_DOMAIN も実値 2.5/1.5 に対し台帳は 3.0/1.5/1.5<br>**さらに**: 当該テスト群は定数を import して相対検証するため、**値を変えてもテストは全通過する** → 閾値変更に対する安全網が存在しない | **HIGH** | radar/conclusions/attack_mode.py:50-53, per_domain.py:51-52（実測）、D5 訂正節 | ◎ 閾値は宣言的 registry + **値を pin するテスト** MUST（A-13 と併せて） |
+| F-14 | **TL 導出式が 3 箇所に複製**、うち sensitivity.py の複製は `active_domain_count` を引数に取りながら TL1 判定で使っていない | MEDIUM | S1-conclusions DP1 | ◎ A-02 の一例。単一実装 MUST |
+| F-15 | **慢性検知のデューティ側パラメータが config registry 未登録**: `CHRONIC_DUTY_WINDOW_DAYS` / `CHRONIC_DUTY_THRESHOLD` が registry に無く、docstring が謳う SETTINGS からの調整が**沈黙のフォールバックで効かない** | MEDIUM | S1-conclusions DP3 | ◎ |
+| F-16 | **recall baseline に系列断絶の防護が無い**（**実測確認済み**）: `docs/baselines/recall_metrics.json` の `since` は **null**（全履歴比較）。「2026-07-04 以前の recall はクロスシナリオ帰属修正**前**の別系列であり比較禁止」という規則は**手続きとしてしか存在せず、コード側の強制が無い**。再 baseline を怠ると CI ゲートが系列断絶をまたいで比較する<br>**含意**: 較正インシデント #3 の教訓（汚染ラベルが calibrator を駆動した）が、測定基盤の側では制度化されていない。D-01（ラベル生成器バグは構造では直らない）の実例 | **HIGH** | docs/baselines/recall_metrics.json（`since: null` を実測）、S1-calibration DP19 | ◎ baseline に系列 ID / 有効期間を持たせ、**跨いだ比較を機械的に拒否する MUST**（S5 の要件へ） |
+| F-05 | **採点ティックが非冪等**: Z-score 算出が走行統計を書き換えるため、同一入力の再実行が同一結果にならない。**replay パリティ検証（S5）の前提を壊す** | **HIGH** | S1-PIPE の DP5 | ◎ 統計更新と採点の分離 **MUST**。**S5 の replay 設計に直接影響** |
+
+
+## G. Phase S 後半で判明した欠陥（S2 / S3 / S4 / S5 / services / frontend 由来）
+
+| ID | 欠陥 | 重大度 | 証拠 | 直るか |
+|----|------|--------|------|--------|
+| G-01 | **feedback 投稿に role ゲートが無い**（**実測確認済み**）: `POST /api/v2/conclusions/<id>/feedback` は `@jwt_required()` のみで `_require_analyst()` を呼ばない。同一ファイルの兄弟 endpoint は 3 箇所で `_require_analyst` / `_require_admin` を強制している。**feedback ラベルは較正系（analyst_feedback → recall メトリクス → 閾値 calibrator）の入力**であり、較正災害 3 件がすべてラベル汚染由来だった経緯からすると認可の穴は重い | **HIGH** | radar/routes/conclusions_v2.py:281-283（ゲート不在）vs :452,:487,:559（兄弟 endpoint はゲートあり） | ◎ + **現行系で即修正すべき**（1 行）。S2-PROP-021 が analyst 以上への引き上げを提案 |
+| G-02 | **利用者別 ATTENTION 閾値が評価に一切効かない**（**5 件目の沈黙失敗**）: 設定・一覧・削除 API は存在し永続化もされるが、読み取り元は「一覧を返す API」1 箇所のみ。ルール評価は常にハードコード閾値を読む。**API が 200 を返すため UI 上は健全に見える** | **HIGH** | S1-services S1-SVC-027 / DP4 | ◎ + 現行系でも修正候補 |
+| G-03 | **attention_score の実装がフロントエンドにしか存在しない**: バックエンドに同等実装・API・永続化が無く、**AP1 の順位付けがどの台帳にも残らない**。AP4「過去の自動化判断が事後検証できる」から AP1 だけが構造的に抜けている | **HIGH** | S1-services S1-SVC-030 / DP6 | ◎ **AP1/AP4 整合の設計要件**として P へ |
+| G-04 | **gps_jamming は単位不整合に加えて到達性でも壊れている**: `GPS_JAM_THRESHOLD` は config registry に登録済みなのに、センサーは `_os.getenv` を直読み（gps_jamming.py:182-183）→ **SETTINGS からの DB override が効かない**。F-08 は二重に壊れていた | **HIGH** | S5-VERIF-013、gps_jamming.py:182-183 | ◎ 設定到達性検査を S5 の常時監視へ |
+| G-05 | **30 日 replay パリティが現行データでは物理的に不可能**: `sensor_observation_ts` は TTL 24h で、信号レベルで 30 日を再生できる表がゼロ。30 日以上を持つのは `scenario_tl_observation`(42d) と `conclusions`(90d) だけで、どちらも post-scoring aggregate → ANOMALY・寄与内訳・source_urls は原理的に replay 不能 | **CRITICAL**（R3 パリティゲートの前提が崩れる） | S5-VERIF-018、§6-2 | ◎ **信号台帳 retention 60 日化がパリティゲート成立の前提条件**。P2 の最優先事項 |
+| G-06 | **並走装置が既に解体済**: `scripts/replay_*.py` は 1 本も存在せず、v1/v2 用 `replay_v1_v2_diff.py` は削除済、`conclusion_diff_log` は migration v54 で drop 済。`/api/v2/replay` にはテストが 1 件も無い | **HIGH** | S5 GAP-04 / GAP-01 | ◎ S5-VERIF-017〜031 は全て新規実装。**「既存の replay 機構を再利用できる」という当初の前提は誤りだった** |
+| G-07 | **auto_tune_governor の recall ゲートが恒久 open**: 存在しない関数を呼んでおり、例外は「不確実なら許可」にフォールバックする設計のため、**recall が RED でも提案が通る** | **CRITICAL** | S5-VERIF-039 | ◎ + **現行系で要検証・修正**。NP1 の防衛線 |
+| G-08 | **baseline 8 cell 中 5 件が構成上 recall=1.0 固定**: attack_mode 全 4 件 + `eastern_europe/threat_level` が `fn=0 ∧ tn=0` → recall が常に 1.0。**これは較正インシデント #1（blanket-TP）の退化シグネチャそのもの**が baseline に残存している。**2026-08-07 更正: 実ファイル検証で 4→5**（`middle_east/threat_level` は tn=1 で非該当）。帰結として CUT-07（非退化 cell ≥ 4）は現在 3 件で不合格 — S5 §4 A2 参照 | **HIGH** | S5-VERIF-037、recall_metrics.json 実測 | ◎ S5 の系譜監査で検出対象に（WP-1.4 実装済。**判定は件数でなく述語** `fn==0 ∧ tn==0`）|
+| G-09 | **What-If がフロントで TL 導出を再実装、しかもドメイン上限がバックエンドと異なる**: アナリストに誤った差分を示しうる。F-14（TL 導出式の 3 複製）の**4 つ目**で、値が違う唯一のもの | **HIGH** | S1-UI-055 / DP4 | ◎ |
+| G-10 | **描画スキップ署名が地図オーバーレイ・participants・相関マップを含まない**: タイムスタンプが動かない限りこれらの変化は描画されない。「データは更新されているが表示だけが死ぬ」型 | MEDIUM | S1-UI-012 / DP3 | ◎ |
+| G-11 | **移行 35 表のうち 17 表に retention が無い**（`threshold_history` / `scenario_proposals` / `auto_judge_decisions` 等）。成長が遅く顕在化していないだけで、`llm_prompts` を「唯一の無制限表」と誤認した 2026-07-03 監査と同型 | MEDIUM | S3-DATA-044 | ◎ |
+| G-12 | **CI ゲートの実効カバレッジが 9 分の 1**: 導入済み pre-commit は `check_ci.sh` ではなく `check_secrets.sh`（シークレット走査のみ）、`.github/workflows/` も不在。**4 ゲートは手動実行しない限り動かない** | **HIGH** | S4-NF-056 | ◎ v3 は CI 必須。**現行系でも即対処可** |
+| G-13 | **契約の分裂**: エラー body 4 系統 + 成功 body 3 系統、v2 envelope 4 形（**NP7 disclaimer が欠ける形が存在**）、認可強制 3 系統・403 文言 3 種、フラグと認可の評価順が endpoint 間で不統一（503 か 403 かが分かれる） | MEDIUM | S2 DEFECT-PRESERVE 15 件 | ◎ S2 の PROPOSAL で統一 |
+| G-14 | **role が実装上 3 値だが CLAUDE.md は 2 値と記述** | LOW | S1-services §7-4 | ◎ |
+
+| G-15 | **宣言的 config レジストリが実質的に装飾**（**実測確認済み・最大級の発見**）: 登録 98 キーのうち **96 キー（後日 S1-CONF-008 の全数列挙で 95 に更正 — 以降は S1-CONF-008 を正とする）が 3 層解決（DB override → env → default）を迂回**している。内訳は (a) config.py の import 時定数として凍結 71 キー、(b) 他モジュールでの `os.getenv` 直読み 58 キー（重複あり）。**実際に 3 層解決を通り得るのは 2 キーのみ**（`CHRONIC_INCONCLUSIVE_THRESHOLD_DAYS` / `LLM_OVERRIDE_WINDOW`）<br>**帰結**: アナリストが SETTINGS で閾値を変更すると、システムは override 行と `config_change_log` の監査行を書き、UI に新しい値を表示する。**そして誰もその値を読まない**。設定 UI・DB override 機構・監査ログの全体が、実行時に効果を持たない<br>**さらに**: `config_layered.py:12-13` は「CI が登録キーの `os.getenv` 直読みを禁止している」と明記するが、**そのゲートは実在しない**（scripts/ に該当なし）。registry 既定値と直読み既定値が 5 件不一致で、`PLUGIN_ENABLED` は `'*'`→`''` と**意味論が反転**<br>**原則への影響**: NP6（監査証跡が「効果の無かった変更」を記録している）、AP3（ツールが自分の状態を誤って報告する）、G-04 は例外ではなく**規範**だった | **CRITICAL** | radar/config.py（98 キー登録）、AST + 正規表現で全数計測（本セッション実測）、radar/config_layered.py:12-13（存在しない CI ゲートの宣言） | ◎ **P1 §12 の「直読み禁止を型で強制」が本欠陥への直接の回答**。現行系でも「どのキーが効くのか」の一覧公開が要る |
+| G-16 | **`/api/analytics/scenario_phases` が確実に 500 を返す**（**実測確認済み**）: `analytics.py:1122` が `_scenario_label` を呼ぶが、**この識別子はリポジトリ全体で当該呼び出し 1 箇所にしか存在せず、定義も import も無い**（AST で確認）。シナリオが 1 件でも存在すればループが回り `NameError` になる。呼び出し元が無いため発覚していなかった（D6 の UNREFERENCED 8 件と同じ死角） | **HIGH** | radar/routes/analytics.py:1122、リポジトリ全文 grep + AST 検証 | ◎ + **現行系で即修正可** |
+| G-17 | **SALUTE / 天候ブリーフが採点キャッシュ空でも 200 で「ROUTINE / CLEAR / NORMAL」を返す**: **全面的なデータ欠測と真に平穏な世界が区別できない**。NP5+8 の結論不可表明が構造的に不可能 | **HIGH** | S1-analytics-config 特記 2 | ◎ F-12（結論不可 3 種に生成経路が無い）と同根。L3 の設計要件 |
+| G-18 | **climate.py が結論に影響する閾値を 30 件以上ハードコードし、config registry に 1 件も載っていない**。Gauge のレベル境界 15/8/3 は**コード・コメント・設計文書のいずれにも導出根拠が無く**、Gauge と TL の関係も仕様レベルで未定義 | **HIGH** | S1-analytics-config §10-1/2（climate.py は完全無テスト） | ◎ NP6（導出開示）を満たさない領域。**オーナー裁定: climate を v3 に持ち込むか** |
+| G-19 | **v3 影配備の初回掃引が構造的に完了しない（v3 側の欠陥、実測）**: `is_due` は未実行アダプタに True を返す（正しい）ため、`fetch_schedule` が空の冷台帳では**全アダプタが同一ティックで due** になる。配備実機の geography（4 シナリオ / 27 参加国）に対する初回計画は**展開後 772 step・最大 935 リクエスト**で、実走 2 回はいずれも 25 分後もまだ HTTP ソケットの `ppoll` の中にいて採点段に到達せず、`tl_observation` は 0 行だった。**さらに掃引が終わらないので `record_fetch` が commit されず `fetch_schedule` が進まず、次ティックが同じ 772 を計画する**（欠陥 A の reduction 未実装と合わせて livelock）。本番にこの形は無い — センサーごとに独立スレッドとタイマーを持つので「全部同時に due」が存在しない<br>**原則への影響**: NP5+8。過渡的な結論不可は許容されるが、**初回結論に到達できない配備は過渡ではなく恒久**であり、設計失敗として扱う条項そのもの | **HIGH** | 影台帳実測（772 step / 935 request の計画、6 ティック連続失敗、`tl_observation` = 0）、`v3/fetch/schedule.py::is_due`、`v3/fetch/runner.py::run_due` | **RESOLVED（2026-08-09、WP-D）** — 1 ティックあたりの取得予算（`apply_budget`、純粋関数、`FETCH_BUDGET_REQUESTS = 120` step）で掃引を段階化。冷掃引は実測 7 ティックで完了する。単位はアダプタで**原子的**（半分だけ取得すると `reduce` が完全なものと見分けのつかない verdict を畳む = G-17 の製造）、順序は「最後に喋ってから最も長い順」（構成的に starvation-free）、抑制の生産者は免除。**部分掃引を静かにしない**のが対の要件で、`TickReport.sweep` / `InputHealth`（未観測の延期は `sources_failed`）/ `/healthz` の `sweep` モニタの 3 面に出す。§7-2 #139・#140 に登録 |
+
+## H. v3 実装中に現行系で発見された欠陥（Phase 2〜4 の移植作業由来）
+
+Phase D の診断ではなく、**v3 への移植中に本番コードを 1 行ずつ読んだ結果**見つかったもの。
+移植は現行系に対する最も精密な読解であり、診断より細かい欠陥がここで出る。
+
+| ID | 欠陥 | 深刻度 | 根拠 | v3 での扱い |
+|---|---|---|---|---|
+| H-01 | **`cf_adversary_strike` の方向確信度がプロセス再起動で変わる**: `core.py:1075` の `is_state_asn=bool(state_asn_hits)` は `for t in required_keys` ループの**外**で読まれており、`state_asn_hits` はループ内で毎周再代入される（`:751`）ため、**その周でたまたま最後に反復された対象国**のものになる。`required_keys` は `set`（`:630`）で、文字列ハッシュのランダム化により反復順は**プロセス起動ごとに変わる**。効果は無害でなく、`scoring.py:804-806` が `conf = 0.9 if has_state_asn else 0.7` を分岐するため、**公開される方向確信度が再起動をまたいで動く**<br>**原則への影響**: NP6（同じ入力が同じ結論を再現しない）。スコアには効かないがアナリスト向け公開値である | **MEDIUM** | radar/routes/core.py:630,751,803,1075、radar/scoring.py:804-806（全て実読） | v3 は `is_state_asn` を**移植しない**（§7-2 #125）。再現不能な量を移植しないのは正しいが、**現行系側は残る** |
+
+| H-02 | **`resolve_seq_fire_targets` が自身の docstring が禁じる帰属を dual-core で行う**: docstring は「センサーデータを一度も検査していない連鎖に偽の来歴イベントを登録する」ことを禁じているが、`if core_theater:` ガードは **dual-core（`core_country=null`）のときちょうど偽になる**ため、第 3 分岐が primary の読みを**全 core に対して**登録する。**2026-08-02 のクロスシナリオ帰属 failure と同じ形**であり、較正インシデント 3 件のうち最も新しいものの再演路である | **HIGH** | radar/routes/core.py（`resolve_seq_fire_targets` 実読） | v3 は再現しない（§7-2 #128）。**現行系側は残る** |
+
+| H-03 | **個別異常事象に 27 家系が構造的に現れない（NP4 違反の疑い）**: `derive_anomaly` は `state.contributions` を読む（`radar/conclusions/anomaly.py:187`）が、それは `compute_scenario_score` が組む `deduped`（`radar/scoring.py:1555`）であり、同関数 `:1452` が `GLOBAL_SIGNALS_DECOUPLED` 下で**国なし signal を落とす**。国が付くのは `FOCUSED_ONLY_SENSOR_NAMES` の 12 センサー名 + IODA per-country 注入 + `llm_intel` + `bg_observer` だけなので、**`gdelt` / `ct_log` / `threatfox` / `tor_metrics` / `ooni_censorship` / `ihr_*` / `gps_jamming` / `cf_bgp_hijack` 等 27 家系は、個別異常事象として一度も提示されない**<br>**原則への影響**: ツール定義は「個別異常事象」を 4 出力の 1 つに数え、NP4 は結論最大化を要求する。Phase 9（2026-05-13）の global 切り離しは**スコア**の定数フロア除去が目的だったが、`derive_anomaly` が同じ集合を読んでいるため**異常事象の提示範囲まで同時に狭まった**。意図された副作用かは不明 | **HIGH** | radar/conclusions/anomaly.py:187、radar/scoring.py:1452,1555（実読） | v3 は §7-2 #127 で本番に整列済（回帰テストで固定）。**「国なし signal は個別異常事象になれるべきか」は cutover 後に現行系ごと問い直す設計課題**であり、移植中に v3 側だけ変えない |
+
+### H-01 / H-04 の共通根 — 本番が文字列の `set` を反復している
+
+H-01 と H-04 は別の症状だが**原因は同一**であり、個別に直しても族としては残る。
+CPython は文字列ハッシュを**プロセスごとにランダム化**するため、`set[str]` の反復順は
+**再起動をまたいで変わる**。本番はこれを 2 か所で観測可能な値に漏らしている:
+
+- **H-01**: ループ変数の漏れ（`state_asn_hits`）→ 公開される方向確信度が 0.7↔0.9 で動く
+- **H-04**: `set` 上の float 総和（`calculate_overlap_idf`）→ 生の IDF 指数が bit 再現しない
+
+**NP6 は「同じ入力が同じ結論を再現する」ことを要求している。** 反復順に依存する量は、
+入力が同じでも答えが変わりうるという点でこれに抵触する。**族として 1 度に掃くべき**:
+`set` を反復して順序依存の結果（総和・最後の代入・先頭要素）を作っている箇所を全数走査し、
+`sorted()` を挟む。v3 は両方とも決定的（`sorted` 済）。
+
+| ID | 欠陥 | 深刻度 | 根拠 | v3 での扱い |
+|---|---|---|---|---|
+| H-04 | **生の IDF 指数が自分自身に対して再現しない**: `calculate_overlap_idf` が `set` 上で float を総和しており、float 加算は非結合なので**反復順が変われば下位桁が変わる**。丸め単位より下なので判定は動かない（12,000 件の掃引で不一致ゼロ）が、**NP6 が要求するのは「結論が同じ」ではなく「導出が再現する」こと**であり、公開される中間量が再起動で変わるのは開示の質を損なう | **LOW** | radar/scoring.py（`calculate_overlap_idf` 実読）、v3 側 12,000 件掃引 | v3 は `sorted` で決定的（§7-2 #133）。指数の照合は `abs=0.01`、判定は厳密一致 |
+
+| H-05 | **`ripe_bgp` の BGP 異常検知が本番で完全に死んでいる（5 件目の沈黙失敗、実データで確認）**: `radar/sensors/bgp_routing.py:51` は `latest.get("announced_prefixes", 0)` / `latest.get("seen_ases", 0)` を読むが、**RIPE の `country-routing-stats` はどちらのキーも返さない**（実測: 返るのは `v4_prefixes_ris` / `v6_prefixes_ris` / `asns_ris` / `*_stats` / `stats_date` / `timeline`）。したがって `pfx_now` は恒久的に 0、ベースラインも 0、`drop_ratio = 0`。**本番 DB 実測: `bgp_hod` の 5,398 行すべて（19 か国 × 全窓）が `prefix_count = 0.0`、min = max = 0**。Z は `(0−0)/max(0,1.0) = 0.0` となり、`core.py:1148` の**両分岐とも到達不能**<br>**失敗の形が最も重い**: `.get(key, 0)` が「フィールド不在」を「アナウンス済みプレフィックス 0 件」に翻訳している。後者は「その国の経路が全消失した」という最大級の異常だが、ベースラインも 0 なので**平穏として読まれる**。F-08（gps_jamming の単位不整合による恒久無発火）と同族で、**欠測が測定値になり、測定値どうしが一致して静かになる**<br>**修正には系列エポックが必須**: キーを直すと `bgp_hod` の意味が変わる。既存 5,398 行はすべて 0 なので、真の値が入った瞬間に平均が 0 付近から跳ね、**最初の正常な観測が最大級の偽陽性として発火する**。F-16（recall baseline に系列断絶の防護が無い）とまったく同じ形であり、v3 の `EpochStamp` が解こうとしている問題そのもの。**キー修正と系列リセットは同一の変更で行うこと** | **HIGH**（現行系で即修正すべき。ただし単独でキーだけ直すと偽陽性を撃つ） | radar/sensors/bgp_routing.py:51,119、RIPE API 実レスポンス（本セッションで実取得）、本番 DB `bgp_hod` 全行実測 | v3 は**同じ読みを転写している**（忠実移植の帰結）ため、パリティは保たれ差分は無い。**v3 側だけ直すと未登録差分になる**ので、修正は両系同時に、系列エポック付きで行う。§7-2 #135 に証跡として記録済<br><br>**RESOLVED（2026-08-09）— 両系同時に修理、系列エポックとバックフィルを同一変更で実施。§7-2 #136 に登録。**<br>**(1) 量は「選んだ」ものであり「引き継いだ」ものではない。** 量が一度も解決していない以上、忠実性の陰に隠れる余地が無い。採択: **プレフィックス数 = `v4_prefixes_ris + v6_prefixes_ris`、AS 数 = `asns_ris`**。理由は 2 つとも実測に基づく — (a) `_stats` 系は**レジストリ視点が使えないとき -1 をセンチネルとして返す**（実測: サンプルした全か国・全エントリで `v4_prefixes_stats: -1`）。センチネルを数値として読むのは H-05 の罠を 1 段上でやり直すことである。(b) v4 のみでは **v6 単独の経路撤回**を見逃す。NP1 はそれを許さない。**欠測は `None` → NO_DATA であり 0 ではない**（`.get(key, 0)` が「未回答」を「経路 0 件」に翻訳したことが H-05 そのもの）。実装: `radar/sensors/bgp_routing.py::prefix_count/as_count` と `v3/adapters/cyber/ripe_bgp.py::prefix_count/as_count`（両系が相互 import 不可のため 1 本ずつ保持。`tests/test_bgp_prefix_quantity.py` の 3 seed × 4,000 入力の差分掃引が同値を pin、変異 **7/7 撃墜**）<br>**(2) `starttime` も修理の一部である（当初の見立てに無かった実測）。** `starttime` 無しの既定問い合わせは 2004 年以降の全系列を `resolution: 1w` に**自動ダウンサンプルして返す**ので、`stats[-1]` は最大 6 日古い**週次**の値になる。それを毎時バケットに書くと同一値が約 168 バケット続き（標準偏差 0 → フロア 1.0）、週が動いた瞬間の段差を Z が**百シグマ級**として読む。すなわちキーだけ直すと H-05 が偽陽性生成器に化ける。4 日窓は `1h` で返る（一時点の実測、2026-08-09: 4/8/16/20/24/28 日はすべて `1h`、29 日で `1d` に落ちる）ので `STATS_WINDOW_DAYS = 4` を両系に置き、v3 側は `{since_iso}` として `v3/runtime/expansion.py` が供給する<br>**(3) trend も同じ理由で死んでいた。** `_compute_trend` は同じ死んだキーを読んでいたので勾配は恒久的に 0.0、ラベルは恒久的に STABLE。修理後は RIS 視点で回帰し、**RIS 視点を持たないエントリは 0 にせず落とす**（捏造した 0 が 1 個入るだけで勾配が WITHDRAWING に引きずられ、誰も観測していない障害を報告する）<br>**(4) 系列エポック = 破棄。バックフィル = `scripts/backfill_bgp_hod.py`。** 5,398 行はすべて 0.0、つまり「キーの不在」であって測定ではないので、破棄しても情報を失わない。バックフィルが触れる国について `prefix_count = 0.0` の行を削除し、RIPE の実履歴で置き換える。**当初の見立ての訂正**: D2 が書いた「最初の正常な観測が最大級の偽陽性として発火する」は**方向が逆**だった。0 を混ぜると平均が全実測値より下に引きずられるので、真の撤回は**大きな正の Z** になり drop_ratio も 0 にクランプされる — 発火するのではなく**沈黙する**。F-16 の系列断絶という形は同じだが、方向は insensitive であり、NP1 が最も嫌う側である（実測: `tests/test_bgp_prefix_quantity.py::test_surviving_zeros_silence_the_repaired_detector`）。**したがって「キー修正と系列リセットは同一の変更で」という D2 の結論は正しく、理由がより強い**<br>**(5) fixture が欠陥を隠していた。** `tests/fixtures/adapters/ripe_bgp/country_routing_stats.json` は `announced_prefixes` を中心に**手書きされた架空のスキーマ**だった。移植先が欠陥を再現しつつ自分のテストに通ったのはこれが理由である。実捕捉レスポンスに差し替えた（センチネル `-1` と `timeline` を含む）<br>**(6) 解像度ガードを両系に置いた。** RIPE が `1h` 以外で答えたとき、本番は `STALE_RESOLUTION` を返して**記録も採点もしない**（測定値は開示）、v3 は `announced_prefixes` フラグを落とす（`record_phase_samples` と L2 fold が同じ鍵で読むので書き込みと判定が同時に止まり、どちらの層にも分岐が増えない）。仮想的な上流変更への防御ではなく、**自分たちの `starttime` を失う退行**への防御である<br>**(7) 同型の欠陥をもう 1 つ掘り当てた（K02 × H-05）。** RIPE は**認識できない国コード**に HTTP 200 / `status: ok` / `resolution: 1h` で答え、全時間について `v4_prefixes_ris: 0` を返す（`resource=ZZ` で実測）。`--countries` の打ち間違い 1 つで、本作業が消しているのと同じ捏造ゼロ 672 行がその国に入る。`AllZeroSeries` で拒否する（条件は「**全標本がゼロ**」。KP は正当に 3〜4 を報告するので「ゼロを含まない」ではない）<br>**(8) 掃引が本番 × v3 の強制変換の食い違いを 1 件見つけた。** 数値**文字列**に対し本番は拒否・v3 は `as_float` で受理していた — 同じバイト列から 2 系が違う数を読む形。両系を揃えて解消（修正前の本番側に対し 12,000 入力中 2,266 件の不一致を検出） |
+
+| H-06 | **`parse_origins` の ISO2 総当たり走査が国を誤帰属しうる**: `radar/scoring.py:661-663` は Cloudflare の `top_0` 行から国を取る際、`origin1` → `location` → `clientCountryAlpha2` を順に試し、いずれも無ければ**「値が 2 文字の大文字英字である最初のフィールド」**を走査する。実際に `targetCountryAlpha2` が解決できているのはこの総当たりのおかげであり、**行に ISO2 らしき値が 2 つあれば勝者は辞書の反復順で決まる**<br>**発見の経緯が重い**: WP-2.6 の掃引中、**テストフィクスチャがこの誤帰属を「期待動作」として固定していた**。誤りが仕様として保存されていた形であり、F-13（閾値を import して相対検証するため値を変えてもテストが通る）と同族 — テストが欠陥を守る側に回っていた | **MEDIUM**（誤帰属の実害は攻撃元の国が入れ替わること。スコア幅は変わらないが、方向判定と分析官への提示が誤る） | radar/scoring.py:661-663（実読）、WP-2.6 掃引でフィクスチャの誤固定を発見・修正 | v3 は `targetCountryAlpha2` を走査より**前**に明示的に名指す（§8 裁定要求 8、オーナー承認済）。**現行系側は残る** |
+| H-07 | **Defer が構造的に機能しておらず、実質 Dismiss である**: snooze 復活は `state_changed_at` で判定して `pending` に戻すが **`emitted_at` を更新しない**。一方、自動 dismiss は `emitted_at` で判定する。既定（snooze 30 日 = stale 30 日）では、**Defer した提案は復活した次のティックで必ず却下される** — UI の語（「後で見る」）と挙動（「30 日後に必ず捨てる」）が一致していない<br>**方向**: insensitive（アナリストが保留したつもりの提案が消える）。ただし作用は保守側（提案が適用されずに落ちる）なので、誤った自動適用よりは安全側に倒れている | **HIGH** | S1-CALIB-054（DEFECT-PRESERVE かつ「現行系でも要修正」）、§7-2 #82、§8 裁定要求 11 | v3 は**移植して証明した** — `TestDeferIsStructurallyBroken` が、条項が「未検証」と記していた相互作用を初めて pin する（境界は等号なので復活の瞬間は生存し、次ティックで死ぬ）。港で黙って直すと本番との差分になり、黙って残すと欠陥が二重化するため。**retire 条件**: 本番修正の裁定が下りた時点で両系同時に修正 |
+
+**第 H 節はこれで完結**（H-01〜H-07）。**未起票はゼロ**。
+
+**訂正**: S4 が「バックアップ欠測を新規発見」と報告したが、これは**既知のインシデント**（04:00 cron の PATH に docker が無く 2026-07-04〜08-03 に沈黙欠測、その後修正済み）。実測でも 07-04 / 08-03 / **08-04 04:00** の 3 世代が存在し、cron は現在復旧している。ただし `KEEP=14` に対し 3 世代しか無い事実は残り、**欠測を検知する仕組みが無い**という指摘（S4-NF-053: 最新バックアップ経過時間の指標化 MUST）は有効。
+
+## 統計
+
+- 総数 89 件: CRITICAL 9 / HIGH 40 / MEDIUM 33 / LOW 11
+- **現行系でも即修正すべきもの**: **F-08 / F-06（検知が死んでいる）**、F-02、B-01、B-02、B-08、E-01、C-03 の一部
+- **現行系で要対処**: F-01（起動時の補償実行）、B-09（UI 参照消失の調査）
+
+### 診断が見つけた「沈黙した検知失敗」 — 本診断の最大の成果
+
+このツールの charter は「見逃しは誤検知より悪い」（NP1）と定め、過去 3 回の calibration
+インシデントはいずれも**全テスト通過のまま数週間 prod を劣化させた**。今回の診断は同種の
+沈黙 failure を **3 件**発見した（いずれも実ファイルを読んで確認済み）:
+
+| ID | 症状 | 期間 | なぜ気づけなかったか |
+|---|---|---|---|
+| **F-08** | gps_jamming が**恒久的に無発火**（単位不整合により全条件が成立不能） | 不明（実装当初から） | テスト 0 件。閾値は「チューナブル」として UI に露出しており、健全に見える |
+| **F-06** | telegram_mirror の burst 検知が約 7.5 時間窓に潰れ機能不全 | rss_narrative 修正（2026-04-29）以降ずっと | テスト無し。docstring が「rss_narrative と同じ」と偽って自己申告 |
+| **F-02** | force 取得で cloudflare / ioda が一度も取得されない | 不明 | force 経路が完全無テスト |
+| **F-09** | 非ラテン文字ソースが dedup / 収斂の双方に寄与できない | 不明 | 英語ソースでは正常動作するため症状が出ない |
+| **H-05** | ripe_bgp が**測っていた量そのものが存在しない**キー（`announced_prefixes`）で、Z・drop_ratio・trend の**全分岐が到達不能**。稼働 DB の `bgp_hod` 全 5,398 行が 0.0 | ベースラインの全期間（実装当初から） | fixture が `announced_prefixes` を中心に**手書きの架空スキーマ**として作られており、テストは「移植の忠実さ」だけを見て「RIPE が実際に何を返すか」を一度も見なかった。移植先（v3）も同じ fixture で緑だった。**2026-08-09 に両系同時修理 + 実履歴バックフィル（§7-2 #136）** |
+
+**共通構造**: (1) テストが無い経路にある、(2) UI 上は正常に見える、(3) センサーは
+「動いている」（fetch 成功・health OK）が**判定だけが死んでいる**。
+
+これは「recall を測っているのに recall が落ちていることに気づけない」構造そのものである。
+D2 D-01（ラベル生成器バグは構造では直らない）と同じ族であり、**v3 の S5（検証仕様）は
+「センサーが発火したことがあるか」「閾値と観測値の単位が整合しているか」を継続監視する
+仕組みを含む MUST**。Phase P のアーキテクチャ要件に昇格させる。
+- 「◎ 設計で構造的に解消」26 / 「○ 規律併用」2 / 「× 構造では直らない」3 / オーナー判断 1 /
+  現行系でも即修正推奨 4（B-01, B-02, B-08, C-03 の一部）+ 要調査 1（B-09）

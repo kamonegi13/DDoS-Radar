@@ -29,6 +29,21 @@ Three independent checks fold into one CLI gate:
 
 Wired into ``scripts/check_ci.sh``. Use ``--strict`` to also fail on
 undefined_refs (default: warn only).
+
+**Two scopes (WP-4.2).** The v1 surface (``i18n.js`` + the twelve legacy JS
+files) and the v3 surface (``v3/ui/strings.js`` + ``v3/ui/*.js`` +
+``v3/ui/index.html``) are audited independently, because P8 §8 prunes the
+1,556 v1 keys only once v3's screen inventory is fixed — until then the two
+tables carry different debts and one gate cannot hold both to one standard.
+The v3 scope is therefore **stricter**: undefined references AND unused keys
+are fatal there, since a greenfield dictionary that already contains a dead
+key contains a key that should never have been written.
+
+The v3 scope also resolves keys built by concatenation (``'ui.trust.state.'
++ state``). A prefix literal marks every key beneath it as reachable; a full
+literal that names no defined key is still an undefined reference. Without
+that, the pure modules' ``labelKey`` discipline — which is what keeps prose
+out of the logic — would read as hundreds of dead keys.
 """
 
 from __future__ import annotations
@@ -147,6 +162,13 @@ _CODE_ONLY_KEYS: frozenset[str] = frozenset({
     "panel.llm_intel.filter_apt",   # Advanced Persistent Threat
     "panel.tradecraft.tab.ach",     # Analysis of Competing Hypotheses
     "panel.usermgr.btn.pw",
+    # ── v3 (WP-4.2): AP3 component name and a JSON example ────────────
+    #   `null-zone` is the AP3 indicator's name, kept English with the
+    #   rest of the reliability vocabulary (recall / precision / drift)
+    #   per ja-localization.md §2. The placeholder is a literal request
+    #   body an analyst types verbatim.
+    "ui.trust.component.null_zone",
+    "ui.whatif.placeholder",
 })
 
 
@@ -254,6 +276,72 @@ def scan_js(path: Path) -> tuple[set[str], list[tuple[str, int]]]:
     return refs, opaque
 
 
+# ── v3 scope (WP-4.2) ─────────────────────────────────────────────────────
+_V3_DIR = _REPO_ROOT / "v3" / "ui"
+_V3_DICTIONARY = _V3_DIR / "strings.js"
+
+#: A key literal, or a prefix ending in a dot for a concatenated family.
+#:
+#: Three namespaces, not one. `ui.*` is the screen inventory; WP-4.3c adds
+#: `term.*` (P9 §4 — the one-sentence definition of each internal term) and
+#: `empty.*` (P9 §3.5 — the role / reason / fills-when triple every empty
+#: surface owes its reader). Both are named by P9 itself, and a namespace the
+#: scanner does not know would report every key in it as unused — which would
+#: read as "delete these" rather than "the audit cannot see them".
+_V3_KEY_LITERAL = re.compile(r"""['"]((?:ui|term|empty)\.[A-Za-z0-9_.]*)['"]""")
+
+
+def scan_v3_references() -> set[str]:
+    """Every key literal and key prefix the v3 surface mentions."""
+    refs: set[str] = set()
+    for path in sorted(_V3_DIR.glob("*.js")):
+        if path == _V3_DICTIONARY:
+            continue
+        for match in _V3_KEY_LITERAL.finditer(path.read_text(encoding="utf-8")):
+            refs.add(match.group(1))
+    for path in sorted(_V3_DIR.glob("*.html")):
+        refs |= scan_html(path)
+    return refs
+
+
+def build_v3_report() -> Report:
+    if not _V3_DICTIONARY.exists():
+        return Report(defined_keys=frozenset(), referenced_keys=frozenset(),
+                      html_lang_ja=True)
+    defined, untranslated = parse_strings(_V3_DICTIONARY)
+    referenced = scan_v3_references()
+
+    full_refs = {ref for ref in referenced if not ref.endswith(".")}
+    prefixes = {ref for ref in referenced if ref.endswith(".")}
+
+    # A defined key is reached either by its own literal or by a prefix that
+    # some module concatenates onto.
+    reached = {
+        key for key in defined
+        if key in full_refs or any(key.startswith(p) for p in prefixes)
+    }
+    # An undefined reference is a full literal naming nothing. Prefixes are
+    # never undefined references: a family with no members is caught by the
+    # unused-key half instead.
+    undefined = full_refs - defined
+
+    html_files = sorted(_V3_DIR.glob("*.html"))
+    lang_ok = all(bool(_HTML_LANG_JA.search(p.read_text(encoding="utf-8")))
+                  for p in html_files) if html_files else True
+    guide_en = sum(len(_GUIDE_LANG_EN.findall(p.read_text(encoding="utf-8")))
+                   for p in html_files)
+
+    return Report(
+        defined_keys=frozenset(defined),
+        # Report the reached set as "referenced" so the Report's own
+        # undefined/unused properties stay meaningful for the v3 scope.
+        referenced_keys=frozenset(reached | undefined),
+        untranslated=tuple(untranslated),
+        guide_en_count=guide_en,
+        html_lang_ja=lang_ok,
+    )
+
+
 def build_report() -> Report:
     defined, untranslated = parse_strings(_REPO_ROOT / "i18n.js")
     referenced: set[str] = set()
@@ -298,9 +386,12 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     report = build_report()
+    v3_report = build_v3_report()
 
     if args.json:
-        print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+        payload = report.to_dict()
+        payload["v3"] = v3_report.to_dict()
+        print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         print("i18n audit (Japanese-only UI per CLAUDE.md §1):")
         print(f"  defined keys:    {len(report.defined_keys)}")
@@ -319,6 +410,12 @@ def main(argv: list[str]) -> int:
               f"{'OK' if report.guide_en_count == 0 else 'FAIL (bilingual guide retired)'}")
         print(f"  <html lang=\"ja\">: {'OK' if report.html_lang_ja else 'FAIL'} "
               f"(WCAG 3.1.1)")
+        print()
+        print("v3 scope (v3/ui/strings.js — undefined AND unused are fatal):")
+        print(f"  defined keys:    {len(v3_report.defined_keys)}")
+        print(f"  undefined refs:  {len(v3_report.undefined_refs)}")
+        print(f"  unused keys:     {len(v3_report.unused_keys)}")
+        print(f"  untranslated:    {len(v3_report.untranslated)}")
 
         if report.undefined_refs:
             print("\nUndefined references (top 30):", file=sys.stderr)
@@ -359,6 +456,39 @@ def main(argv: list[str]) -> int:
               "selects the Japanese voice (WCAG 2.2 SC 3.1.1).",
               file=sys.stderr)
         return 1
+    # ── the v3 scope, held to the stricter standard ──────────────────────
+    if v3_report.defined_keys or v3_report.referenced_keys:
+        if not v3_report.translation_ok:
+            print(f"\nFAIL (v3): {len(v3_report.untranslated)} STRINGS values "
+                  f"contain no Japanese and are not recognized codes:",
+                  file=sys.stderr)
+            for k, v in v3_report.untranslated[:30]:
+                print(f"  - {k}: {v!r}", file=sys.stderr)
+            return 1
+        if not v3_report.html_lang_ja:
+            print('\nFAIL (v3): the v3 shell must declare <html lang="ja">.',
+                  file=sys.stderr)
+            return 1
+        if v3_report.guide_en_count:
+            print(f"\nFAIL (v3): {v3_report.guide_en_count} .guide-lang-en "
+                  f"block(s) in the v3 shell.", file=sys.stderr)
+            return 1
+        if v3_report.undefined_refs:
+            print(f"\nFAIL (v3): {len(v3_report.undefined_refs)} key(s) are "
+                  f"referenced but not defined — they would render as the key "
+                  f"string:", file=sys.stderr)
+            for key in sorted(v3_report.undefined_refs)[:30]:
+                print(f"  - {key}", file=sys.stderr)
+            return 1
+        if v3_report.unused_keys:
+            print(f"\nFAIL (v3): {len(v3_report.unused_keys)} key(s) are "
+                  f"defined and never used. P8 §8 ports the dictionary by "
+                  f"pruning it, so an unused key in a greenfield table is a "
+                  f"key that should not have been written:", file=sys.stderr)
+            for key in sorted(v3_report.unused_keys)[:30]:
+                print(f"  - {key}", file=sys.stderr)
+            return 1
+
     if args.strict and report.undefined_refs:
         return 1
     return 0

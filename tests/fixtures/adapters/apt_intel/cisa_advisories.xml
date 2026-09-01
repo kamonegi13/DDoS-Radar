@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"><channel>
+  <title>CISA Cybersecurity Advisories</title>
+  <link>https://www.cisa.gov/cybersecurity-advisories</link>
+  <item>
+    <title>State-Sponsored Actors Pre-Position on Critical Infrastructure Networks</title>
+    <link>https://www.cisa.gov/news-events/alerts/2026/08/06/aa26-218a</link>
+    <description>CISA and partners warn of pre-positioning activity against energy and water utilities.</description>
+    <pubDate>Wed, 06 Aug 2026 14:00:00 +0000</pubDate>
+    <guid>aa26-218a</guid>
+  </item>
+  <item>
+    <title>Webinar: how we blocked a supply chain attack</title>
+    <link>https://vendor.example/webinar</link>
+    <description>Register now.</description>
+    <pubDate>Wed, 06 Aug 2026 10:00:00 +0000</pubDate>
+  </item>
+  <item>
+    <title>ICS Advisory: Vendor Controller Improper Authentication</title>
+    <link>https://www.cisa.gov/news-events/ics-advisories/icsa-26-218-01</link>
+    <description>Download PDF of the advisory.</description>
+    <pubDate>Wed, 06 Aug 2026 09:00:00 +0000</pubDate>
+  </item>
+</channel></rss>

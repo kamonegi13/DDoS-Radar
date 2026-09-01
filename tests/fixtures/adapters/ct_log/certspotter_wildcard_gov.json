@@ -1,0 +1,13 @@
+[
+  {
+    "id": "22222222",
+    "dns_names": [
+      "*.gov.tw",
+      "gov.tw"
+    ],
+    "not_before": "2026-08-06T00:00:00Z",
+    "issuer": {
+      "name": "C=US, O=DigiCert Inc, CN=DigiCert TLS RSA CA G1"
+    }
+  }
+]

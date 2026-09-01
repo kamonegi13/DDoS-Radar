@@ -1,0 +1,277 @@
+"""P7 R7 / R8 — how far to trust this tool right now, and per sensor.
+
+AP3 in one number with its breakdown. Eight legacy surfaces
+(`calibration/health`, `chronic_inconclusive`, `adaptive_zscore_status`,
+`data_status`, `llm_preflight`, `intel/stats`, `llm_call_stats`,
+`calibration/tier_governor`) said parts of this in seven shapes, none of
+which composed, so "should I believe the tool today" required visiting
+all of them and doing the arithmetic by eye.
+
+Two properties are load-bearing:
+
+* **each metric fails independently and none raises** (S1-CONC-038). A
+  self-evaluation that 500s tells the analyst nothing, and "nothing" is
+  read as "fine".
+* **an unmeasurable metric is `None` with a reason, never `0.0`.** Zero
+  drift reads as "no anomaly"; it is the opposite of "we cannot tell",
+  and a self-referential metric that had gone identically zero reported
+  no anomaly across 360,000 conclusions.
+
+`ops_health` is the fifth block and it is ALWAYS served (WP-4.1g). Three
+of its five monitors are answerable by v3 today (whether the tick loop is
+producing, backup age from a marker beside the ledger, capacity from the
+ledger file against the retention target); two are not, because v3 has no
+L5 verification layer and no LLM health roll-up. All five appear with
+their verdicts, so the composite is reserved for a NAMED reason rather
+than for an absent field.
+
+`tick_loop` joined that list after the shadow container reported HEALTHY
+for its whole run with every tick failing. It is served from here AND from
+`/healthz` — one measurement, two surfaces, which is the point: a health
+probe with its own private notion of liveness is a second answer to the
+question this block exists to answer.
+
+Recall reads REAL cells since WP-0.4 v2: the S9 runner accumulates the
+label ledger daily, and this handler publishes the interval — the point
+estimate beside the pending-adjusted lower bound (ADR-V3-012). The
+aggregation path is L4's (`v3.calibration.status.self_evaluate`), not
+a second one written here — S1-CONC-038 requires the chip and the CI gate
+to be the same arithmetic, which is only checkable if there is one.
+"""
+from __future__ import annotations
+
+from v3.api.envelope import ApiResponse, tool_response
+from v3.calibration import audit as AUDIT
+from v3.calibration import human as HUMAN
+from v3.calibration import labels as L
+from v3.calibration import llm_reader as LLM
+from v3.calibration import recall as R
+from v3.calibration import status as S
+from v3.calibration.epoch import CURRENT_EPOCH, EpochStamp
+from v3.calibration.thresholds import CALIBRATION_WINDOW_SEC
+from v3.commands import calibration as C
+from v3.kernel.errors import DomainError
+from v3.ledger import views
+from v3.runtime import ops_health as OPS
+
+DAY_SEC = 86400.0
+CHRONIC_THRESHOLD_SEC = 7 * DAY_SEC
+#: How far back the sensor roll-up looks for "did this adapter report".
+SENSOR_LOOKBACK_SEC = 2 * DAY_SEC
+
+
+def _stamp(now: float) -> EpochStamp:
+    """The declared window. F-16 is literally a null in this position."""
+    since = max(float(CURRENT_EPOCH.started_at),
+                now - CALIBRATION_WINDOW_SEC)
+    return EpochStamp(epoch_id=CURRENT_EPOCH.epoch_id, since=since,
+                      until=now, exclude_auto=False)
+
+
+def _null_zone_block(context) -> dict:
+    per_scenario = []
+    chronic_any = False
+    for ref in context.scenarios:
+        chronic = views.chronic_null_zone(
+            context.ledger, ref.scenario_id,
+            threshold_sec=CHRONIC_THRESHOLD_SEC, now=context.now)
+        span = views.observed_span(context.ledger, ref.scenario_id,
+                                   now=context.now)
+        chronic_any = chronic_any or chronic["is_chronic"]
+        per_scenario.append({"scenario_id": ref.scenario_id,
+                             **chronic, "observed": span})
+    return {"any_chronic": chronic_any, "scenarios": per_scenario,
+            "threshold_sec": CHRONIC_THRESHOLD_SEC}
+
+
+def _freshness_block(context) -> dict:
+    oldest = context.ledger.oldest_observed_at("signal_observation")
+    horizon = context.ledger.max_freshness_horizon()
+    recent = context.ledger.signals_between(
+        context.now - SENSOR_LOOKBACK_SEC, context.now)
+    latest = max((float(row["observed_at"]) for row in recent), default=None)
+    return {
+        "signal_count": context.ledger.count_signals(),
+        "tl_count": context.ledger.count_tl(),
+        "conclusion_count": context.ledger.count_conclusions(),
+        "oldest_observation_at": oldest,
+        "latest_observation_at": latest,
+        "data_age_sec": None if latest is None else context.now - latest,
+        "max_freshness_horizon_sec": horizon,
+    }
+
+
+def _sensor_rollup(context) -> list[dict]:
+    """One shape for sensor health (P7 R8 replaces four legacy shapes)."""
+    rows = context.ledger.signals_between(
+        context.now - SENSOR_LOOKBACK_SEC, context.now)
+    grouped: dict = {}
+    for row in rows:
+        entry = grouped.setdefault(row["sensor"], {
+            "sensor": row["sensor"], "domain": row.get("domain"),
+            "observation_count": 0, "fired_count": 0,
+            "suppressed_count": 0, "countries": set(),
+            "last_observed_at": None})
+        entry["observation_count"] += 1
+        if row.get("status") == "FIRED":
+            entry["fired_count"] += 1
+        if row.get("suppressed"):
+            entry["suppressed_count"] += 1
+        entry["countries"].add(row.get("country"))
+        stamp = float(row["observed_at"])
+        if entry["last_observed_at"] is None or \
+                stamp > entry["last_observed_at"]:
+            entry["last_observed_at"] = stamp
+    summary = []
+    for adapter_id in sorted(set(context.adapters) | set(grouped)):
+        entry = grouped.get(adapter_id)
+        if entry is None:
+            # Declared but silent. NOT omitted: an adapter missing from
+            # the roll-up is indistinguishable from a healthy one, and
+            # that indistinguishability is G-17.
+            summary.append({"sensor": adapter_id, "domain": None,
+                            "observation_count": 0, "fired_count": 0,
+                            "suppressed_count": 0, "countries": [],
+                            "last_observed_at": None,
+                            "silent_for_sec": None, "declared": True})
+            continue
+        summary.append({**entry,
+                        "countries": sorted(c for c in entry["countries"]
+                                            if c),
+                        "silent_for_sec": (context.now
+                                           - entry["last_observed_at"]),
+                        "declared": adapter_id in context.adapters})
+    return summary
+
+
+def _ops_health_block(context) -> dict:
+    """The operational axis (P8 §4's fifth fold input).
+
+    Always present. WP-4.2's trust chip read amber because R7 had no such
+    field at all, which meant the page could not distinguish "nothing is
+    watching the backups" from "the server has not been taught to say".
+    Now it says: an unprobed deployment gets every monitor, each carrying
+    the reason it cannot answer, and the fold is still reserved — because
+    green monitors beside unanswerable ones is not a green deployment
+    (G-17).
+    """
+    return OPS.supplied_or_absent(getattr(context, "ops_health", None),
+                                  now=context.now)
+
+
+def _tier2_block(context) -> dict:
+    """AP3 for the second reader (0.4d): how well it agrees, and whether
+    it is allowed to act on that yet.
+
+    Published even while `effect_enabled` is false — especially then. The
+    rung's whole justification is a measured agreement rate, and a rate
+    that lives only in a developer's notebook is not one an analyst can
+    weigh when deciding how far to trust the tool.
+    """
+    verdicts = []
+    for row in context.ledger.llm_verdicts():
+        try:
+            verdicts.append(LLM.Tier2Verdict(
+                draft_id=str(row["draft_id"]), verdict=str(row["verdict"]),
+                reason=str(row["reason"] or ""),
+                model_id=str(row["model_id"]),
+                prompt_ref=str(row["prompt_ref"]),
+                response_text=str(row["response_text"] or ""),
+                effective=bool(row["effective"])))
+        except DomainError:      # pragma: no cover - defensive
+            continue
+    states = {draft_id: C.state_name(C.draft_state(context.ledger, draft_id,
+                                                   until=context.now))
+              for draft_id in {v.draft_id for v in verdicts}}
+    report = LLM.agreement(verdicts, states)
+    report["verdicts_recorded"] = len(verdicts)
+    report["models"] = sorted({v.model_id for v in verdicts})
+    report["note"] = (
+        "Tier 2（ローカル LLM 第二読者）の判定は記録のみで、現在ラベルを"
+        "解放しません（effect_enabled=false）。権限を与える条件は、人間の"
+        "裁定との一致率が実測されることです。判定は agree_confirm と "
+        "route_to_human の 2 つのみで、棄却権はありません（見逃しの取り"
+        "こぼしは recall を水増しする危険側のため）。")
+    return report
+
+
+def _calibration_block(context) -> dict:
+    """WP-0.4 v2 (0.4f): the recall interval, on real cells.
+
+    Two series, per C-12 and ADR-V3-012: the all-labels series (Tier 1
+    auto-confirms included — the one C-15's valid cells are counted on)
+    and the human-only series beside it. Each cell carries `recall` AND
+    `recall_lower_bound` = tp/(tp+fn+pending): Tier 3 is asynchronous,
+    and an unadjudicated FN queue must widen the published interval
+    rather than silently flatter the point estimate.
+    """
+    stamp_all = _stamp(context.now)
+    stamp_human = EpochStamp(
+        epoch_id=stamp_all.epoch_id, since=stamp_all.since,
+        until=stamp_all.until, exclude_auto=True)
+    cells_all = L.cells_for(context.ledger, stamp=stamp_all)
+    cells_human = L.cells_for(context.ledger, stamp=stamp_human)
+    pending = HUMAN.pending_draft_counts(
+        context.ledger, now=context.now, epoch_id=stamp_all.epoch_id)
+    interval = []
+    for cell in cells_all:
+        waiting = pending.get((cell.scenario_id, cell.conclusion_type), 0)
+        interval.append({
+            "scenario_id": cell.scenario_id,
+            "conclusion_type": cell.conclusion_type,
+            "recall": R.recall(tp=cell.tp, fn=cell.fn),
+            "recall_lower_bound": R.recall_lower_bound(
+                tp=cell.tp, fn=cell.fn, pending=waiting),
+            "pending_fn_drafts": waiting,
+            "tp": cell.tp, "fn": cell.fn,
+        })
+    audit_state = AUDIT.state_for(context.ledger, stamp=stamp_all,
+                                  until=context.now)
+    return {
+        "tier2": _tier2_block(context),
+        # 0.4e: ADR-V3-012 makes counting C-15's valid cells on the
+        # all-labels series conditional on this being live. A frozen
+        # series is disclosed here rather than only in the runner's log,
+        # because the consumer that must not count it reads THIS.
+        "audit": audit_state.as_dict(),
+        "calibration": S.self_evaluate(cells_all,
+                                       stamp=stamp_all).as_dict(),
+        "calibration_human_only": S.self_evaluate(
+            cells_human, stamp=stamp_human).as_dict(),
+        "recall_interval": interval,
+        "pending_fn_drafts_total": sum(pending.values()),
+        "s9_last_run_at": context.ledger.latest_s9_run_at(),
+        "calibration_note": (
+            "recall は区間で公表します: recall = 確定分 tp/(tp+fn)、"
+            "recall_lower_bound = 未裁定 FN 草稿が全て真の場合の "
+            "tp/(tp+fn+pending)。attack_mode は recall 測定の対象外です"
+            "（ADR-V3-012 — FN の一次ソースが攻撃様態の ground truth を"
+            "与えないため。未測定であり、良好の意味ではありません）。"),
+    }
+
+
+def read_self_eval(context) -> ApiResponse:
+    """R7 — the composite reliability read (O-11)."""
+    return tool_response(
+        observed_at=context.now,
+        self_eval={
+            **_calibration_block(context),
+            "null_zone": _null_zone_block(context),
+            "data": _freshness_block(context),
+            "ops_health": _ops_health_block(context),
+            "sensors": {"count": len(_sensor_rollup(context))},
+            "epoch": {"epoch_id": CURRENT_EPOCH.epoch_id,
+                      "window_sec": CALIBRATION_WINDOW_SEC},
+        })
+
+
+def read_sensors(context) -> ApiResponse:
+    """R8 — sensor health, the single shape."""
+    rollup = _sensor_rollup(context)
+    return tool_response(observed_at=context.now, sensors=rollup,
+                         sensor_count=len(rollup),
+                         lookback_sec=SENSOR_LOOKBACK_SEC,
+                         declared_adapters=list(context.adapters))
+
+
+__all__ = ["read_self_eval", "read_sensors"]

@@ -1,0 +1,21 @@
+{
+  "success": true,
+  "errors": [],
+  "result": {
+    "trafficAnomalies": [
+      {
+        "asnDetails": null,
+        "endDate": null,
+        "locationDetails": {
+          "code": "PH",
+          "name": "Philippines"
+        },
+        "locationAlpha2": "PH",
+        "startDate": "2026-08-07T06:00:00Z",
+        "type": "LOCATION",
+        "uuid": "abc-123",
+        "visibleInDataConsumer": true
+      }
+    ]
+  }
+}

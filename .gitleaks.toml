@@ -24,4 +24,13 @@ regexes = [
     '''REPLACE_ME''',
     '''XXXX+''',
     '''<[a-z_-]+>''',
+    # Constant NAMES exported from the password module. generic-api-key
+    # matches the identifier PBKDF2_ITERATIONS inside __all__; the value it
+    # names is an iteration count (100_000), pinned by a mutation test.
+    # Allowlisting the name, not a value: no literal is exempted here.
+    '''PBKDF2_ITERATIONS''',
+    # Env-var NAMES held in constants (X_KEY = "NOROSHI_V3_..."). The rule
+    # fires on the identifier; a value assigned to one of these would still
+    # be caught on its own, so only the name shape is exempted.
+    '''NOROSHI_V3_[A-Z0-9_]+''',
 ]

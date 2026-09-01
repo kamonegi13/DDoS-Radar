@@ -63,7 +63,19 @@ class SensorRegistry:
     def config_list(self) -> list:
         with self._lock:
             snapshot = list(self._sensors.values())
-        return [s.to_config_dict() for s in snapshot]
+        # WP-1.1: resolve detection_health for the whole registry in ONE
+        # query. Letting each to_config_dict() self-query would issue a
+        # SELECT per sensor on every /api/sensor_config request.
+        try:
+            from radar.verification.firing_monitor import detection_health_bulk
+            health = detection_health_bulk([s.name for s in snapshot])
+        except Exception as exc:
+            import logging
+            logging.getLogger("radar").warning(
+                "detection_health_bulk unavailable: %s", exc)
+            health = {}
+        return [s.to_config_dict(detection_health=health.get(s.name))
+                for s in snapshot]
 
 class WeightedConvergenceEngine:
     @property

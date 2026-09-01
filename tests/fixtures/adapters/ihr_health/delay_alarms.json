@@ -1,0 +1,26 @@
+{
+  "count": 3,
+  "results": [
+    {
+      "link": "AS3462-AS2914",
+      "startpoint_name": "TW, Taipei",
+      "endpoint_name": "JP, Tokyo",
+      "deviation": 6.4,
+      "timebin": "2026-08-07T08:00:00Z"
+    },
+    {
+      "link": "AS4780-AS1299",
+      "startpoint_name": "",
+      "endpoint_name": "TW, Kaohsiung",
+      "deviation": 3.9,
+      "timebin": "2026-08-07T08:05:00Z"
+    },
+    {
+      "link": "AS9299-AS6939",
+      "startpoint_name": "PH, Manila",
+      "endpoint_name": "HK, Hong Kong",
+      "deviation": 2.2,
+      "timebin": "2026-08-07T08:10:00Z"
+    }
+  ]
+}

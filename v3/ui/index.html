@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noroshi v3</title>
+<!--
+  Leaflet, the same build and SRI pins v1 uses (index.html:7-8 there).
+  P9 §1.3 D-13: the situation map is a REAL map. The library is optional
+  by construction — board_map_view.js falls back to the tile grid when
+  `window.L` never appears (offline deployment, blocked CDN), so these two
+  tags failing costs a nicer map, not a blank pane (S1-UI-008).
+-->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="v3.css">
+</head>
+<body>
+
+<!--
+  The document is the analyst's primary loop (P8 §1) split into THREE VIEWS
+  (P9 §2 R-B). WP-4.2 stacked all five loop stages under one <main>, which
+  is diagnosis D-1: a ten-second situation board with seven audit tables
+  permanently below it does not tell anyone what to look at. The Tier
+  content and its supplying APIs are exactly P8 §2's — only the moment a
+  surface is on screen has changed.
+
+    #/                  状況     stage 1 状況確認 + stage 2 トリアージ
+    #/scenario/<id>     シナリオ面  stage 3 ドリルダウン + stage 4 フィードバック
+    #/verify            検証     stage 5, Tier 2 in full
+
+  The stage sections keep their ids and their question lines: they are
+  re-housed, not rewritten.
+
+  Everything ABOVE <main> is global and no route can take it off the
+  screen — the NP7 bar (S1-UI-024a), the disclaimer breach, the replay
+  badge, the critical banner (S1-UI-030/032), the toast rail, the focus
+  mask and the login gate.
+
+  There are no floating panels. P8 §7 retires the panel accumulation, and a
+  surface whose shape is the loop does not need a panel manager.
+-->
+
+<!--
+  NP7, first element of the document and never conditional (S1-UI-024a).
+  The text is static and local: an envelope that fails to arrive must not be
+  able to take the disclaimer with it.
+-->
+<header id="np7-bar" role="note">
+  <span data-i18n="ui.np7.banner"></span>
+</header>
+
+<p id="disclaimer-breach" class="breach" role="alert" hidden
+   data-i18n="ui.np7.breach"></p>
+
+<p id="replay-badge" class="replay-badge" role="status" hidden></p>
+
+<!--
+  The critical banner (S1-UI-030/031). An explicit critical marker from the
+  server puts it here, above everything, and no acknowledgement, snooze or
+  dismissal can take it down (S1-UI-032) — a TL1 escalation has no mute.
+-->
+<p id="critical-banner" class="critical-banner" role="alert" hidden></p>
+
+<div id="toast-rail" class="toast-rail" aria-live="polite"></div>
+
+<!--
+  The focus-change mask (S1-UI-048/049). It covers the geographic face while
+  the conclusions leg is in flight, and if that leg overruns it KEEPS the
+  mask and says so rather than lifting to reveal the previous scenario's
+  numbers under the new scenario's name. Any key releases it.
+-->
+<div id="dim-overlay" class="dim-overlay" role="status" hidden>
+  <p id="dim-message"></p>
+  <button type="button" id="dim-retry" data-dim-retry data-i18n="ui.dim.retry" hidden></button>
+</div>
+
+<!--
+  The login gate (S1-UI-001..005, §7-2 #99).
+
+  It sits ABOVE <main> in the document and <main> carries `hidden` until the
+  session opens, so an unauthenticated analyst sees the gate rather than a
+  dashboard whose panels answer 401 one at a time. The NP7 banner stays
+  visible behind it: the disclaimer is never conditional (S1-UI-024a), and
+  a gate that hid it would be the one screen where the sentence is absent.
+-->
+<div id="auth-gate" class="auth-gate" role="dialog" aria-modal="true"
+     aria-labelledby="auth-gate-title" hidden>
+  <form id="auth-form" class="auth-card">
+    <h1 id="auth-gate-title" data-i18n="ui.auth.title"></h1>
+    <p class="auth-lede" data-i18n="ui.auth.lede"></p>
+    <p id="auth-reason" class="auth-reason" role="status"></p>
+    <label class="auth-field" for="auth-user">
+      <span data-i18n="ui.auth.user"></span>
+      <input id="auth-user" type="text" autocomplete="username"
+             autocapitalize="off" spellcheck="false" aria-label="利用者 ID">
+    </label>
+    <label class="auth-field" for="auth-password">
+      <span data-i18n="ui.auth.password"></span>
+      <input id="auth-password" type="password"
+             autocomplete="current-password" aria-label="パスワード">
+    </label>
+    <button type="submit" id="auth-submit" data-i18n="ui.auth.submit"></button>
+    <p id="auth-detail" class="auth-detail" role="alert" hidden></p>
+  </form>
+</div>
+
+<main id="app-main" hidden>
+
+  <!--
+    The sidebar navigation (P9 §1.4 D-16 / §1.5 D-20 — kuebiko's AppShell
+    shape, now carrying the decomposed question set). The scenario face is
+    deliberately absent from it — a view ABOUT something is entered
+    through the thing it is about, from a card or a lane row. The signed-in
+    identity sits at the sidebar's foot, where kuebiko keeps its own, so
+    the content column above starts at the viewport's top edge.
+  -->
+  <nav id="view-nav" class="view-nav" aria-label="ビュー切替">
+    <span class="nav-brand" aria-hidden="true">Noroshi</span>
+    <span class="nav-group" data-i18n="ui.nav.group.overview"></span>
+    <a id="nav-situation" class="nav-item" href="#/" data-i18n="ui.nav.situation"></a>
+    <span class="nav-group" data-i18n="ui.nav.group.verify"></span>
+    <a id="nav-verify" class="nav-item" href="#/verify" data-i18n="ui.nav.verify"></a>
+    <a id="nav-reliability" class="nav-item" href="#/reliability" data-i18n="ui.nav.reliability"></a>
+    <a id="nav-decisions" class="nav-item" href="#/decisions" data-i18n="ui.nav.decisions"></a>
+    <span class="nav-group" data-i18n="ui.nav.group.ops"></span>
+    <a id="nav-settings" class="nav-item" href="#/settings" data-i18n="ui.nav.settings"></a>
+    <p id="auth-bar" class="auth-bar" hidden>
+      <span id="auth-identity"></span>
+      <button type="button" id="auth-signout" data-i18n="ui.auth.signout"></button>
+    </p>
+  </nav>
+
+  <div class="view-stack">
+
+  <!-- ══ 状況ビュー (#/) — 地図が主面、その他は薄いレール (P9 §1.4 D-15) ══ -->
+  <div id="view-situation" class="view">
+
+    <!--
+      No stage numbers and no question lines anywhere below (P9 §1.2
+      D-8/D-9, ruling R-D). The `stage-N` ids stay — they are wiring
+      (`surfaces.js` writes `data-mode` on #stage-2, `app.js` scrolls to
+      #stage-5), not display.
+    -->
+    <section id="stage-1" class="stage situation-screen"
+             aria-labelledby="stage-1-title">
+      <!--
+        One slim strip: the section label, the situation sentence (P9 R-A,
+        server-composed board_summary — the browser must not assemble it,
+        G-09), and the status tools. Everything the old stacked header and
+        summary block said, at a quarter of the height (D-18).
+      -->
+      <div class="situation-top">
+        <h2 id="stage-1-title"><span data-i18n="ui.stage.situation"></span></h2>
+        <p id="board-summary" class="board-summary"></p>
+        <div class="stage-tools">
+          <span id="board-freshness" class="freshness-slot"></span>
+          <span id="trust-slot"></span>
+          <span id="live-slot"></span>
+          <button type="button" id="refresh-btn" data-i18n="ui.action.refresh"></button>
+        </div>
+      </div>
+
+      <div class="situation-body">
+        <!--
+          The map is the canvas (D-15, v1's own composition). Drawn from R1
+          rows alone; no event dots (events are R2's, focused-only).
+          `aria-hidden`, because every fact on it — country, scenario,
+          role, TL — is carried in text by the cards' participant strips.
+        -->
+        <div class="board-map-block">
+          <div id="board-map" class="board-map" aria-hidden="true"></div>
+          <!--
+            The observation legend (P8 §9 / NP9): one quiet line naming
+            what the numbers are and — load-bearing — that "no number"
+            means unobserved, not calm (G-17).
+          -->
+          <p class="board-map-legend" data-i18n="ui.board_map.legend"></p>
+          <!--
+            WP-4.9c: which declared sensors are silent, on the same
+            surface as the counts they are absent from (NP9 (b)).
+          -->
+          <p id="board-map-coverage" class="board-map-legend"></p>
+          <!--
+            G-17 under the real map: a country whose centroid the display
+            asset does not know is named here, never silently absent.
+          -->
+          <p id="board-map-note" class="hint" hidden></p>
+        </div>
+
+        <!--
+          The rail: cards, then the attention lane, then the collapsed
+          onboarding card. It scrolls internally; the page does not.
+        -->
+        <aside class="situation-rail">
+          <div id="board-cards" class="cards"></div>
+
+          <section id="stage-2" class="stage" aria-labelledby="stage-2-title">
+            <div class="stage-head">
+              <h2 id="stage-2-title"><span data-i18n="ui.stage.triage"></span></h2>
+              <div class="stage-tools">
+                <span id="lane-freshness" class="freshness-slot"></span>
+                <span id="mode-slot"></span>
+                <button type="button" id="lane-more"></button>
+              </div>
+            </div>
+            <p id="lane-summary" class="lane-summary"></p>
+            <p id="lane-suppressed" class="lane-suppressed"></p>
+            <ol id="lane-rows" class="lane"></ol>
+          </section>
+
+          <!--
+            The onboarding card (P9 §3.6, amended by §1.4 D-17): CLOSED by
+            default — it is first-sight explanation, not situation. The
+            open/closed state is still not stored (未着地の機能).
+          -->
+          <section id="onboarding-card" class="onboarding"
+                   aria-labelledby="onboarding-title">
+            <div class="onboarding-head">
+              <h2 id="onboarding-title" data-i18n="ui.onboarding.title"></h2>
+              <button type="button" id="onboarding-toggle"
+                      aria-controls="onboarding-body"></button>
+            </div>
+            <div id="onboarding-body">
+              <!--
+                Deliberately an unordered list: parallel entries into the
+                same screen, not steps (P9 §1.2 D-9).
+              -->
+              <ul class="onboarding-list">
+                <li data-i18n="ui.onboarding.q1"></li>
+                <li data-i18n="ui.onboarding.q2"></li>
+                <li data-i18n="ui.onboarding.q3"></li>
+                <li data-i18n="ui.onboarding.q4"></li>
+                <li data-i18n="ui.onboarding.q5"></li>
+              </ul>
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      <!--
+        The detail drawer (P9 §1.11 R-J — kuebiko's ArticlePeek shape):
+        ONE transient slide-over holding the full representation of the
+        index row that was chosen. Not the floating panels P8 §7 retired —
+        single, undraggable, undockable, closed by ✕ / Esc /
+        navigation / any click outside it.
+      -->
+      <aside id="detail-drawer" class="drawer" hidden
+             aria-labelledby="drawer-title">
+        <div class="drawer-head">
+          <h3 id="drawer-title"></h3>
+          <button type="button" id="drawer-close" data-drawer-close
+                  data-i18n="ui.drawer.close"></button>
+        </div>
+        <div id="drawer-body" class="drawer-body"></div>
+      </aside>
+    </section>
+  </div>
+
+  <!-- ══ シナリオ面 (#/scenario/<id>) — 3 ドリルダウン + 4 フィードバック ══ -->
+  <div id="view-scenario" class="view" hidden>
+    <p class="view-back">
+      <a href="#/" data-i18n="ui.nav.back_to_situation"></a>
+    </p>
+    <!--
+      Which scenario the face below belongs to. R2 is fetched for the
+      FOCUSED scenario only, so choosing a background card can ask for a
+      face the server has not served — and this line says so instead of
+      drawing one scenario's numbers under another's name (S1-UI-048).
+    -->
+    <p id="scenario-view-head" class="scenario-head"></p>
+
+    <section id="stage-3" class="stage" aria-labelledby="stage-3-title">
+      <div class="stage-head">
+        <h2 id="stage-3-title"><span data-i18n="ui.stage.drilldown"></span></h2>
+        <div class="stage-tools">
+          <span id="face-freshness" class="freshness-slot"></span>
+          <!--
+            The replay scrubber (WP-4.9b, R-H): v1's slider back. Dragging
+            walks the conclusions face through time via R2's `?at=` — the
+            order and speed of a change as an experience, not a delta
+            number. The datetime field stays as the precision entry; the
+            slider is the interaction. The right edge is LIVE, and only
+            the arithmetic module knows how positions become instants.
+          -->
+          <label class="replay-control replay-slider-control">
+            <span data-i18n="ui.replay.slider_label"></span>
+            <input type="range" id="replay-slider" step="1">
+            <span id="replay-slider-at" class="replay-slider-at"></span>
+            <button type="button" id="replay-live" data-i18n="ui.replay.live"></button>
+          </label>
+          <label class="replay-control">
+            <span data-i18n="ui.replay.label"></span>
+            <input type="datetime-local" id="replay-at">
+          </label>
+        </div>
+      </div>
+      <p id="face-unreadable" class="warn"></p>
+      <div id="face-sections" class="face"></div>
+
+      <!--
+        The geographic face (P8 §6). Tier 1, four layers, and no cartographic
+        projection: nothing on the wire carries a coordinate, so the surface
+        is drawn at the granularity the server actually serves — the country —
+        and the layer that would need pixels says what it is waiting for
+        rather than looking switched off.
+      -->
+      <h3 data-i18n="ui.geo.title"></h3>
+      <div class="geo-tools">
+        <span id="geo-freshness" class="freshness-slot"></span>
+        <ul id="geo-layers" class="geo-layers"></ul>
+      </div>
+      <p id="geo-summary" class="geo-summary"></p>
+      <div id="geo-empty"></div>
+
+      <!--
+        The country-tile map (P9 §3.4). The primary visual: participants laid
+        out in region blocks on a CSS grid, with a role ring and one dot per
+        domain that produced an event. There are still no coordinates on the
+        wire and none in the browser — the placement table in `geo_tiles.js`
+        is a frontend design asset, which §3.4 says is enough.
+
+        `aria-hidden`, because the list below carries exactly the same facts
+        in the order `geo.js` sorted them. A screen reader should hear them
+        once; a sighted reader should see where they are.
+      -->
+      <h4 data-i18n="ui.geo.tilemap.title"></h4>
+      <p class="lead" data-i18n="ui.geo.tilemap.lead"></p>
+      <div id="geo-tilemap" class="geo-tilemap" aria-hidden="true"></div>
+
+      <h4 data-i18n="ui.geo.tilemap.list_head"></h4>
+      <ul id="geo-markers" class="geo-markers"></ul>
+      <h4 id="geo-offroster-head" data-i18n="ui.geo.offroster" hidden></h4>
+      <ul id="geo-offroster" class="geo-markers"></ul>
+    </section>
+
+    <section id="stage-4" class="stage" aria-labelledby="stage-4-title">
+      <div class="stage-head">
+        <h2 id="stage-4-title"><span data-i18n="ui.stage.feedback"></span></h2>
+      </div>
+      <div id="feedback-slot" class="feedback-slot"></div>
+
+      <h3 data-i18n="ui.proposals.title"></h3>
+      <p class="lead" data-i18n="ui.proposals.lead"></p>
+      <ul id="proposal-rows" class="proposals"></ul>
+    </section>
+  </div>
+
+  <!-- ══ 検証系ビュー群 (P9 §1.5 D-20) ═══════════════════════════════════
+       R-B「1 ビュー = 1 問い」を Tier 2 自身に適用し切る: 7 枚の監査
+       テーブルを 1 ページに縦積みした検証ビューは、R-B が自分にだけ
+       適用されていなかった姿だった。内容と供給 API は P8 §2 のまま —
+       変わるのは問いの間の壁だけ。 -->
+
+  <!-- ── #/verify — なぜその結論なのか(導出)と、もしも(What-If) ── -->
+  <div id="view-verify" class="view" hidden>
+
+    <section id="stage-5" class="stage" aria-labelledby="stage-5-title">
+      <div class="stage-head">
+        <h2 id="stage-5-title"><span data-i18n="ui.stage.verify"></span></h2>
+      </div>
+
+      <h3 data-i18n="ui.derivation.title"></h3>
+      <p class="lead" data-i18n="ui.derivation.lead"></p>
+      <div id="derivation-body" class="derivation"></div>
+
+      <h3 data-i18n="ui.whatif.title"></h3>
+      <p class="lead" data-i18n="ui.whatif.lead"></p>
+      <p class="hint" data-i18n="ui.whatif.hint"></p>
+      <textarea id="whatif-overlay" rows="4"
+                data-i18n-ph="ui.whatif.placeholder"></textarea>
+      <button type="button" id="whatif-run" data-i18n="ui.whatif.run"></button>
+      <table class="grid">
+        <thead><tr>
+          <th data-i18n="ui.whatif.col.scenario"></th>
+          <th data-i18n="ui.whatif.col.baseline"></th>
+          <th data-i18n="ui.whatif.col.counterfactual"></th>
+          <th data-i18n="ui.whatif.col.severity_delta"></th>
+          <th data-i18n="ui.whatif.col.score_delta"></th>
+        </tr></thead>
+        <tbody id="whatif-body"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <!-- ── #/reliability — この系は生きているか(自己評価・センサー) ── -->
+  <div id="view-reliability" class="view" hidden>
+    <section class="stage">
+      <h3 data-i18n="ui.selfeval.title"></h3>
+      <p class="lead" data-i18n="ui.selfeval.lead"></p>
+      <table class="grid">
+        <thead><tr>
+          <th data-i18n="ui.selfeval.col.component"></th>
+          <th data-i18n="ui.selfeval.col.state"></th>
+          <th data-i18n="ui.selfeval.col.value"></th>
+          <th data-i18n="ui.selfeval.col.boundary"></th>
+          <th data-i18n="ui.selfeval.col.source"></th>
+          <th data-i18n="ui.selfeval.col.detail"></th>
+        </tr></thead>
+        <tbody id="selfeval-components"></tbody>
+      </table>
+
+      <h3 data-i18n="ui.sensors.title"></h3>
+      <p class="lead" data-i18n="ui.sensors.lead"></p>
+      <table class="grid">
+        <thead><tr>
+          <th data-i18n="ui.sensors.col.sensor"></th>
+          <th data-i18n="ui.sensors.col.domain"></th>
+          <th data-i18n="ui.sensors.col.observations"></th>
+          <th data-i18n="ui.sensors.col.fired"></th>
+          <th data-i18n="ui.sensors.col.suppressed"></th>
+          <th data-i18n="ui.sensors.col.silent"></th>
+        </tr></thead>
+        <tbody id="sensor-rows"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <!-- ── #/decisions — 過去の判断は妥当だったか(判断台帳・正解ラベル) ── -->
+  <div id="view-decisions" class="view" hidden>
+    <section class="stage">
+      <h3 data-i18n="ui.decisions.title"></h3>
+      <p class="lead" data-i18n="ui.decisions.lead"></p>
+      <!--
+        Sentences, not cells (WP-4.8d(2), D-23b): who did what to what,
+        assembled once by the renderer instead of six times by the reader.
+      -->
+      <ol id="decision-rows" class="decisions"></ol>
+
+      <h3 data-i18n="ui.settings.gt_title"></h3>
+      <p class="lead" data-i18n="ui.settings.gt_lead"></p>
+      <table class="grid">
+        <thead><tr>
+          <th data-i18n="ui.settings.gt.scenario"></th>
+          <th data-i18n="ui.settings.gt.observed_at"></th>
+          <th data-i18n="ui.settings.gt.label"></th>
+          <th data-i18n="ui.settings.gt.actor"></th>
+          <th data-i18n="ui.settings.gt.source"></th>
+        </tr></thead>
+        <tbody id="groundtruth-rows"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <!-- ── #/settings — 設定値と未着地の機能 ── -->
+  <div id="view-settings" class="view" hidden>
+    <section class="stage">
+      <!--
+        SETTINGS (S1-UI-067〜070). The list is short on purpose and says so:
+        only the keys that pass the registry's three-stage test appear, which
+        is nine today. G-15 was ninety-eight keys of which ninety-five were
+        read by nothing, so a fuller-looking form here would be the defect
+        re-created rather than the defect fixed.
+      -->
+      <h3 data-i18n="ui.settings.title"></h3>
+      <p class="lead" data-i18n="ui.settings.lead"></p>
+      <p class="hint" data-i18n="ui.settings.lede"></p>
+      <div class="stage-tools">
+        <span id="settings-freshness" class="freshness-slot"></span>
+      </div>
+      <p id="settings-summary" class="settings-summary"></p>
+      <table class="grid">
+        <thead><tr>
+          <th data-i18n="ui.settings.col.key"></th>
+          <th data-i18n="ui.settings.col.badges"></th>
+          <th data-i18n="ui.settings.col.value"></th>
+          <th data-i18n="ui.settings.col.default"></th>
+          <th data-i18n="ui.settings.col.override"></th>
+          <th data-i18n="ui.settings.col.actions"></th>
+        </tr></thead>
+        <tbody id="settings-rows"></tbody>
+      </table>
+
+      <!--
+        未着地の機能 (P9 §3.3). Every surface this deployment does not have,
+        counted in ONE place at the end of the operational catalogue. WP-4.2
+        scattered the same fragments through the operational views, where
+        "not built yet" was indistinguishable from "nothing to report" and
+        the screen looked half-broken (D-6).
+
+        The reason cell is filled by `app.js` from `client.js`'s DEFERRED
+        registry — the same registry the scattered fragments used, so the
+        list cannot drift from the client's own idea of what is unserved.
+        `tests/test_v3_ui_discipline.py` requires every declared entry to
+        have a row here, and requires every row to be inside this view.
+      -->
+      <h3 data-i18n="ui.deferred.title"></h3>
+      <p class="lead" data-i18n="ui.deferred.lead"></p>
+      <table class="grid">
+        <thead><tr>
+          <th data-i18n="ui.deferred.col.id"></th>
+          <th data-i18n="ui.deferred.col.reason"></th>
+          <th data-i18n="ui.deferred.col.landing"></th>
+        </tr></thead>
+        <tbody>
+          <tr><td><code>R11</code></td>
+              <td data-deferred="R11"></td>
+              <td data-i18n="ui.deferred.landing.unplanned"></td></tr>
+          <tr><td><code>C3</code></td>
+              <td data-deferred="C3"></td>
+              <td data-i18n="ui.deferred.landing.unplanned"></td></tr>
+          <tr><td><code>C8</code></td>
+              <td data-deferred="C8"></td>
+              <td data-i18n="ui.deferred.landing.unplanned"></td></tr>
+          <tr><td><code>C10</code></td>
+              <td data-deferred="C10"></td>
+              <td data-i18n="ui.deferred.landing.unplanned"></td></tr>
+          <tr><td><code>C11</code></td>
+              <td data-deferred="C11"></td>
+              <td data-i18n="ui.deferred.landing.unplanned"></td></tr>
+          <tr><td><code>C12</code></td>
+              <td data-deferred="C12"></td>
+              <td data-i18n="ui.deferred.landing.unplanned"></td></tr>
+          <!--
+            Not an API: the onboarding card's open/closed state has nowhere
+            server-side to live (P9 §3.6 asks for one). Registered here
+            rather than half-persisted in localStorage, which S1-UI-035
+            forbids for exactly the reason that a decision living in one
+            browser is a decision the organisation cannot see.
+          -->
+          <tr><td><code>P9-3.6</code></td>
+              <td data-i18n="ui.deferred.onboarding_persistence"></td>
+              <td data-i18n="ui.deferred.landing.unplanned"></td></tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  </div><!-- /.view-stack -->
+
+</main>
+
+<script src="strings.js"></script>
+<script src="format.js"></script>
+<script src="terms.js"></script>
+<script src="geo_tiles.js"></script>
+<script src="board_map.js"></script>
+<script src="map_coords.js"></script>
+<script src="board_map_view.js"></script>
+<script src="replay.js"></script>
+<script src="freshness.js"></script>
+<script src="trust.js"></script>
+<script src="board.js"></script>
+<script src="lane.js"></script>
+<script src="conclusions.js"></script>
+<script src="auth.js"></script>
+<script src="gate.js"></script>
+<script src="client.js"></script>
+<script src="render.js"></script>
+<script src="geo.js"></script>
+<script src="settings.js"></script>
+<script src="display_mode.js"></script>
+<script src="dim.js"></script>
+<script src="live.js"></script>
+<script src="views.js"></script>
+<script src="surfaces.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

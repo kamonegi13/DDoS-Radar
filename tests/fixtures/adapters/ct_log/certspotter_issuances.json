@@ -1,0 +1,29 @@
+[
+  {
+    "id": "12345678",
+    "tbs_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "cert_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "dns_names": [
+      "mofa.gov.tw",
+      "www.mofa.gov.tw"
+    ],
+    "pubkey_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "not_before": "2026-08-01T00:00:00Z",
+    "not_after": "2026-10-30T00:00:00Z",
+    "issuer": {
+      "name": "C=US, O=Let's Encrypt, CN=R3",
+      "pubkey_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "revoked": false
+  },
+  {
+    "id": "12345679",
+    "dns_names": [
+      "mail.mofa.gov.tw"
+    ],
+    "not_before": "2026-08-02T00:00:00Z",
+    "issuer": {
+      "name": "C=CN, O=Some Internal Authority, CN=Internal CA"
+    }
+  }
+]

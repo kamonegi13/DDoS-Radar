@@ -1,0 +1,28 @@
+{
+  "success": true,
+  "errors": [],
+  "result": {
+    "meta": {
+      "dateRange": [
+        {
+          "startTime": "2026-08-06T00:00:00Z",
+          "endTime": "2026-08-07T00:00:00Z"
+        }
+      ]
+    },
+    "top_0": [
+      {
+        "targetCountryAlpha2": "TW",
+        "targetCountryName": "Taiwan",
+        "rank": 1,
+        "value": "34.5"
+      },
+      {
+        "targetCountryAlpha2": "JP",
+        "targetCountryName": "Japan",
+        "rank": 2,
+        "value": "12.1"
+      }
+    ]
+  }
+}
